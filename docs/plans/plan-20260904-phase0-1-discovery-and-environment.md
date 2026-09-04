@@ -92,7 +92,7 @@ configuration.
 
 ## Steps
 
-- [ ] 1. Initialise Git and commit the current tree
+- [x] 1. Initialise Git and commit the current tree
   - Files: `.gitignore`, `.gitattributes` (`* text=auto`), initial commit.
   - Depends on: none.
   - Verify: `git status --porcelain` empty after commit; `git log --oneline | wc -l` = 1.
@@ -253,3 +253,7 @@ configuration.
 - 2026-09-04: plan drafted; awaiting approval. No steps executed.
 - 2026-09-05: approved by user; licence GPL-3.0 (`GPL-3.0-or-later`); `openssh-server`
   installed (`ssh.socket` active); dev-header package names verified in the archive.
+- 2026-09-05 (Executor session): Step 1 done. Branch renamed `master`→`main`. Initial
+  commit `ea68a96` ("Initial commit: documentation, plans, and generated workflow
+  scaffolding", 60 files: docs, plans, `.github/`, `.vscode/`, `.workflow_configurator/`).
+  Verified: `git log --oneline` = 1 line; `git status --porcelain` = 0 lines.
