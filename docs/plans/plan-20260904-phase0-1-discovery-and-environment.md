@@ -97,7 +97,7 @@ configuration.
   - Depends on: none.
   - Verify: `git status --porcelain` empty after commit; `git log --oneline | wc -l` = 1.
 
-- [ ] 2. Create the Rust workspace skeleton
+- [x] 2. Create the Rust workspace skeleton
   - Files: `Cargo.toml` (workspace members `crates/*`, `[workspace.package]` license
     `GPL-3.0-or-later` (user decision 2026-09-05), `[workspace.lints]` with
     `unsafe_code = "forbid"` for `blackroom-core`), `LICENSE` (GPL-3.0 text),
@@ -112,7 +112,7 @@ configuration.
     --workspace --all-targets -- -D warnings && cargo test --workspace`; `cargo install
     --locked cargo-deny cargo-audit` then `cargo deny check && cargo audit` pass.
 
-- [ ] 3. Create documentation directories and the safety procedure
+- [x] 3. Create documentation directories and the safety procedure
   - Files: `docs/gnome/README.md`, `docs/security/README.md`, `docs/experiments/README.md`
     (evidence layout `evidence/expNN/<date>/{report.md,*.json,*.xml}`), `docs/protocol/
     README.md`, `docs/ops/README.md`, `docs/ops/experiment-safety.md` (assessment §8:
@@ -121,7 +121,7 @@ configuration.
   - Depends on: step 1.
   - Verify: files exist; links resolve (`grep -o '](\S*)' | check`); commit.
 
-- [ ] 4. Run the project doctor and update the handoff for Phase 0
+- [x] 4. Run the project doctor and update the handoff for Phase 0
   - Files: `docs/HANDOFF.md` (Active plan = this file; stopping point; checks run).
   - Depends on: steps 1–3.
   - Verify: `python3 .github/skills/project-doctor/scripts/doctor.py` reports no missing
@@ -257,3 +257,90 @@ configuration.
   commit `ea68a96` ("Initial commit: documentation, plans, and generated workflow
   scaffolding", 60 files: docs, plans, `.github/`, `.vscode/`, `.workflow_configurator/`).
   Verified: `git log --oneline` = 1 line; `git status --porcelain` = 0 lines.
+- 2026-09-05 (Executor session): Step 2 done. Workspace root `Cargo.toml` (resolver "3",
+  edition 2024, license `GPL-3.0-or-later`, `rust-version 1.96`, `[workspace.lints.rust]
+  unsafe_code="forbid"`); `rust-toolchain.toml` (channel stable + rustfmt/clippy);
+  `LICENSE` (verbatim GPL-3.0 text, cross-checked against two independent mirrors);
+  `crates/blackroom-core` (empty lib, `#![forbid(unsafe_code)]`, opts into workspace
+  lints); `crates/blackroom-experiments` (shared `evidence` module: `ExperimentReport`/
+  `ExperimentResult` Doc10 §47 writer, `redact()`, ISO-8601 UTC via `time`, plus `cli`
+  module with shared `--no-redact` flag); `deny.toml` (advisories deny, licenses allow
+  MIT/Apache-2.0/BSD-2/BSD-3/ISC/Zlib/MPL-2.0/GPL-3.0-or-later/LGPL-2.1-or-later/
+  Unicode-3.0, wildcards deny). Dependencies added via `cargo add` against the live
+  registry (real resolved versions, not guessed): anyhow 1.0.104, clap 4.6.6 (derive),
+  serde 1.0.229 (derive), serde_json 1.0.151, time 0.3.55 (formatting/macros/parsing),
+  tracing 0.1.44, tracing-subscriber 0.3.23 (env-filter), zbus 5.19.0 (default features,
+  no tokio). Installed `cargo-deny` 0.18.x and `cargo-audit` 0.22.2 via
+  `cargo install --locked`.
+  Verified (all green): `cargo check --workspace --all-targets`; `cargo fmt --check`;
+  `cargo clippy --workspace --all-targets -- -D warnings`; `cargo test --workspace`
+  (0 tests, ok — Phase 2 adds real tests); `cargo deny check`
+  (advisories ok, bans ok, licenses ok, sources ok); `cargo audit` (125 crate deps
+  scanned against 1239 advisories, 0 findings, exit 0). Commits `50e4b4e`, `cb421f0`.
+- 2026-09-05 (Executor session): Step 3 done. Added `docs/{gnome,security,experiments,
+  protocol,ops}/README.md` and `docs/ops/experiment-safety.md` (out-of-band SSH
+  prerequisite incl. current PENDING status, watchdog default N=45s, VT-fallback scope
+  limit, snapshot rule, `gnome-remote-desktop` mask/unmask commands, explicit note that
+  Phase 0–1 needs none of this because Exp 0–2 are read-only). No markdown links used in
+  the new files (nothing to resolve). Commit `c14f3f7`.
+- 2026-09-05 (Executor session): Step 4 done. `python3
+  .github/skills/project-doctor/scripts/doctor.py` → `OK: 0 error(s), 0 warning(s)`.
+  Phase 0 checkpoint: re-ran the full `AGENTS.md` battery
+  (`cargo test --workspace`, `cargo fmt --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo check --workspace --all-targets`, `cargo deny check`, `cargo audit`) — all green,
+  see Phase 0 report below. `docs/HANDOFF.md` updated (this session).
+
+### Phase 0 report (Document 00 §68 format)
+
+```text
+Phase: 0 — Repository Discovery / Bootstrap
+Status: Complete
+
+Implemented:
+- Git repository initialised (branch `main`), `.gitignore`/`.gitattributes`, initial
+  commit of the pre-existing docs/plans/workflow scaffolding.
+- Rust workspace: `blackroom-core` (empty lib, forbid-unsafe) and `blackroom-experiments`
+  (shared evidence/report/redaction helpers for Phase 1), edition 2024, licence
+  GPL-3.0-or-later, `rust-toolchain.toml` pinned to stable.
+- `deny.toml` (advisories/licenses/bans/sources policy) and `LICENSE` (verbatim GPL-3.0).
+- `docs/{gnome,security,experiments,protocol,ops}/README.md` and
+  `docs/ops/experiment-safety.md`.
+
+Verified:
+- `git log --oneline` / `git status --porcelain` match acceptance criteria.
+- `cargo check/fmt/clippy(-D warnings)/test --workspace` all green (0 tests by design).
+- `cargo deny check`: advisories ok, bans ok, licenses ok, sources ok.
+- `cargo audit`: 125 crate dependencies scanned against 1239 RustSec advisories, 0
+  findings.
+- `python3 .github/skills/project-doctor/scripts/doctor.py`: 0 errors, 0 warnings.
+
+Partially Verified: (none)
+Unverified: (none)
+Failed: (none)
+Blocked: (none) — step 5 (Phase 1) is a separate, explicitly-tracked blocker below.
+
+Tests:
+- passed: 0
+- failed: 0
+- skipped: 0
+- environment-dependent: 0
+(No test code exists yet by design; Phase 2 adds state-machine tests against the mock
+GnomeBackend.)
+
+Security Impact: None yet — no I/O or privileged code exists. `forbid(unsafe_code)` is
+enforced on `blackroom-core` via workspace lints; `deny.toml` blocks unlicensed/rejected
+licences and known-vulnerable/yanked advisories workspace-wide.
+Compatibility Impact: None.
+Performance Impact: None.
+
+Known Risks:
+- `cargo deny check` reports informational "license was not encountered" warnings for
+  BSD-2-Clause/BSD-3-Clause/ISC/Zlib/MPL-2.0 (allow-listed per assessment §6.1 for crates
+  not yet added, e.g. future GNOME/PipeWire bindings). Not a failure.
+
+Next Recommended Phase: Phase 1 steps 5–11 (environment/GNOME research). Step 5 needs
+user action (see Blockers) but does not block steps 6–10, which use only pure-Rust
+crates (zbus/serde/clap/tracing/anyhow/time).
+```
+

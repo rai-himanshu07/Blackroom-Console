@@ -1,40 +1,40 @@
 # Handoff: Blackroom Console
 
-**Updated:** 2026-09-05
-**Workspace or branch:** not a Git repository yet (git init is Phase 0 step 1)
+**Updated:** 2026-09-05 (Executor session, overnight)
+**Workspace or branch:** Git repo, branch `main`, 4 commits
 **Active plan:** docs/plans/plan-20260904-phase0-1-discovery-and-environment.md
 **Task tier:** 3
-**Memory:** mempalace_status OK; wing `blackroom_console` has 4 drawers + diary + 7 KG facts
+**Memory:** wing `blackroom_console` has 15 drawers + diary + KG facts; this session's
+checkpoint pending (written at session end)
 
 ## Current State
 
-- Assessment of Documents 00–21: `docs/plans/assessment-20260904-detailed-project-plan.md` (digests in `docs/plans/assessment/digests/`).
-- Roadmap (Phases 0–20, five stages, gates): `docs/plans/plan-20260904-blackroom-console-master-roadmap.md`.
-- Phase 0–1 plan drafted and set active; no code written; no system changes; `AGENTS.md`/`WORKFLOW_CONFIG.md` commands switched to Rust (user-approved).
+- **Phase 0 complete** (steps 1–4): git init, Rust workspace (`blackroom-core`,
+  `blackroom-experiments`), docs dirs, `experiment-safety.md`, doctor OK, §68 report
+  in plan's Execution Log.
+- **Phase 1 in progress**: step 5 (user apt install + SSH key test) pending; doesn't
+  block steps 6–10. Continuing now.
 
 ## Checks
 
-- Not applicable yet (no code). Project doctor: OK after this update.
+- `cargo check/fmt/clippy -D warnings/test --workspace`, `cargo deny check`, `cargo
+  audit`: all green at the Phase 0 checkpoint (see plan Execution Log).
 
 ## Exact Stopping Point
 
-- Both plans **approved 2026-09-05**. Nothing executed yet. Next: Phase 0 step 1 (`git init`) of the active plan.
+- Mid Phase-1: see plan checklist for the next unchecked step.
 
 ## Decisions
 
-- Rust daemons/CLI/tests, TypeScript browser, no Python; package `blackroom-console`, CLI `blackroom`, spec component names.
-- Licence GPL-3.0 (`GPL-3.0-or-later`). AMD `UNKNOWN` for v1. Vocabularies/schemas/numbers: assessment §5–§6.
+- Rust daemons/CLI/tests, TS browser, no Python; `blackroom-console`/`blackroom`.
+  Licence `GPL-3.0-or-later`. AMD `UNKNOWN` v1. Vocab/numbers: assessment §5–§6.
 
 ## Blockers
 
-- Phase 1 step 5: user runs the dev-header `apt install` (command in the plan) and verifies key-based SSH from tablet/phone (`openssh-server` already installed).
-
-## Pending Memory Operations
-
-- None (checkpoint written at end of the 2026-09-04 session; verify with `/memory-health`).
+- Step 5: user runs the dev-header `apt install` (in the plan) + verifies key-based
+  SSH from tablet/phone (`ssh.socket` active, `authorized_keys` empty). No sudo by agent.
 
 ## Next Actions
 
-1. Executor runs Phase 0 steps 1–4 of the active plan, then Phase 1 steps 5–11 (step 5 waits on the user).
-2. Append the Doc 00 §68 phase reports to the plan's Execution Log; keep this handoff ≤ 40 lines.
-3. `/plan-task` for Phase 2 (state machine core) after the Phase 1 report and independent review.
+1. Finish Phase 1 steps 6–11 (plan checklist).
+2. `/plan-task` for Phase 2 after the Phase 1 report + independent review.
