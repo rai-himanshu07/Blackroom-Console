@@ -142,7 +142,7 @@ configuration.
     turned off in `/etc/ssh/sshd_config.d/` once the key works — record the choice in
     `docs/ops/experiment-safety.md`).
 
-- [ ] 6. Experiment 0 — environment discovery (read-only)
+- [x] 6. Experiment 0 — environment discovery (read-only)
   - Files: `crates/blackroom-experiments/src/bin/exp00_environment.rs`; evidence
     `docs/experiments/evidence/exp00/<date>/`.
   - Depends on: step 2.
@@ -343,4 +343,35 @@ Next Recommended Phase: Phase 1 steps 5–11 (environment/GNOME research). Step 
 user action (see Blockers) but does not block steps 6–10, which use only pure-Rust
 crates (zbus/serde/clap/tracing/anyhow/time).
 ```
+- 2026-09-05 (Executor session): Step 5 not executed by design (requires user `sudo` +
+  a second-device SSH check). Documented in `docs/ops/experiment-safety.md` §1 and
+  `docs/HANDOFF.md`; the exact command is recorded in this step's Verify block above.
+  Confirmed steps 6–10 have no dependency on it (Phase 1 crate set is pure-Rust: zbus,
+  serde, serde_json, clap, tracing, tracing-subscriber, anyhow, time — no libei/pipewire/
+  gstreamer/pam bindings needed until later phases). Continuing to step 6.
+- 2026-09-05 (Executor session): Step 6 done.
+  `crates/blackroom-experiments/src/bin/exp00_environment.rs` collects: `/etc/os-release`;
+  `uname -r`; `gnome-shell --version`; dpkg-query versions of mutter (special-cased to the
+  installed `libmutter-18-0` ABI package — plain `mutter` does not exist on Ubuntu),
+  gnome-shell, gnome-remote-desktop, pipewire, wireplumber, libei1, libeis1,
+  xdg-desktop-portal-gnome, systemd; GPU list from `/sys/class/drm` (driver via
+  `device/driver` symlink, PCI ID/slot via `device/uevent`) cross-referenced with
+  `lspci -nn`; loaded GPU kernel modules from `/proc/modules`; `XDG_SESSION_TYPE`;
+  `gnome-remote-desktop.service` state via `systemctl --user is-active` (any-exit-status
+  variant, since `is-active` exits non-zero for `inactive`); connected outputs from
+  `/sys/class/drm/*/status`; input devices from `/proc/bus/input/devices` (Name + Bus
+  only, no serials/phys/sysfs paths). Writes `report.md` (Doc 10 §47 format) +
+  `environment.json` to `docs/experiments/evidence/exp00/<UTC date>/`.
+  Verified: `cargo check/clippy -D warnings/fmt --check` green (one `collapsible_if`
+  fixed). Ran twice consecutively — `diff` of both `report.md` (excluding the `Date:`
+  line) and both `environment.json` files were **identical**; `git status --porcelain`
+  showed only `docs/experiments/evidence/` as new before/after both runs (no other file
+  touched). `grep -ril` for the real username and hostname across the evidence directory
+  found neither (redaction had nothing to redact for this experiment; the shared
+  `redact()` helper is exercised for real in Experiment 1). Host facts confirmed live:
+  Ubuntu 26.04.1 LTS, kernel 7.0.0-30-generic, GNOME Shell 50.1, Mutter 50.1-0ubuntu2.2,
+  gnome-remote-desktop 50.2-0ubuntu0.1 (inactive), card0=nvidia/HDMI-A-1 connected,
+  card1=i915/eDP-1 connected+DP-1/DP-2 disconnected, 23 input devices,
+  `XDG_SESSION_TYPE=wayland`. Result: **PASS**. Commits `03a75e3` (binary),
+  `7e3b4ba` (evidence).
 
