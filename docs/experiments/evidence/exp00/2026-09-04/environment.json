@@ -1,0 +1,196 @@
+{
+  "os_release": {
+    "BUG_REPORT_URL": "https://bugs.launchpad.net/ubuntu/",
+    "HOME_URL": "https://www.ubuntu.com/",
+    "ID": "ubuntu",
+    "ID_LIKE": "debian",
+    "LOGO": "ubuntu-logo",
+    "NAME": "Ubuntu",
+    "PRETTY_NAME": "Ubuntu 26.04.1 LTS",
+    "PRIVACY_POLICY_URL": "https://www.ubuntu.com/legal/terms-and-policies/privacy-policy",
+    "SUPPORT_URL": "https://help.ubuntu.com/",
+    "UBUNTU_CODENAME": "resolute",
+    "VERSION": "26.04.1 LTS (Resolute Raccoon)",
+    "VERSION_CODENAME": "resolute",
+    "VERSION_ID": "26.04"
+  },
+  "kernel": "7.0.0-30-generic",
+  "gnome_shell_version": "GNOME Shell 50.1",
+  "packages": [
+    {
+      "package": "libmutter-18-0",
+      "version": "50.1-0ubuntu2.2"
+    },
+    {
+      "package": "gnome-shell",
+      "version": "50.1-0ubuntu1.2"
+    },
+    {
+      "package": "gnome-remote-desktop",
+      "version": "50.2-0ubuntu0.1"
+    },
+    {
+      "package": "pipewire",
+      "version": "1.6.2-1ubuntu1.1"
+    },
+    {
+      "package": "wireplumber",
+      "version": "0.5.13-1ubuntu1"
+    },
+    {
+      "package": "libei1",
+      "version": "1.5.0-3"
+    },
+    {
+      "package": "libeis1",
+      "version": "1.5.0-3"
+    },
+    {
+      "package": "xdg-desktop-portal-gnome",
+      "version": "50.0-0ubuntu1"
+    },
+    {
+      "package": "systemd",
+      "version": "259.5-0ubuntu3.4"
+    }
+  ],
+  "gpus": [
+    {
+      "drm_card": "card0",
+      "driver": "nvidia",
+      "pci_id": "10DE:25A0",
+      "pci_slot": "0000:01:00.0",
+      "lspci_description": "01:00.0 VGA compatible controller [0300]: NVIDIA Corporation GA107M [GeForce RTX 3050 Ti Mobile] [10de:25a0] (rev a1)"
+    },
+    {
+      "drm_card": "card1",
+      "driver": "i915",
+      "pci_id": "8086:9A60",
+      "pci_slot": "0000:00:02.0",
+      "lspci_description": "00:02.0 VGA compatible controller [0300]: Intel Corporation TigerLake-H GT1 [UHD Graphics] [8086:9a60] (rev 01)"
+    }
+  ],
+  "loaded_gpu_modules": [
+    "i915",
+    "nvidia",
+    "nvidia_drm",
+    "nvidia_modeset",
+    "nvidia_uvm",
+    "nvidia_wmi_ec_backlight",
+    "xe"
+  ],
+  "xdg_session_type": "wayland",
+  "gnome_remote_desktop_unit_state": "inactive",
+  "connected_outputs": [
+    {
+      "connector": "card0-HDMI-A-1",
+      "status": "connected"
+    },
+    {
+      "connector": "card1-DP-1",
+      "status": "disconnected"
+    },
+    {
+      "connector": "card1-DP-2",
+      "status": "disconnected"
+    },
+    {
+      "connector": "card1-eDP-1",
+      "status": "connected"
+    }
+  ],
+  "input_devices": [
+    {
+      "name": "Lid Switch",
+      "bus": "0019"
+    },
+    {
+      "name": "Power Button",
+      "bus": "0019"
+    },
+    {
+      "name": "AT Translated Set 2 keyboard",
+      "bus": "0011"
+    },
+    {
+      "name": "PS/2 Generic Mouse",
+      "bus": "0011"
+    },
+    {
+      "name": "DELL0A71:00 04F3:317E Mouse",
+      "bus": "0018"
+    },
+    {
+      "name": "DELL0A71:00 04F3:317E Touchpad",
+      "bus": "0018"
+    },
+    {
+      "name": "LITEON Dell Wireless Device",
+      "bus": "0003"
+    },
+    {
+      "name": "LITEON Dell Wireless Device Mouse",
+      "bus": "0003"
+    },
+    {
+      "name": "LITEON Dell Wireless Device Consumer Control",
+      "bus": "0003"
+    },
+    {
+      "name": "Intel HID events",
+      "bus": "0019"
+    },
+    {
+      "name": "Intel HID 5 button array",
+      "bus": "0019"
+    },
+    {
+      "name": "Dell Privacy Driver",
+      "bus": "0019"
+    },
+    {
+      "name": "Dell WMI hotkeys",
+      "bus": "0019"
+    },
+    {
+      "name": "Video Bus",
+      "bus": "0019"
+    },
+    {
+      "name": "Video Bus",
+      "bus": "0019"
+    },
+    {
+      "name": "HDA NVidia HDMI/DP,pcm=3",
+      "bus": "0000"
+    },
+    {
+      "name": "HDA NVidia HDMI/DP,pcm=7",
+      "bus": "0000"
+    },
+    {
+      "name": "HDA NVidia HDMI/DP,pcm=8",
+      "bus": "0000"
+    },
+    {
+      "name": "HDA NVidia HDMI/DP,pcm=9",
+      "bus": "0000"
+    },
+    {
+      "name": "sof-hda-dsp Headphone Mic",
+      "bus": "0000"
+    },
+    {
+      "name": "sof-hda-dsp HDMI/DP,pcm=3",
+      "bus": "0000"
+    },
+    {
+      "name": "sof-hda-dsp HDMI/DP,pcm=4",
+      "bus": "0000"
+    },
+    {
+      "name": "sof-hda-dsp HDMI/DP,pcm=5",
+      "bus": "0000"
+    }
+  ]
+}
