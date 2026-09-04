@@ -1,0 +1,36 @@
+# cargo-deny configuration (Doc 00 §51 dependency policy; assessment §6.1).
+# Run with: cargo deny check
+
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",
+    "GPL-3.0-or-later",
+    "LGPL-2.1-or-later",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
