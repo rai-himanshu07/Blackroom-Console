@@ -1,0 +1,12 @@
+{
+  "search.exclude": {
+    "**/artifacts/**": true,
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/.next/**": true,
+    "**/coverage/**": true,
+    "**/.codebase-memory/**": true
+  }
+}

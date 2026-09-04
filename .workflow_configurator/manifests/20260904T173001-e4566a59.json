@@ -1,0 +1,176 @@
+{
+  "config": {
+    "codebase_project_id": "Blackroom_Console",
+    "commands": {
+      "lint": "ruff check .",
+      "run": "none",
+      "test": "pytest -x -q",
+      "typecheck": "pyright"
+    },
+    "complexity": "advanced",
+    "manage_artifact_gitignore": true,
+    "mcp_servers": [],
+    "memory_wing": "blackroom_console",
+    "optional_integrations": [],
+    "policy_overrides": {},
+    "project_name": "Blackroom Console",
+    "project_size": "large",
+    "protocol_guard": null,
+    "rigor_preset": "strong",
+    "sandbox_local": true,
+    "session_profile": "auto",
+    "stack_profiles": [],
+    "summary": "Project using Himanshu's adaptive local agent workflow.",
+    "testing_level": "focused",
+    "version": 2,
+    "with_context_settings": true,
+    "with_security_hooks": false,
+    "workflow": "new"
+  },
+  "created_at": "2026-09-04T17:30:01.563345+00:00",
+  "created_files": [
+    {
+      "mode": 436,
+      "path": "AGENTS.md",
+      "sha256": "24c7871219e44b72e5cd3a7a09a16cc8d852418f9a6552ad7020b0543832a8ee"
+    },
+    {
+      "mode": 436,
+      "path": ".github/copilot-instructions.md",
+      "sha256": "82ab99a491d960cef2678308034ef2e02f5a8b1b72347837a86971e3e7975e1f"
+    },
+    {
+      "mode": 436,
+      "path": ".github/agents/planner.agent.md",
+      "sha256": "3108086d03b33fcb0a74ba3f6ea2f29caa54e681c5f4a3ce808d4cc20f5d9e63"
+    },
+    {
+      "mode": 436,
+      "path": ".github/agents/executor.agent.md",
+      "sha256": "f7957fa406b3ed18ec3ed264e73bd7daa279aea3c62048fecf48d3905d4e19f0"
+    },
+    {
+      "mode": 436,
+      "path": ".github/agents/reviewer.agent.md",
+      "sha256": "24c2f4646e379bedee67c89f6481187910352e9a447825cc705dc4052afe28b2"
+    },
+    {
+      "mode": 436,
+      "path": ".github/skills/handoff-session/SKILL.md",
+      "sha256": "51f28af76fdf3ab8a98fe0be79cb2e4e9113ed758d602c82b6e383cc3e9236e0"
+    },
+    {
+      "mode": 436,
+      "path": ".github/skills/resume-session/SKILL.md",
+      "sha256": "a3cbc0ad48ac6cda275ca177b382f18df99c8282ec3ac975e943bce00b8a0e51"
+    },
+    {
+      "mode": 436,
+      "path": ".github/skills/project-doctor/SKILL.md",
+      "sha256": "cf957997b8c5bb6766b613975cc64548b3e1ab25f37a20fc71a1cb5eb61c2d9a"
+    },
+    {
+      "mode": 436,
+      "path": ".github/skills/project-doctor/scripts/doctor.py",
+      "sha256": "a6d043b1b3dd34d6f9455a939749acf810001de9469ed42f1405590ddc775c21"
+    },
+    {
+      "mode": 436,
+      "path": "docs/HANDOFF.md",
+      "sha256": "3402adbfb25218221b47c2c72588a069e9f18bc8c4ce5a0cc2750ec784ef9cfe"
+    },
+    {
+      "mode": 436,
+      "path": ".github/skills/plan-task/SKILL.md",
+      "sha256": "290a56e5c3ac8b7a36ed4dbbaabc392f636b114888655a369d731ec13ff879c6"
+    },
+    {
+      "mode": 436,
+      "path": ".github/skills/memory-health/SKILL.md",
+      "sha256": "274e7b9c6a1ac0452be9790a80b46725ba2ec6f5ee6372a162e3473b8bf3a0f0"
+    },
+    {
+      "mode": 436,
+      "path": "docs/PLAN.template.md",
+      "sha256": "b9420bc6fd1e6f6a8947b1c1404c1118a6768d44b0ec3b1a870cf6f2a3fbf701"
+    },
+    {
+      "mode": 436,
+      "path": "docs/MEMORY_PROTOCOL.md",
+      "sha256": "72871dd1d3c93de4fd294c92e403933e7f1820496c8131f836b9a7e45a63bb6f"
+    },
+    {
+      "mode": 436,
+      "path": "docs/CODE_INTELLIGENCE.md",
+      "sha256": "76da1a3082b3731acd79764473bc07f1f94be40e56a4fa4a33f81befdd4dc975"
+    },
+    {
+      "mode": 436,
+      "path": "docs/ENVIRONMENT_POLICY.md",
+      "sha256": "861b6195137aa5e2fbc89e0e9d5feb3fd7020f340a9d6e9eca20448250aab620"
+    },
+    {
+      "mode": 436,
+      "path": "docs/AGENT_SURFACES.md",
+      "sha256": "d878407c4c0d96bd65a67e5be957008d476b753a31fee9801494c688148f4c41"
+    },
+    {
+      "mode": 436,
+      "path": "docs/AGENT_CONTEXT.md",
+      "sha256": "94fb24a2a1961e680277a16382c08f043d5d41f5792d8208386c9d96ada1905e"
+    },
+    {
+      "mode": 436,
+      "path": "docs/AGENT_OBSERVABILITY.md",
+      "sha256": "22bf6a7819e642e4b023b7c09be6d7cb2f9f9ab3061314f60254f140492851fb"
+    },
+    {
+      "mode": 436,
+      "path": "docs/MCP_SECURITY.md",
+      "sha256": "a83f9791e9907c1ef9cad59c410284e4d31e967d37622474295e58a83100c14e"
+    },
+    {
+      "mode": 436,
+      "path": ".github/hooks/workflow_guard.json",
+      "sha256": "f366625b943b25c7e0491da49b4865b3cb7c7c89be67fd7c41496b3902728d93"
+    },
+    {
+      "mode": 436,
+      "path": ".github/hooks/scripts/workflow_guard.py",
+      "sha256": "0087385e7fb2d88be3348420d4b395b4f5633bb29086fe70fba4523d517289ef"
+    },
+    {
+      "mode": 436,
+      "path": "docs/WORKFLOW_GUARD.md",
+      "sha256": "1feadee63c83ef57f160ec55665a19b19762c394ba62e330ee598a14dba33df4"
+    },
+    {
+      "mode": 436,
+      "path": ".vscode/settings.json",
+      "sha256": "4e9f3c03e0cee83e54a11938107e8758ef600175c32715090945470c44ae2716"
+    },
+    {
+      "mode": 420,
+      "path": "docs/WORKFLOW_CONFIG.md",
+      "sha256": "c9a6512bc4bc7d531261ee83908d0fd876c6f3b434ee7c36f847c4a5775c36bf"
+    }
+  ],
+  "manifest_id": "20260904T173001-e4566a59",
+  "proposals": [],
+  "recovery_policy": "manual-only",
+  "required_directories": [
+    {
+      "mode": 509,
+      "path": "docs/plans",
+      "state": "existing",
+      "was_missing": true
+    }
+  ],
+  "safe_merges": [],
+  "schema_version": 1,
+  "target": "/media/user/Playground/Playground_Sys/Blackroom Console",
+  "target_identity": {
+    "device": 66306,
+    "inode": 610969
+  }
+}

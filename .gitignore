@@ -1,0 +1,22 @@
+# Rust
+/target/
+**/target/
+Cargo.lock.bak
+
+# Node / web
+node_modules/
+web/dist/
+web/.vite/
+
+# codebase-memory index
+.codebase-memory/
+
+# Editor / OS
+.vscode/*.log
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Experiment evidence scratch (never partial/temp files)
+docs/experiments/evidence/**/*.tmp

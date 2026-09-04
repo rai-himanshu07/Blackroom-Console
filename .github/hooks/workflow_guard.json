@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python .github/hooks/scripts/workflow_guard.py",
+        "bash": "python3 .github/hooks/scripts/workflow_guard.py",
+        "powershell": "python .github/hooks/scripts/workflow_guard.py",
+        "cwd": ".",
+        "timeout": 3
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "command": "python .github/hooks/scripts/workflow_guard.py",
+        "bash": "python3 .github/hooks/scripts/workflow_guard.py",
+        "powershell": "python .github/hooks/scripts/workflow_guard.py",
+        "cwd": ".",
+        "timeout": 3
+      }
+    ]
+  }
+}
