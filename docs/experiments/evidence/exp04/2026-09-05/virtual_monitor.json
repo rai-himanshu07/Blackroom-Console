@@ -1,0 +1,369 @@
+{
+  "cycle_outcomes": [
+    {
+      "cycle": 0,
+      "duration_ms": 1158,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 1,
+      "duration_ms": 1208,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 2,
+      "duration_ms": 1198,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 3,
+      "duration_ms": 1282,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 4,
+      "duration_ms": 1262,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 5,
+      "duration_ms": 1223,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 6,
+      "duration_ms": 792,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 7,
+      "duration_ms": 1080,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 8,
+      "duration_ms": 1576,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 9,
+      "duration_ms": 1287,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 10,
+      "duration_ms": 1214,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 11,
+      "duration_ms": 1273,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 12,
+      "duration_ms": 991,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 13,
+      "duration_ms": 1557,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 14,
+      "duration_ms": 1256,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 15,
+      "duration_ms": 1238,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 16,
+      "duration_ms": 819,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 17,
+      "duration_ms": 1424,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 18,
+      "duration_ms": 1184,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 19,
+      "duration_ms": 950,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 20,
+      "duration_ms": 1338,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 21,
+      "duration_ms": 931,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 22,
+      "duration_ms": 1496,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 23,
+      "duration_ms": 841,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 24,
+      "duration_ms": 1290,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 25,
+      "duration_ms": 1634,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 26,
+      "duration_ms": 1839,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 27,
+      "duration_ms": 1591,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 28,
+      "duration_ms": 1119,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 29,
+      "duration_ms": 1459,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 30,
+      "duration_ms": 1314,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 31,
+      "duration_ms": 1297,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 32,
+      "duration_ms": 1245,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 33,
+      "duration_ms": 1427,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 34,
+      "duration_ms": 1079,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 35,
+      "duration_ms": 1642,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 36,
+      "duration_ms": 1177,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 37,
+      "duration_ms": 1800,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 38,
+      "duration_ms": 1038,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 39,
+      "duration_ms": 1772,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 40,
+      "duration_ms": 1592,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 41,
+      "duration_ms": 4550,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 42,
+      "duration_ms": 1240,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 43,
+      "duration_ms": 1149,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 44,
+      "duration_ms": 1196,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 45,
+      "duration_ms": 1143,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 46,
+      "duration_ms": 1390,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 47,
+      "duration_ms": 1357,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 48,
+      "duration_ms": 1251,
+      "error": null,
+      "timed_out": false
+    },
+    {
+      "cycle": 49,
+      "duration_ms": 1254,
+      "error": null,
+      "timed_out": false
+    }
+  ],
+  "resolution_results": [
+    {
+      "frames_received": 2,
+      "height": 720,
+      "monitor_confirmed": true,
+      "new_connectors_after_create": [
+        "Meta-0"
+      ],
+      "new_connectors_after_destroy": [],
+      "observed_mode": {
+        "connector": "Meta-0",
+        "height": 720,
+        "refresh_rate": 60.0,
+        "width": 1280
+      },
+      "record_virtual_error": null,
+      "refresh_rate": 60.0,
+      "resolution_honored": true,
+      "stop_error": null,
+      "teardown_confirmed": true,
+      "width": 1280
+    },
+    {
+      "frames_received": 2,
+      "height": 1080,
+      "monitor_confirmed": true,
+      "new_connectors_after_create": [
+        "Meta-0"
+      ],
+      "new_connectors_after_destroy": [],
+      "observed_mode": {
+        "connector": "Meta-0",
+        "height": 1080,
+        "refresh_rate": 60.0,
+        "width": 1920
+      },
+      "record_virtual_error": null,
+      "refresh_rate": 60.0,
+      "resolution_honored": true,
+      "stop_error": null,
+      "teardown_confirmed": true,
+      "width": 1920
+    },
+    {
+      "frames_received": 2,
+      "height": 1440,
+      "monitor_confirmed": true,
+      "new_connectors_after_create": [
+        "Meta-0"
+      ],
+      "new_connectors_after_destroy": [],
+      "observed_mode": {
+        "connector": "Meta-0",
+        "height": 1440,
+        "refresh_rate": 60.0,
+        "width": 2560
+      },
+      "record_virtual_error": null,
+      "refresh_rate": 60.0,
+      "resolution_honored": true,
+      "stop_error": null,
+      "teardown_confirmed": true,
+      "width": 2560
+    }
+  ]
+}
