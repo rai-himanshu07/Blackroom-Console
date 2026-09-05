@@ -654,3 +654,24 @@ later phase on the strength of Doc 11 §7 alone.
   written; conflict C26 filed into the assessment doc's §5 register.
   `Blackroom_Console` indexed in codebase-memory (3803 nodes, 5654 edges, no
   skipped/parse-partial files).
+- 2026-09-05: Independent review (Reviewer agent) found five real gaps and
+  fixed all of them: (1) `ControlLease::validate` was missing the Doc 07 §13
+  session-ID check (added `current_session_id` parameter + `SESSION_NOT_FOUND`
+  rejection, tested); (2) `transition::apply` never actually generated a
+  `tr_<ULID>` ID or emitted `StateTransitionEvent` — added
+  `transition::apply_and_record(lock, event, trigger, component)` wiring
+  ID generation + `StateMachineLock` update + event emission into the real
+  dispatch path, with tests; (3) `FakeGnomeBackend`'s Duplicate/Concurrent
+  fault modes had no distinguishing test — added explicit call-twice
+  idempotency tests for all four Doc 07 §27 named operations plus a real
+  multi-thread test through a shared `Mutex<FakeGnomeBackend>`; (4) the
+  `proptest` property test only modeled the auth/authorization guard chain,
+  not lease/epoch validity — added a second property test tracking a
+  synthetic `ControlLease`/`SecurityEpoch` through the random walk and
+  asserting `ControlLease::validate` actually succeeds whenever
+  `REMOTE_ACTIVE` is reached; (5) Scenario F/G were one combined test, not
+  two — split into `scenario_f_...`/`scenario_g_...` (scenarios.rs now has
+  10 tests, one per letter). Also corrected a stale `architecture.md` §7
+  note claiming no Phase 2 crates were dependencies yet. Full re-verification
+  after fixes: 100 tests green (was 89), `cargo fmt --check`/`clippy -D
+  warnings`/`deny check`/`audit`/doctor all clean.
