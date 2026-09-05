@@ -80,12 +80,14 @@ Source: `docs/plans/assessment-20260904-detailed-project-plan.md` §6.
 ## 6. Crate inventory (Document 00 §51 evaluation)
 
 Evaluated 2026-09-05 via the crates.io registry API. Rows marked **in use**
-are already real dependencies of `blackroom-experiments` (exact version pinned
-by `Cargo.lock`, `cargo audit`/`cargo deny check` green as of the Phase 0
-checkpoint). Rows marked **evaluated** are not yet dependencies — version and
-last-release date are the current crates.io values fetched this session;
-licence/purpose/maintenance are evaluated by documented reputation and are
-**not** re-verified against a local build (Non-Goal, plan §Non-Goals: "other
+are real dependencies of `blackroom-experiments` and, since Phase 2
+(`docs/plans/plan-20260905-phase2-state-machine-core.md`), `blackroom-core`/
+`blackroom-gnome` (exact versions pinned by `Cargo.lock`, `cargo audit`/
+`cargo deny check` green as of each phase's checkpoint). Rows marked
+**evaluated** are not yet dependencies — version and last-release date are
+the current crates.io values fetched this session; licence/purpose/
+maintenance are evaluated by documented reputation and are **not**
+re-verified against a local build (Non-Goal, plan §Non-Goals: "other
 crates are only evaluated and recorded").
 
 | Crate | Version (checked 2026-09-05) | Licence | Last release | Purpose | Privilege domain | Maintenance signal |
@@ -107,15 +109,17 @@ crates are only evaluated and recorded").
 | `rustix` | 1.1.4 | Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT | 2026-02-22 | Safe POSIX syscalls (`SO_PEERCRED`, fd passing) | unprivileged | Extremely active (bytecodealliance) |
 | `argon2` | 0.6.0 | MIT OR Apache-2.0 | 2026-08-27 | Password/Access-Key/recovery-code hashing | **privileged** (`remote-hostd` secrets) | Active (RustCrypto); trusted-publishing enabled |
 | `totp-rs` | 6.0.0 | MIT | 2026-08-06 | RFC 6238 TOTP | **privileged** (`remote-hostd` auth) | Active |
-| `ed25519-dalek` | 3.0.0 | **BSD-3-Clause** (dalek-cryptography convention, already allow-listed in `deny.toml`) | 2026-07-06 | Host identity keypair, `ControlLease` signing | **privileged** (`remote-hostd`) | Active (dalek-cryptography org) |
-| `rand` / `getrandom` | 0.10.2 / 0.4.3 | MIT OR Apache-2.0 | 2026-08-25 / 2026-06-17 | CSPRNG for keys/tokens | **privileged** (secret generation) | Extremely active (rust-random) |
-| `zeroize` | 1.9.0 | MIT OR Apache-2.0 | 2026-06-12 | Zero secrets on drop | **privileged** | Active (RustCrypto) |
+| `ed25519-dalek` | 3.0.0 **(in use)** | **BSD-3-Clause** (dalek-cryptography convention, already allow-listed in `deny.toml`) | 2026-07-06 | Host identity keypair, `ControlLease` signing (`crates/blackroom-core/src/lease.rs`) | **privileged** (`remote-hostd`) | Active (dalek-cryptography org) |
+| `rand` | 0.10.2 | MIT OR Apache-2.0 | 2026-08-25 | Evaluated only — not a direct dependency; `SigningKey::generate` uses `getrandom::SysRng` directly instead (see `getrandom` row) | **privileged** (secret generation, if added) | Extremely active (rust-random) |
+| `getrandom` | 0.4.3 **(in use)** | MIT OR Apache-2.0 | 2026-06-17 | CSPRNG for `ed25519-dalek` key generation (`SysRng` + `rand_core::UnwrapErr`, `crates/blackroom-core/src/lease.rs` tests) | **privileged** (secret generation) | Extremely active (rust-random) |
+| `zeroize` | 1.9.0 **(in use, transitive)** | MIT OR Apache-2.0 | 2026-06-12 | Zero the signing key's memory on drop — enabled via `ed25519-dalek`'s own `zeroize` feature flag, not a direct `blackroom-core` dependency | **privileged** | Active (RustCrypto) |
 | `secrecy` | 0.10.3 | MIT OR Apache-2.0 | 2024-10-09 | Wrapper types preventing accidental secret logging | **privileged** | Maintained but slower cadence (~2 yr since last release) — re-check for a fork/replacement at Phase 15 if this gap widens |
 | `rusqlite` | 0.40.2 | MIT | 2026-08-08 | Bundled SQLite (sessions/audit), only if file-per-record proves insufficient | privileged (`remote-hostd` state dir) | Very active |
 | `axum` | 0.8.9 | MIT | 2026-04-14 | Gateway HTTP/WebSocket routing | **network-facing** (`remote-gateway`) | Very active (tokio-rs) |
 | `hyper` | 1.11.1 | MIT | 2026-08-28 | HTTP implementation under `axum` | network-facing | Extremely active |
 | `rustls` | 0.23.43 | Apache-2.0 OR ISC OR MIT | 2026-07-29 | TLS termination in `remote-gateway` | network-facing | Extremely active; memory-safe TLS (Doc 00 §51 "well-defined security properties") |
-| `ulid` | 3.0.0 | MIT OR Apache-2.0 | 2026-07-16 | `rs_/tr_/cl_` correlation IDs | n/a | Active |
+| `ulid` | 3.0.0 **(in use)** | MIT OR Apache-2.0 | 2026-07-16 | `rs_/tr_/cl_/req_/diag_` correlation IDs (`crates/blackroom-core`) | n/a | Active |
+| `proptest` | 1.11.0 **(in use, dev-dependency only)** | MIT OR Apache-2.0 | 2026-03-24 | Doc 12 §54 property-based testing over random event sequences (`crates/blackroom-core/tests/property.rs`) | n/a (test-only, not shipped) | Extremely active; 48 versions since 2017-06-18, 181M+ downloads |
 
 ### Rejected: `pam` / `pam-client`; alternative `nonstick`
 
