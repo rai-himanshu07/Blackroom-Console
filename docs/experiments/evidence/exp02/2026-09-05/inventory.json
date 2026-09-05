@@ -2598,16 +2598,8 @@
   "remote_desktop_version": 1,
   "screencast_version": 4,
   "display_config_summary": {
-    "serial": 1,
+    "serial": 3,
     "connectors": [
-      {
-        "connector": "HDMI-1",
-        "vendor": "SAM",
-        "product": "Smart M80C",
-        "serial_hash": "7fddfc2eecca3d01",
-        "current_mode": null,
-        "mode_count": 31
-      },
       {
         "connector": "eDP-1",
         "vendor": "AUO",
@@ -2615,12 +2607,30 @@
         "serial_hash": "cfb3d220f3780aae",
         "current_mode": "1920x1080@120.21Hz (1920x1080@120.213)",
         "mode_count": 128
+      },
+      {
+        "connector": "HDMI-1",
+        "vendor": "SAM",
+        "product": "Smart M80C",
+        "serial_hash": "7fddfc2eecca3d01",
+        "current_mode": "3840x2160@29.97Hz (3840x2160@29.970)",
+        "mode_count": 31
       }
     ],
     "logical_monitors": [
       {
         "x": 0,
         "y": 0,
+        "scale": 1.25,
+        "transform": 0,
+        "primary": false,
+        "connectors": [
+          "HDMI-1"
+        ]
+      },
+      {
+        "x": 3072,
+        "y": 1078,
         "scale": 1.0,
         "transform": 0,
         "primary": true,

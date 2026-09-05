@@ -1,5 +1,5 @@
 Experiment: Experiment 2 — Mutter Capability Inventory
-Date: 2026-09-05T02:39:02.541163195Z
+Date: 2026-09-05T11:06:40.830595832Z
 Environment: Development workstation (host = target), Ubuntu 26.04 / GNOME 50.1
 Objective:
 Determine which relevant Mutter/Shell/logind D-Bus interfaces are actually available on this host and produce an API inventory (Document 10 §9).
@@ -16,7 +16,7 @@ All 9 Mutter/Shell/ScreenSaver targets plus login1 Manager and the selected Sess
 Observed:
 Introspected 13/13 targets successfully.
 RemoteDesktop.Version=Some(1), ScreenCast.Version=Some(4)
-DisplayConfig.GetCurrentState: 2 connector(s), 1 logical monitor(s)
+DisplayConfig.GetCurrentState: 2 connector(s), 2 logical monitor(s)
 Finding: org.gnome.Shell.ScreenShield exposes no distinct interface; it resolves to org.gnome.ScreenSaver at /org/gnome/ScreenSaver (see api-inventory.md).
 Capability presence flags: OS_SUPPORTED=N/A, GNOME_SUPPORTED=N/A, WAYLAND_SUPPORTED=N/A, SYSTEMD_SUPPORTED=N/A, SESSION_FOUND=N/A, MUTTER_CAPABLE=AVAILABLE, REMOTE_DESKTOP_CAPABLE=AVAILABLE, SCREENCAST_CAPABLE=AVAILABLE, PIPEWIRE_CAPABLE=N/A, VIRTUAL_DISPLAY_CAPABLE=UNKNOWN, DISPLAY_CONFIG_CAPABLE=AVAILABLE, REMOTE_INPUT_CAPABLE=UNKNOWN, PHYSICAL_INPUT_ISOLATION_CAPABLE=AVAILABLE, SESSION_LOCK_CAPABLE=AVAILABLE, EMERGENCY_CAPABLE=N/A, GPU_CAPABLE=N/A
 
