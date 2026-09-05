@@ -170,7 +170,7 @@ configuration.
     `SESSION_NOT_FOUND`/`WAYLAND_UNAVAILABLE` code when run under `env -u
     WAYLAND_DISPLAY` (negative test recorded).
 
-- [ ] 8. Experiment 2 — Mutter/Shell/logind capability inventory (read-only, introspection)
+- [x] 8. Experiment 2 — Mutter/Shell/logind capability inventory (read-only, introspection)
   - Files: `crates/blackroom-experiments/src/bin/exp02_mutter_inventory.rs`;
     `docs/gnome/introspection/*.xml`; `docs/gnome/api-inventory.md`; evidence
     `docs/experiments/evidence/exp02/<date>/`.
@@ -406,4 +406,52 @@ crates (zbus/serde/clap/tracing/anyhow/time).
   the rendered text.
   `cargo check/clippy -D warnings/fmt --check` green throughout. Result: **PASS**.
   Commits `5ad8f9c` (binary), `0e1b0ba` (fix + evidence).
+- 2026-09-05 (Executor session): Step 8 done.
+  `crates/blackroom-experiments/src/bin/exp02_mutter_inventory.rs` calls `Introspect()`
+  (session bus for the 11 Mutter/Shell/ScreenSaver targets, system bus for
+  `login1.Manager` + the Experiment-1-selected `login1.Session`), saves raw XML to
+  `docs/gnome/introspection/*.xml`, and parses interfaces/methods/properties/signals with
+  a small hand-written line scanner for GDBus's one-tag-per-line output (no XML crate
+  added — outside the Phase 1 allow-list). Reads `RemoteDesktop`/`ScreenCast` `Version`;
+  calls `DisplayConfig.GetCurrentState` (read-only) and summarises connectors/current
+  modes/primary with EDID-derived serials hashed (`DefaultHasher`, non-cryptographic —
+  sufficient to avoid printing the raw value). Classifies each Document 20 §8 constant as
+  `AVAILABLE`/`NOT_AVAILABLE`/`UNKNOWN`/`N/A` (N/A = another experiment's domain). Every
+  call is `Introspect`/`Get`/`GetAll`/`GetCurrentState` only — `RecordVirtual`,
+  `ConnectToEIS`, `ApplyMonitorsConfig`, `InputCapture.CreateSession` are never invoked,
+  only checked for presence in the introspected schema.
+  Verified live: 13/13 targets introspected successfully (all 9 required interfaces +
+  `IdleMonitor.Core` sub-object + both `Shell.ScreenShield` candidate paths + `login1`
+  Manager/Session). `busctl --user tree` on `org.gnome.Mutter.{ScreenCast,RemoteDesktop,
+  InputCapture}` diffed byte-identical before/after the run; `git status --porcelain`
+  showed only the intended new evidence/doc files. `grep -ril` for the real username
+  across evidence and docs found nothing.
+  **Bug caught and fixed during verification**: the first implementation reconstructed
+  the selected login1 session's object path by string-formatting the session id
+  (`.../session/_2`), which does not match systemd's actual per-byte hex escaping of
+  dynamic session ids (`id "2"` → `.../session/_32`); `Introspect` failed with
+  `UnknownObject` and the experiment came back `PARTIAL` (12/13). Fixed by reusing the
+  real `object_path` from the Experiment-1 `discover()` result instead of ever
+  reconstructing a login1 path from a bare id. Re-verified 13/13, **PASS**.
+  **Research findings for step 9** (full detail in session notes / feasibility-research.md):
+  (1) `org.gnome.Shell.ScreenShield` (bus name, owned by `gnome-shell`) exposes **no**
+  distinct interface at `/org/gnome/Shell/ScreenShield` (empty), `/org/gnome/ScreenShield`
+  (nonexistent), or `/org/gnome/Shell` (only `org.gnome.Shell`/`.Extensions`) — it
+  resolves to the classic `org.gnome.ScreenSaver` interface (`Lock`/`GetActive`/
+  `SetActive`/`GetActiveTime`/`ActiveChanged`/`WakeUpScreen`) at `/org/gnome/ScreenSaver`
+  on GNOME Shell 50.1. There is one lock interface, not two — significant for Gate A. (2)
+  Mutter's `DisplayConfig` connector names differ from kernel DRM names from Experiment 0
+  (`HDMI-1` vs `card0-HDMI-A-1`; `eDP-1` matches `card1-eDP-1`) — code must never assume
+  these strings are interchangeable. (3) `DisplayConfig.HasExternalMonitor=false` and
+  `GetCurrentState` currently reports only **one** logical monitor (`eDP-1`, primary)
+  even though `HDMI-1`/`card0-HDMI-A-1` is physically `connected` — the external 4K
+  monitor is not currently composed into the desktop; Gate C conclusions need
+  re-verification with it actually active. (4) `RecordVirtual` (`ScreenCast.Session`) and
+  `ConnectToEIS` (`RemoteDesktop.Session`) are session-scoped and only reachable after
+  `CreateSession` (forbidden this phase) — marked `UNKNOWN`, deferred to source-level
+  confirmation in `feasibility-research.md`. (5) `RemoteDesktop.Version=1`,
+  `ScreenCast.Version=4`, `InputCapture.SupportedCapabilities=15`,
+  `RemoteDesktop.SupportedDeviceTypes=7`.
+  `cargo check/clippy -D warnings/fmt --check` green throughout. Result: **PASS**.
+  Commits `2ec3dc2` (binary), `12a8959` (fix + evidence).
 
