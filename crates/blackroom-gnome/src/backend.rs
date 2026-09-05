@@ -7,27 +7,19 @@
 
 use blackroom_core::error::BlackroomError;
 
-/// Host capability bits (assessment C6: the host capability report is a
-/// distinct enum from lease capabilities `VIEW`/`CONTROL`). A minimal
-/// placeholder set for Phase 2; the full Doc 20 §8 constant list is
-/// Phase 3 research.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Capability {
-    VirtualDisplay,
-    RemoteInput,
-    PhysicalInputIsolation,
-}
-
 /// A GNOME/logind session as `discover_session` reports it (Doc 05 §12–§15
 /// selection rules: UID + seat + `Type=wayland` + `Class=user`, never "the
 /// first session" — this host has two sessions on seat0, per Phase 1
-/// evidence).
+/// evidence). Host capability bits are a separate concern (Phase 3
+/// `mutter::capability::CapabilityReport`, assessment C6: distinct from
+/// lease capabilities `VIEW`/`CONTROL`), not a field on this struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionInfo {
     pub session_id: String,
+    pub uid: u32,
     pub seat: String,
     pub is_wayland: bool,
-    pub capabilities: Vec<Capability>,
+    pub active: bool,
 }
 
 /// Display topology as `get_display_state` reports it (maps conceptually

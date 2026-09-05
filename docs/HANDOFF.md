@@ -2,7 +2,7 @@
 
 **Updated:** 2026-09-05 (Phase 2 — State Machine Core complete)
 **Workspace or branch:** Git repo, branch `main`
-**Active plan:** docs/plans/plan-20260905-phase2-state-machine-core.md
+**Active plan:** docs/plans/plan-20260905-phase3-gnome-session-discovery.md
 **Task tier:** governed
 **Memory:** wing `blackroom_console` checkpointed this session (see diary)
 

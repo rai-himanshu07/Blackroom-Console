@@ -7,5 +7,5 @@
 pub mod backend;
 pub mod fake;
 
-pub use backend::{Capability, CursorState, DisplayState, GnomeBackend, SessionInfo};
+pub use backend::{CursorState, DisplayState, GnomeBackend, SessionInfo};
 pub use fake::{FakeGnomeBackend, FaultConfig, FaultMode};

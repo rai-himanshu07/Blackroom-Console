@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use blackroom_core::error::{BlackroomError, ErrorCode};
 
-use crate::backend::{Capability, CursorState, DisplayState, GnomeBackend, SessionInfo};
+use crate::backend::{CursorState, DisplayState, GnomeBackend, SessionInfo};
 
 /// Method name a [`FaultConfig`] entry applies to (matches the Doc 05 §8
 /// operation names on [`GnomeBackend`]).
@@ -149,9 +149,10 @@ impl GnomeBackend for FakeGnomeBackend {
         self.decide("discover_session", ErrorCode::GnomeSessionUnavailable)?;
         Ok(SessionInfo {
             session_id: "fake-session".to_string(),
+            uid: 1000,
             seat: "seat0".to_string(),
             is_wayland: true,
-            capabilities: vec![Capability::VirtualDisplay, Capability::RemoteInput],
+            active: true,
         })
     }
 
