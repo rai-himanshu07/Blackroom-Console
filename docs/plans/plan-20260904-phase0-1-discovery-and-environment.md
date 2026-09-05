@@ -222,7 +222,7 @@ configuration.
     `pam-client`, `clap`, `ulid`), each with licence and last-release date, and marks
     any crate that fails the Document 00 §51 evaluation as rejected with the alternative.
 
-- [ ] 11. Phase 1 report, blockers list, handoff, memory
+- [x] 11. Phase 1 report, blockers list, handoff, memory
   - Files: this file (Execution Log), `docs/HANDOFF.md`, `docs/gnome/feasibility-research.md`
     ("Feasibility blockers" section).
   - Depends on: steps 5–10.
@@ -515,4 +515,117 @@ crates (zbus/serde/clap/tracing/anyhow/time).
   `deny.toml`'s allow list from step 2, no new exception needed.
   No code changes this step. `grep -ril` for the real username found nothing in either
   document.
+- 2026-09-05 (Executor session): Step 11 done — Phase 1 checkpoint. Re-ran the full
+  `AGENTS.md` battery: `cargo test --workspace` (0 tests, ok), `cargo fmt --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`,
+  `cargo check --workspace --all-targets`, `cargo deny check` (advisories/bans/
+  licenses/sources ok), `cargo audit` (125 deps, 1239 advisories, 0 findings) — all
+  green. `python3 .github/skills/project-doctor/scripts/doctor.py` → 0 errors/warnings.
+  `git log --oneline | wc -l` = 19, `git status --porcelain` empty. Phase 1 report
+  below; `docs/HANDOFF.md` updated; MemPalace checkpoint written to wing
+  `blackroom_console` this session.
+
+### Phase 1 report (Document 00 §68 format)
+
+```text
+Phase: 1 — Environment and Research
+Status: Complete (step 5 excepted — user action pending, does not block Phase 2)
+
+Implemented:
+- Three read-only Document 10 experiment binaries in crates/blackroom-experiments/
+  src/bin/ (exp00_environment, exp01_session_discovery, exp02_mutter_inventory)
+  sharing a lib.rs evidence/redaction/report-format module and a session-discovery
+  module (used by both exp01 and exp02).
+- docs/gnome/api-inventory.md, docs/gnome/introspection/*.xml (13 files),
+  docs/gnome/feasibility-research.md, docs/gnome/capability-report.md,
+  docs/security/architecture.md.
+
+Verified:
+- Exp0: full environment report; byte-identical across two runs (excl. timestamp);
+  git status showed only the evidence directory changed; no username/hostname in
+  evidence (nothing to redact for this experiment).
+- Exp1: unique GNOME Wayland session selected (Type=wayland/Class=user/Seat=seat0/
+  User=<uid>/Active=true); --self-test negative test (WAYLAND_DISPLAY removed) failed
+  closed with the expected classified exit code; deterministic across runs.
+- Exp2: 13/13 D-Bus targets introspected successfully, read-only only (Introspect/Get/
+  GetCurrentState); `busctl --user tree` on ScreenCast/RemoteDesktop/InputCapture
+  byte-identical before/after (no session or object created).
+- Capability report: 16/16 Document 20 §8 constants classified (7 SUPPORTED,
+  4 EXPERIMENTAL, 1 SUPPORTED_WITH_LIMITATIONS, 4 UNKNOWN, 0 UNSUPPORTED); overall
+  UNKNOWN -> activation blocked, as expected.
+- Feasibility research: all 9 Document 00 §50 topics answered with sources,
+  confidence labels, and escalation experiments; one source-level finding corrects
+  the existing risk register (InputCapture is a barrier-crossing model, not an
+  unconditional grab).
+- cargo check/fmt/clippy(-D warnings)/test, cargo deny check, cargo audit: all green
+  at both the Phase 0 and this Phase 1 checkpoint.
+- Two real implementation bugs were caught during verification and fixed before being
+  accepted: Experiment 1's JSON evidence leaked the username (redaction applied only
+  to the text report, not the struct); Experiment 2 reconstructed a login1 session
+  path incorrectly (systemd's per-byte id escaping) instead of reusing the real path.
+
+Partially Verified:
+- DisplayConfig.GetCurrentState is functionally exercised (real topology returned,
+  matching Experiment 0's kernel-level facts) but the all-physical-disabled /
+  zero-virtual-monitor question is untested (Exp 5/6, Phase 4/5).
+- InputCapture's mechanism is confirmed present and its pointer-barrier activation
+  path is understood from the real Mutter 50.1 source; whether it (plus Gate C) can
+  achieve complete physical *keyboard* isolation was not established (Exp 9, Phase 7
+  — Gate E, the project's highest risk).
+
+Unverified:
+- VIRTUAL_DISPLAY_CAPABLE, REMOTE_INPUT_CAPABLE, EMERGENCY_CAPABLE (capability-report.md)
+  — pending Phase 3/4/6/10 experiments.
+- Whether a RemoteDesktop/ScreenCast session survives GNOME `ScreenSaver.Lock` (Gate A,
+  Phase 8, second-highest project risk).
+- Whether `pam-auth-helper` needs root for `pam_unix`/`unix_chkpwd` on Ubuntu 26.04
+  (assessment §7.7) — no direct evidence gathered this phase; escalated to Phase 15/16
+  alongside the `pam`/`pam-client` -> `nonstick` crate finding.
+
+Failed: (none)
+
+Blocked:
+- Phase 1 step 5: user must run the dev-header `apt install` (exact command recorded
+  in the plan) and verify key-based SSH from a second device before Document 10
+  Experiment 6 (Physical Output Isolation) or Experiment 9 (Physical Input Isolation)
+  may run. The agent must not run sudo. Confirmed this does **not** block Phase 2
+  (state-machine core against the mock GnomeBackend needs none of Phase 1's crates).
+
+Tests:
+- passed: 0
+- failed: 0
+- skipped: 0
+- environment-dependent: 0
+(No automated test code exists yet by design; Phase 2 introduces the state-machine
+test suite against the mock GnomeBackend.)
+
+Security Impact: No system mutation was performed at any point (verified live via
+git status and busctl tree diffs, not merely asserted). All Phase 1 D-Bus calls are
+read-only (Introspect/Get/GetAll/GetCurrentState/ListSessions). Evidence redaction has
+one confirmed-fixed gap (see above); re-verified clean after the fix. cargo-deny
+enforces licence/advisory policy on the (currently pure-Rust, unprivileged) dependency
+set.
+
+Compatibility Impact: None yet — no code targets specific hardware/GNOME versions
+beyond read-only introspection of this exact host. capability-report.md flags
+GPU_CAPABLE as SUPPORTED_WITH_LIMITATIONS pending Phase 9/24 GPU-matrix work.
+
+Performance Impact: None (no runtime hot paths implemented yet).
+
+Known Risks:
+- Gate E (physical input isolation): mechanism better understood (barrier-crossing,
+  pointer-triggered) but not proven for keyboard isolation specifically — Phase 7 must
+  resolve this before Gate E can be marked PASS.
+- Gate A (GNOME lock + RemoteDesktop interaction): completely unverified, second-highest
+  project risk — Phase 8.
+- `pam`/`pam-client` crates are unmaintained; `nonstick` is the recorded Phase 15
+  evaluation candidate and needs its own security review before adoption.
+- Step 5 (SSH + dev-header prerequisite) remains pending user action as of this report.
+
+Next Recommended Phase: `/plan-task` for Phase 2 (State Machine Core: states,
+transitions, invariants, transition IDs, idempotency against a mock `GnomeBackend`;
+no real GNOME) after independent review of this Phase 1 report and its research
+conclusions (`governed` policy: Reviewer agent, read-only).
+```
+
 
