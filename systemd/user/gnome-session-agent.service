@@ -1,0 +1,32 @@
+# Blackroom Console GNOME session agent (Doc 05 §16-17, Doc 06 §28-32).
+# Runs as the logged-in user; must never run as root.
+#
+# After=graphical-session.target: live-verified on this host (Phase 3,
+# `systemctl --user list-units`) — no unit literally named
+# "gnome-session-wayland.target" exists on this Ubuntu/GNOME version
+# (assessment §6.2 anticipated needing to verify this). The generic,
+# desktop-environment-agnostic `graphical-session.target` is active here
+# and is the standard systemd/freedesktop convention target for "the user's
+# graphical session is up" — see docs/gnome/session-discovery.md.
+#
+# Type=simple, not notify: the binary does not call sd_notify yet (the
+# `sd-notify` crate is evaluated but not yet in use, architecture.md §6
+# crate inventory) — revisit when it does.
+#
+# ExecStart's path is provisional: no packaging phase has installed this
+# unit or binary anywhere yet (Phase 27).
+
+[Unit]
+Description=Blackroom Console GNOME session agent
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/blackroom-console/gnome-session-agent
+Restart=on-failure
+RestartSec=5
+Slice=session.slice
+
+[Install]
+WantedBy=graphical-session.target
