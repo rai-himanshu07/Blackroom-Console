@@ -188,7 +188,7 @@ configuration.
     object is created (verify with `busctl --user tree org.gnome.Mutter.ScreenCast` before
     and after).
 
-- [ ] 9. Research findings — Document 00 §50 topics for GNOME 50.1 / Mutter 50.1
+- [x] 9. Research findings — Document 00 §50 topics for GNOME 50.1 / Mutter 50.1
   - Files: `docs/gnome/feasibility-research.md`.
   - Depends on: step 8.
   - Verify: one section per topic with question, sources (Mutter 50.1 source paths, e.g.
@@ -454,4 +454,34 @@ crates (zbus/serde/clap/tracing/anyhow/time).
   `RemoteDesktop.SupportedDeviceTypes=7`.
   `cargo check/clippy -D warnings/fmt --check` green throughout. Result: **PASS**.
   Commits `2ec3dc2` (binary), `12a8959` (fix + evidence).
+- 2026-09-05 (Executor session): Step 9 done. `docs/gnome/feasibility-research.md`
+  covers all 9 Document 00 §50 topics (Mutter private API stability; virtual-monitor
+  lifecycle; DisplayConfig incl. hybrid-GPU; GNOME locking vs RemoteDesktop; libei/EIS;
+  physical input isolation candidates; PipeWire lifecycle; systemd privilege boundaries;
+  GPU-specific behaviour), each with question/sources/findings/confidence
+  (`CONFIRMED`/`LIKELY`/`UNVERIFIED`, Doc 01 §51 vocabulary per C12)/escalation
+  experiment, plus a "Feasibility blockers" section (4 items, none blocking Phase 2,
+  none Doc 00 §49 `UNSUPPORTED`).
+  Grounded in: (a) Experiment 0–2 empirical evidence (already `CONFIRMED` live facts);
+  (b) genuine source research — confirmed `gitlab.gnome.org/GNOME/mutter` has real
+  `50.1`/`50.2`/`50.3`/`50.4`/`51.x` tags (fetched the `/-/tags` page), then read the
+  actual `50.1`-tagged `src/backends/meta-input-capture-session.c` in full via its
+  `/-/raw/` URL (the `/-/blob/` UI form triggers a Fastly bot-check CAPTCHA on this
+  network — raw URLs do not).
+  **Notable finding that corrects the existing risk register**: `InputCapture` is a
+  barrier-crossing (KVM-edge-style) trigger model — a pointer motion must cross an
+  `AddBarrier`-defined line adjacent to a logical-monitor edge to transition
+  `ENABLED → ACTIVATED` and start EIS emulation — not an unconditional/permanent grab as
+  assessment §7.1's candidate description phrased it. No code path for independent
+  physical-keyboard interception was found in that file (routing decision lives in
+  compositor/seat code not traced this phase). Labelled `LIKELY`/`UNVERIFIED`
+  accordingly and escalated to Experiment 9 (Phase 7) rather than asserting Gate E is
+  solved. Other confirmed findings: `org.gnome.Shell.ScreenShield` has no distinct
+  interface (aliases to `org.gnome.ScreenSaver`, see step 8); Mutter/kernel connector
+  naming mismatch (`HDMI-1` vs `HDMI-A-1`); `HasExternalMonitor=false` with the external
+  4K monitor connected but not composited.
+  `apt-get source mutter --dry-run` confirmed no `deb-src` configured (assessment §3
+  risk realised exactly as predicted) — GitLab tags were the documented fallback.
+  No code changes this step (`cargo check/clippy/fmt` unaffected). `grep -ril` for the
+  real username found nothing in the new document.
 
