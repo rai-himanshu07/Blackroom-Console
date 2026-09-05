@@ -1,6 +1,6 @@
 # Handoff: Blackroom Console
 
-**Updated:** 2026-09-05 (Phase 2 — State Machine Core complete)
+**Updated:** 2026-09-05 (Phase 3 — GNOME Session Discovery complete)
 **Workspace or branch:** Git repo, branch `main`
 **Active plan:** docs/plans/plan-20260905-phase3-gnome-session-discovery.md
 **Task tier:** governed
@@ -8,33 +8,28 @@
 
 ## Current State
 
-- **Phase 2 complete** (all 13 plan steps, reviewed). `blackroom-core`: 11
-  states, all 25 Doc 07 §8 transitions, priority resolver, lock+idempotency,
-  ControlLease (ed25519-dalek), SecurityEpoch, err001 catalogue, structured
-  events, protocol envelope/staleness, startup reconciliation.
-  `blackroom-gnome`: GnomeBackend trait (13 ops) + FakeGnomeBackend (5 fault
-  modes, no real GNOME calls). C26 filed (assessment §5); indexed.
+- **Phase 3 complete** (14 steps, reviewed). Real GNOME session discovery +
+  capability detection in `blackroom-gnome` (`mutter::session`/`capability`,
+  replaces Phase 2's placeholder). New crates `gnome-session-agent`
+  (`AgentState`, `agent.sock`/SO_PEERCRED) + `blackroom-systest` (live
+  checks); `systemd/user/gnome-session-agent.service` added.
 
 ## Checks
 
-- `cargo test/fmt/clippy -D warnings/check --workspace`, `cargo deny check`,
-  `cargo audit`: all green (168 deps, 0 advisories, 100 tests; reviewed
-  2026-09-05, 5 gaps found+fixed, see plan Execution Log).
-
-## Exact Stopping Point
-
-- Phase 2 done and independently reviewed (fixes applied). Next: `/plan-task`
-  for Phase 3 (GNOME session discovery).
+- `cargo test/fmt/clippy -D warnings/check`, `deny check`, `audit`: green
+  (170 deps, 133 tests; reviewed, 3 gaps fixed, see plan Execution Log).
+  Live-verified: correct session selected on this two-session host, all 16
+  capability constants match `capability-report.md`.
 
 ## Decisions
 
-- Rust daemons/CLI/tests, TS browser, no Python; `blackroom-console`/`blackroom`.
-  Licence `GPL-3.0-or-later`. AMD `UNKNOWN` v1. Vocab/numbers: assessment §5–§6.
-  `pam`/`pam-client` unmaintained; `nonstick` recorded as Phase 15 candidate.
+- Rust/TS/no Python; `blackroom-console`/`blackroom`, `GPL-3.0-or-later`.
+  Vocab/numbers: assessment §5–§6. `AgentState` ≠ `blackroom_core::state::
+  State` (C3). `peer_cred()` unstable at pinned toolchain; use `rustix`.
 
 ## Blockers
 - (none)
 
 ## Next Actions
 
-1. `/plan-task` for Phase 3 (GNOME session discovery).
+1. `/plan-task` for Phase 4 (virtual display PoC).
