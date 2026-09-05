@@ -1,0 +1,21 @@
+{
+  "physical_connectors_before": [
+    "HDMI-1",
+    "eDP-1"
+  ],
+  "virtual_connector": "Meta-0",
+  "logical_monitor_count_before": 2,
+  "logical_monitor_count_after_apply": 3,
+  "apply_error": null,
+  "virtual_logical_monitor_present": true,
+  "physical_connectors_still_present_after_apply": true,
+  "render_frames_received": 2,
+  "restore_error": null,
+  "topology_restored": true,
+  "physical_connectors_after_restore": [
+    "HDMI-1",
+    "eDP-1"
+  ],
+  "virtual_connector_fully_gone": true,
+  "stop_error": null
+}
