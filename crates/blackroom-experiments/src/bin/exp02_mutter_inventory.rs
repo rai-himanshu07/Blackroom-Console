@@ -705,10 +705,14 @@ fn main() -> anyhow::Result<()> {
     let system_conn = Connection::system()?;
 
     let uid = current_uid()?;
-    let (_candidates, selected_session_id) = discover(uid)?;
+    let (candidates, selected_session_id) = discover(uid)?;
+    // Reuse the real object path from `ListSessions`; login1 encodes session
+    // IDs into paths with its own escaping (e.g. id "2" -> ".../_32"), so it
+    // must never be reconstructed from the id string.
     let selected_session_path = selected_session_id
         .as_ref()
-        .map(|id| format!("/org/freedesktop/login1/session/_{id}"));
+        .and_then(|id| candidates.iter().find(|c| &c.session_id == id))
+        .map(|candidate| candidate.object_path.clone());
 
     let mut targets = vec![
         Target {
