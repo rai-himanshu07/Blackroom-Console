@@ -15,9 +15,32 @@ C2).
 production code: it calls `login1.Manager.ListSessions` then, for each
 candidate, reads the `Session` object's `Type`/`Class`/`Seat`/`User`/`Active`
 properties, and selects the **unique** session matching
-`Type=wayland ∧ Class=user ∧ Seat=seat0 ∧ User=<uid> ∧ Active=true` — failing
-closed (never "the first session") on zero or ambiguous (more than one)
-matches (Doc 05 §12–14).
+`Type=wayland ∧ Class=user ∧ Seat=seat0 ∧ User=<uid> ∧ Active=true` — never
+"the first session" (Doc 05 §12–14).
+
+Selection is a two-pass rule, not a single filter, so a *transient* absence
+can be told apart from a *definitive* mismatch (independent review finding):
+first, candidates matching the "identity" criteria alone (`Seat=seat0 ∧
+User=<uid> ∧ Active`) are found; zero such candidates is `NoneYet` — may be
+transient (the graphical session has not finished starting yet, Doc 06 §29)
+so `gnome-session-agent`'s startup retries it. Among identity matches, one
+that additionally satisfies `Type=wayland ∧ Class=user` is `Unique`; zero is
+`DefinitiveMismatch` (e.g. an X11 session for this user, which will never
+become Wayland by waiting longer); more than one is `Ambiguous` (a stable
+condition, e.g. this host's two-seat0-session case). Both `DefinitiveMismatch`
+and `Ambiguous` map to `ErrorCode::HostUnsupported` (`Retryable::No`), while
+`NoneYet` and any D-Bus/connectivity failure map to
+`ErrorCode::GnomeSessionUnavailable` (`Retryable::Conditional`) —
+`gnome-session-agent`'s startup sequence inspects `error.retryable` to decide
+whether to retry or fail closed to `AgentState::Failed` immediately, reusing
+the project's existing `Retryable` mechanism (Doc 16 §53) rather than
+treating every discovery error as equally retryable.
+
+A per-candidate property-read failure aborts the whole discovery attempt
+(mapped to the same retryable `GnomeSessionUnavailable`) rather than being
+silently skipped — dropping an unreadable candidate from the pool could
+otherwise manufacture a false "unique" match among the ones that remain
+(independent review finding).
 
 The current process's own uid is read via `rustix::process::getuid()`, not an
 environment variable (Doc 05 §12 explicitly forbids identity-by-environment-
@@ -34,13 +57,14 @@ proving the disambiguation logic — not "the first match" — is what runs.
 
 ## Capability detection (`crates/blackroom-gnome/src/mutter/capability.rs`)
 
-`capability::detect()` produces all 16 Doc 20 §8 constants using the Doc 00
+`capability::detect()` reports all 16 Doc 20 §8 constants using the Doc 00
 §35 five-tier vocabulary (`SUPPORTED, SUPPORTED_WITH_LIMITATIONS,
-EXPERIMENTAL, UNSUPPORTED, UNKNOWN` — `UNKNOWN` never activates). D-Bus-
-derived constants use targeted `zbus::blocking::Proxy` calls against the
-exact interfaces/paths `docs/gnome/api-inventory.md` already confirmed exist
-(not Experiment 2's generic introspection-XML scanner, which was a
-Phase-1-only technique for *discovering* unknown interfaces). Non-D-Bus facts
+EXPERIMENTAL, UNSUPPORTED, UNKNOWN` — `UNKNOWN` never activates). **12 of the
+16 are computed from live evidence gathered this phase**: D-Bus-derived
+constants use targeted `zbus::blocking::Proxy` calls against the exact
+interfaces/paths `docs/gnome/api-inventory.md` already confirmed exist (not
+Experiment 2's generic introspection-XML scanner, which was a Phase-1-only
+technique for *discovering* unknown interfaces); non-D-Bus facts
 (`OS_SUPPORTED`, `GNOME_SUPPORTED`, `SYSTEMD_SUPPORTED`, `GPU_CAPABLE`) port
 Experiment 0's proven techniques: `/etc/os-release`, `dpkg-query`, and
 `/proc/modules` reads.
@@ -50,10 +74,20 @@ method (not just a property `Get`) using the exact typed signature
 Experiment 2 already proved live against Mutter 50.1:
 `ua((ssss)a(siiddada{sv})a{sv})a(iiduba(ssss)a{sv})a{sv}`.
 
-**Live-verified on this host: every one of the 16 classifications exactly
-reproduces `docs/gnome/capability-report.md`'s existing table**, and the
-roadmap's Phase 3 gate (`OS_SUPPORTED, GNOME_SUPPORTED, WAYLAND_SUPPORTED,
-SYSTEMD_SUPPORTED, SESSION_FOUND` all `SUPPORTED`) passes.
+**The remaining 4** (`VIRTUAL_DISPLAY_CAPABLE`, `REMOTE_INPUT_CAPABLE`,
+`PHYSICAL_INPUT_ISOLATION_CAPABLE`, `EMERGENCY_CAPABLE`) are **not** computed
+from any evidence gathered this phase — resolving any of them requires an
+action forbidden this phase (creating a session/virtual monitor, or a
+component that does not exist yet). They are fixed at `Unknown` in code
+(`capability.rs`'s `NOT_YET_DETERMINABLE` constant), matching
+`docs/gnome/capability-report.md`'s own Phase 0-1 classification, which was
+reached by the same non-mutation reasoning, not by live computation.
+
+**Live-verified on this host: all 12 live-computed classifications exactly
+reproduce `docs/gnome/capability-report.md`'s existing table, and (trivially,
+since they are fixed) so do the remaining 4.** The roadmap's Phase 3 gate
+(`OS_SUPPORTED, GNOME_SUPPORTED, WAYLAND_SUPPORTED, SYSTEMD_SUPPORTED,
+SESSION_FOUND` all `SUPPORTED` — all 5 are live-computed) passes.
 
 ## `SessionInfo`/`Capability` revision (evidence-cited, `GnomeBackend` unchanged)
 

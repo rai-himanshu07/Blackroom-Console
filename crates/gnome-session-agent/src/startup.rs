@@ -8,6 +8,7 @@
 use std::thread;
 use std::time::Duration;
 
+use blackroom_core::error::Retryable;
 use blackroom_gnome::mutter::{capability, session};
 
 use crate::state::AgentState;
@@ -24,12 +25,20 @@ fn decide(session_is_wayland: bool, report: &capability::CapabilityReport) -> Ag
 }
 
 /// One real attempt: discover the session and run the capability gate.
+/// `discover_session`'s error carries `Retryable` (Doc 16 §53): only a
+/// transient "not up yet" condition (`Conditional`/`Yes`, Doc 06 §29) is
+/// retried; a definitive mismatch (non-Wayland session, ambiguous seat0
+/// sessions) reports `Failed` immediately, since retrying cannot help it.
 fn attempt() -> AgentState {
     let session_info = match session::discover_session() {
         Ok(info) => info,
-        Err(error) => {
-            tracing::warn!(%error, "session discovery failed; will retry");
+        Err(error) if matches!(error.retryable, Retryable::Yes | Retryable::Conditional) => {
+            tracing::warn!(%error, "session discovery failed (transient); will retry");
             return AgentState::SessionUnknown;
+        }
+        Err(error) => {
+            tracing::error!(%error, "session discovery failed definitively; refusing to activate");
+            return AgentState::Failed;
         }
     };
     let report = capability::detect(&session_info);

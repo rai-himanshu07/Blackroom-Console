@@ -25,21 +25,47 @@ struct SessionCandidate {
     active: bool,
 }
 
-/// Pure selection rule (Doc 05 §12–14): fails closed (`None`) on zero or
-/// ambiguous (more than one) matches — never picks "the first" candidate.
-fn select(candidates: &[SessionCandidate], uid: u32) -> Option<&SessionCandidate> {
-    let mut matches = candidates.iter().filter(|candidate| {
-        candidate.session_type == "wayland"
-            && candidate.class == "user"
-            && candidate.seat == "seat0"
-            && candidate.uid == uid
-            && candidate.active
-    });
-    let first = matches.next()?;
-    if matches.next().is_some() {
-        None
+/// Outcome of applying the Doc 05 §12–14 selection rule.
+#[derive(Debug, PartialEq, Eq)]
+enum Selection<'a> {
+    Unique(&'a SessionCandidate),
+    /// No candidate matches `seat0 ∧ uid ∧ active` yet — may be transient
+    /// (the graphical session has not finished starting, Doc 06 §29).
+    NoneYet,
+    /// At least one candidate matches `seat0 ∧ uid ∧ active` but fails a
+    /// definitive criterion (`Type`/`Class`) — will not resolve by
+    /// retrying (e.g. an X11 session for this user will never become
+    /// Wayland by waiting longer).
+    DefinitiveMismatch,
+    /// More than one full match — a stable ambiguity, will not resolve by
+    /// retrying.
+    Ambiguous,
+}
+
+/// Pure selection rule (Doc 05 §12–14): never picks "the first" candidate.
+/// Splits matching into two passes so a *transient* absence (no session for
+/// this user yet) can be told apart from a *definitive* mismatch (a session
+/// exists but is not Wayland/user-class) or a stable ambiguity — only the
+/// former is worth retrying (Doc 06 §29).
+fn select(candidates: &[SessionCandidate], uid: u32) -> Selection<'_> {
+    let identity_matches: Vec<&SessionCandidate> = candidates
+        .iter()
+        .filter(|candidate| candidate.seat == "seat0" && candidate.uid == uid && candidate.active)
+        .collect();
+    if identity_matches.is_empty() {
+        return Selection::NoneYet;
+    }
+
+    let mut full_matches = identity_matches
+        .into_iter()
+        .filter(|candidate| candidate.session_type == "wayland" && candidate.class == "user");
+    let Some(first) = full_matches.next() else {
+        return Selection::DefinitiveMismatch;
+    };
+    if full_matches.next().is_some() {
+        Selection::Ambiguous
     } else {
-        Some(first)
+        Selection::Unique(first)
     }
 }
 
@@ -64,10 +90,21 @@ fn corroborate_wayland_environment(
 }
 
 fn session_unavailable(detail: impl std::fmt::Display) -> BlackroomError {
+    // Retryable::Conditional (Doc 16 §53): a transient "not up yet"
+    // condition (Doc 06 §29) that startup::attempt inspects via
+    // `error.retryable` to decide whether to retry.
     BlackroomError::new(
         ErrorCode::GnomeSessionUnavailable,
         format!("login1 session discovery failed: {detail}"),
     )
+}
+
+/// A definitive, non-retryable selection failure (Doc 05 §11: an
+/// unsupported host must not attempt an unsafe fallback). Uses
+/// `ErrorCode::HostUnsupported`, whose `retryable()` is `No` — the caller
+/// must fail closed to `AgentState::Failed`, never retry.
+fn selection_unsupported(detail: impl std::fmt::Display) -> BlackroomError {
+    BlackroomError::new(ErrorCode::HostUnsupported, detail.to_string())
 }
 
 fn inspect(
@@ -107,12 +144,18 @@ fn fetch_candidates(conn: &Connection) -> Result<Vec<SessionCandidate>, Blackroo
 
     let mut candidates = Vec::with_capacity(sessions.len());
     for (session_id, _list_uid, _user_name, _seat_from_list, path) in sessions {
-        match inspect(conn, session_id.clone(), path) {
-            Ok(candidate) => candidates.push(candidate),
-            Err(error) => {
-                tracing::warn!(session_id, %error, "failed to query a logind session's properties; skipping it");
-            }
-        }
+        // A per-candidate inspection failure must not be silently skipped:
+        // dropping a session from the pool could manufacture a false
+        // "unique" match among the ones that remain. Fail the whole
+        // attempt instead (transient/retryable — the race that caused the
+        // read failure may well have cleared by the next attempt).
+        let candidate = inspect(conn, session_id.clone(), path).map_err(|error| {
+            session_unavailable(format!(
+                "failed to query logind session {session_id}'s properties: {error} \
+                 (cannot confirm uniqueness without it)"
+            ))
+        })?;
+        candidates.push(candidate);
     }
     Ok(candidates)
 }
@@ -127,19 +170,25 @@ pub fn discover_session() -> Result<SessionInfo, BlackroomError> {
 
     let connection = Connection::system().map_err(session_unavailable)?;
     let candidates = fetch_candidates(&connection)?;
-    let selected = select(&candidates, uid).ok_or_else(|| {
-        session_unavailable(
-            "no unique Wayland/GNOME user session found for the current user on seat0",
-        )
-    })?;
-
-    Ok(SessionInfo {
-        session_id: selected.session_id.clone(),
-        uid: selected.uid,
-        seat: selected.seat.clone(),
-        is_wayland: selected.session_type == "wayland",
-        active: selected.active,
-    })
+    match select(&candidates, uid) {
+        Selection::Unique(selected) => Ok(SessionInfo {
+            session_id: selected.session_id.clone(),
+            uid: selected.uid,
+            seat: selected.seat.clone(),
+            // `Selection::Unique` already enforced `session_type == "wayland"`.
+            is_wayland: true,
+            active: selected.active,
+        }),
+        Selection::NoneYet => Err(session_unavailable(
+            "no session yet matches this user on seat0 (may be transient at startup)",
+        )),
+        Selection::DefinitiveMismatch => Err(selection_unsupported(
+            "a session exists for this user on seat0 but is not a Wayland user session",
+        )),
+        Selection::Ambiguous => Err(selection_unsupported(
+            "more than one Wayland/GNOME user session matches on seat0; cannot select unambiguously",
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -167,56 +216,59 @@ mod tests {
     #[test]
     fn selects_the_unique_matching_session() {
         let candidates = [candidate("1", 1000, "seat0", "wayland", "user", true)];
-        let selected = select(&candidates, 1000).expect("unique match");
-        assert_eq!(selected.session_id, "1");
+        assert_eq!(select(&candidates, 1000), Selection::Unique(&candidates[0]));
     }
 
     #[test]
-    fn fails_closed_on_zero_matches() {
+    fn none_yet_when_no_candidates_at_all() {
+        let candidates: [SessionCandidate; 0] = [];
+        assert_eq!(select(&candidates, 1000), Selection::NoneYet);
+    }
+
+    #[test]
+    fn none_yet_when_wrong_seat() {
+        let candidates = [candidate("1", 1000, "seat1", "wayland", "user", true)];
+        assert_eq!(select(&candidates, 1000), Selection::NoneYet);
+    }
+
+    #[test]
+    fn none_yet_when_inactive() {
+        let candidates = [candidate("1", 1000, "seat0", "wayland", "user", false)];
+        assert_eq!(select(&candidates, 1000), Selection::NoneYet);
+    }
+
+    #[test]
+    fn none_yet_when_other_users_session() {
+        let candidates = [candidate("1", 2000, "seat0", "wayland", "user", true)];
+        assert_eq!(select(&candidates, 1000), Selection::NoneYet);
+    }
+
+    #[test]
+    fn definitive_mismatch_when_not_wayland() {
+        // Identity (seat0+uid+active) matches, so this is not "not up
+        // yet" — an X11 session for this user will never become Wayland
+        // by retrying, so this must not be treated as transient.
         let candidates = [candidate("1", 1000, "seat0", "x11", "user", true)];
-        assert!(select(&candidates, 1000).is_none());
+        assert_eq!(select(&candidates, 1000), Selection::DefinitiveMismatch);
     }
 
     #[test]
-    fn fails_closed_on_ambiguous_matches_never_picks_the_first() {
+    fn definitive_mismatch_when_not_user_class() {
+        let candidates = [candidate("1", 1000, "seat0", "wayland", "greeter", true)];
+        assert_eq!(select(&candidates, 1000), Selection::DefinitiveMismatch);
+    }
+
+    #[test]
+    fn ambiguous_matches_never_pick_the_first() {
         // Reproduces this host's real two-sessions-on-seat0 condition
         // (Phase 0-1 finding): two otherwise-matching sessions must not
-        // silently resolve to "the first" one found.
+        // silently resolve to "the first" one found, and retrying will not
+        // resolve a stable ambiguity.
         let candidates = [
             candidate("1", 1000, "seat0", "wayland", "user", true),
             candidate("2", 1000, "seat0", "wayland", "user", true),
         ];
-        assert!(select(&candidates, 1000).is_none());
-    }
-
-    #[test]
-    fn rejects_non_wayland_session_type() {
-        let candidates = [candidate("1", 1000, "seat0", "x11", "user", true)];
-        assert!(select(&candidates, 1000).is_none());
-    }
-
-    #[test]
-    fn rejects_non_user_class() {
-        let candidates = [candidate("1", 1000, "seat0", "wayland", "greeter", true)];
-        assert!(select(&candidates, 1000).is_none());
-    }
-
-    #[test]
-    fn rejects_wrong_seat() {
-        let candidates = [candidate("1", 1000, "seat1", "wayland", "user", true)];
-        assert!(select(&candidates, 1000).is_none());
-    }
-
-    #[test]
-    fn rejects_inactive_session() {
-        let candidates = [candidate("1", 1000, "seat0", "wayland", "user", false)];
-        assert!(select(&candidates, 1000).is_none());
-    }
-
-    #[test]
-    fn rejects_other_users_session() {
-        let candidates = [candidate("1", 2000, "seat0", "wayland", "user", true)];
-        assert!(select(&candidates, 1000).is_none());
+        assert_eq!(select(&candidates, 1000), Selection::Ambiguous);
     }
 
     #[test]

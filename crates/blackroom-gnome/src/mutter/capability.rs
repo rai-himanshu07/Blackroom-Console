@@ -303,8 +303,23 @@ fn screensaver_reachable(conn: &Connection) -> bool {
     .is_ok()
 }
 
+/// 4 of the 16 Doc 20 §8 constants (`VIRTUAL_DISPLAY_CAPABLE`,
+/// `REMOTE_INPUT_CAPABLE`, `PHYSICAL_INPUT_ISOLATION_CAPABLE`,
+/// `EMERGENCY_CAPABLE`) cannot be resolved this phase without violating the
+/// non-mutation rule (each would require creating a session/virtual
+/// monitor, or a component — `remote-emergencyd` — that does not exist
+/// yet). Unlike every other `CapabilityReport` field, these are **not**
+/// computed from any runtime evidence gathered this phase; they are fixed
+/// at `Unknown` (matching `docs/gnome/capability-report.md`'s own Phase 0-1
+/// classification, arrived at by the same non-mutation reasoning, not by
+/// live computation) until the phase named at each use site adds the
+/// mutating call each one requires.
+const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
+
 /// Detects all 16 Doc 20 §8 capability constants for the already-discovered
-/// `session`. Strictly read-only throughout.
+/// `session`. Strictly read-only throughout. 12 of the 16 are computed from
+/// live evidence gathered this phase; the remaining 4 are structurally
+/// fixed (see [`NOT_YET_DETERMINABLE`]).
 pub fn detect(session: &SessionInfo) -> CapabilityReport {
     let os_release = read_os_release();
     let os_supported = os_supported_tier(&os_release);
@@ -392,16 +407,20 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
         remote_desktop_capable,
         screencast_capable,
         pipewire_capable,
-        // No virtual monitor has been created yet (Phase 4).
-        virtual_display_capable: CapabilityTier::Unknown,
+        // Not evidence-computed this phase (see `NOT_YET_DETERMINABLE`):
+        // no virtual monitor has been created yet (Phase 4).
+        virtual_display_capable: NOT_YET_DETERMINABLE,
         display_config_capable,
-        // `ConnectToEIS` is unexercised (Phase 6).
-        remote_input_capable: CapabilityTier::Unknown,
-        // Gate E: the highest project risk, stays UNKNOWN until Phase 7.
-        physical_input_isolation_capable: CapabilityTier::Unknown,
+        // Not evidence-computed this phase: `ConnectToEIS` is unexercised
+        // (Phase 6).
+        remote_input_capable: NOT_YET_DETERMINABLE,
+        // Not evidence-computed this phase: Gate E, the highest project
+        // risk, stays UNKNOWN until Phase 7.
+        physical_input_isolation_capable: NOT_YET_DETERMINABLE,
         session_lock_capable,
-        // `remote-emergencyd` does not exist yet (Phase 10).
-        emergency_capable: CapabilityTier::Unknown,
+        // Not evidence-computed this phase: `remote-emergencyd` does not
+        // exist yet (Phase 10).
+        emergency_capable: NOT_YET_DETERMINABLE,
         gpu_capable,
     }
 }

@@ -1,8 +1,8 @@
 # Plan: Phase 3 — GNOME Session Discovery
 
 **Created:** 2026-09-05
-**Status:** draft
-**Approved by:** not yet approved
+**Status:** complete
+**Approved by:** user ("approved proceed", 2026-09-05)
 **Task tier:** governed
 
 ## Goal
@@ -262,7 +262,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
 
 ## Steps
 
-- [ ] 1. Revise the capability model in `blackroom-gnome`: remove the Phase-2
+- [x] 1. Revise the capability model in `blackroom-gnome`: remove the Phase-2
       placeholder `Capability` enum and `SessionInfo.capabilities`; expand
       `SessionInfo` with `uid: u32` and `active: bool` (Doc 05 §12); update
       `fake.rs`'s `discover_session()` literal to match.
@@ -271,7 +271,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
   - Depends on: none
   - Verify: `cargo test -p blackroom-gnome` (existing 6 tests still green)
 
-- [ ] 2. Add `zbus = "5.19.0"` and `rustix = "1.1.4"` to
+- [x] 2. Add `zbus = "5.19.0"` and `rustix = "1.1.4"` to
       `crates/blackroom-gnome/Cargo.toml`; scaffold
       `crates/blackroom-gnome/src/mutter/mod.rs` (matches the existing
       `events/mod.rs`/`protocol/mod.rs` module-root style already used in
@@ -282,7 +282,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
   - Depends on: step 1
   - Verify: `cargo check -p blackroom-gnome`
 
-- [ ] 3. Implement `crates/blackroom-gnome/src/mutter/session.rs`: port
+- [x] 3. Implement `crates/blackroom-gnome/src/mutter/session.rs`: port
       `blackroom-experiments::session::discover()`'s algorithm as production
       code returning `Result<SessionInfo, BlackroomError>` (uid via
       `rustix::process::getuid()`); add explicit Wayland-vs-XWayland
@@ -295,7 +295,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
     rejected; zero-match and ambiguous->1-match both fail closed; unique
     match selected); `cargo test -p blackroom-gnome`
 
-- [ ] 4. Implement `crates/blackroom-gnome/src/mutter/capability.rs`:
+- [x] 4. Implement `crates/blackroom-gnome/src/mutter/capability.rs`:
       `CapabilityTier` (Doc 00 §35, 5 values) and `CapabilityReport` (Doc 20
       §8, 16 named fields) plus `detect()`, using targeted zbus calls for
       D-Bus-derived constants and ported `exp00` techniques
@@ -308,7 +308,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
   - Verify: unit tests per constant's presence→tier mapping using
     injectable/fake inputs; `cargo test -p blackroom-gnome`
 
-- [ ] 5. Wire `lib.rs` exports (`pub mod mutter;` plus any new public
+- [x] 5. Wire `lib.rs` exports (`pub mod mutter;` plus any new public
       re-exports) and update `backend.rs`'s module doc comment (no longer
       claims "no real GNOME/Mutter/D-Bus call is made anywhere in this
       crate").
@@ -318,7 +318,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
   - Verify: `cargo clippy -p blackroom-gnome --all-targets -- -D warnings`;
     `cargo doc -p blackroom-gnome --no-deps`
 
-- [ ] 6. Add `crates/gnome-session-agent` as a new workspace member (root
+- [x] 6. Add `crates/gnome-session-agent` as a new workspace member (root
       `Cargo.toml`); scaffold its `Cargo.toml` (depends on `blackroom-core`,
       `blackroom-gnome`, `zbus`) with a thin `src/main.rs` over a real
       `src/lib.rs` (so internal logic stays unit-testable via
@@ -330,7 +330,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
   - Depends on: step 5
   - Verify: `cargo check --workspace`
 
-- [ ] 7. Implement `AgentState` in `crates/gnome-session-agent/src/state.rs`
+- [x] 7. Implement `AgentState` in `crates/gnome-session-agent/src/state.rs`
       (11 Doc 05 §20 values), mirroring `blackroom_core::state::State`'s
       `ALL`/`as_str()`/`Display`/exhaustiveness-test pattern; doc comment
       states the one-sentence relationship citing C3 (Evidence #3).
@@ -339,7 +339,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
   - Depends on: step 6
   - Verify: `cargo test -p gnome-session-agent`
 
-- [ ] 8. Implement the agent's startup sequence: call
+- [x] 8. Implement the agent's startup sequence: call
       `mutter::session::discover()` then `mutter::capability::detect()`,
       transition `AgentState` (`SessionUnknown → Preparing → SessionReady` on
       gate pass; `→ Failed` on gate failure or non-Wayland/non-GNOME, never a
@@ -352,7 +352,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
     refusal (`Failed`) on a non-Wayland/non-GNOME session;
     `cargo test -p gnome-session-agent`
 
-- [ ] 9. Verify `std::os::unix::net::UnixStream::peer_cred()` stability at
+- [x] 9. Verify `std::os::unix::net::UnixStream::peer_cred()` stability at
       the pinned toolchain (1.96); implement the `agent.sock` listener
       (`SO_PEERCRED`-equivalent peer verification via `peer_cred()` or the
       `rustix` fallback), rejecting unauthorized peers; no password/TOTP/
@@ -364,7 +364,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
     credentials are extracted and an unauthorized peer is rejected;
     `cargo test -p gnome-session-agent`
 
-- [ ] 10. Write `systemd/user/gnome-session-agent.service`
+- [x] 10. Write `systemd/user/gnome-session-agent.service`
        (`PartOf=graphical-session.target`, `After=` target confirmed live
        against this host's `systemctl --user list-units` output,
        `ExecStart`, restart policy).
@@ -377,7 +377,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
     reports `SESSION_READY`" criterion), evidence captured in
     `docs/gnome/session-discovery.md`
 
-- [ ] 11. Create `crates/blackroom-systest` skeleton (new workspace member)
+- [x] 11. Create `crates/blackroom-systest` skeleton (new workspace member)
        with the two live-host checks: two-session-on-`seat0` selection, and
        the Phase 3 capability gate; `#[ignore]`d, gated `BLACKROOM_SYSTEST=1`
        plus a minimal host preflight (`XDG_SESSION_TYPE=wayland` present).
@@ -388,7 +388,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
     `BLACKROOM_SYSTEST=1` set, run live on this host; plain
     `cargo test --workspace` (no env var) does not execute these
 
-- [ ] 12. Write `docs/gnome/session-discovery.md` documenting the real
+- [x] 12. Write `docs/gnome/session-discovery.md` documenting the real
        implementation, cross-referencing Phase 0-1 evidence
        (`api-inventory.md`, `feasibility-research.md`, `capability-report.md`)
        and the `AgentState`/C3 relationship.
@@ -397,7 +397,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
   - Verify: manual read-through cross-checking every citation against the
     live files/output it references
 
-- [ ] 13. Update `docs/HANDOFF.md`, `/memories/repo/blackroom-console.md`, and
+- [x] 13. Update `docs/HANDOFF.md`, `/memories/repo/blackroom-console.md`, and
        a MemPalace checkpoint (wing `blackroom_console`) reflecting Phase 3
        completion.
   - Files: `docs/HANDOFF.md`
@@ -405,7 +405,7 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
   - Verify: `python3 .github/skills/project-doctor/scripts/doctor.py` reports
     0 errors/0 warnings; `docs/HANDOFF.md` stays ≤ 40 lines / 3 KB
 
-- [ ] 14. Full workspace verification and independent review: `cargo test
+- [x] 14. Full workspace verification and independent review: `cargo test
        --workspace`, `cargo fmt --check`,
        `cargo clippy --workspace --all-targets -- -D warnings`,
        `cargo check --workspace --all-targets`, `cargo deny check`,
@@ -440,3 +440,45 @@ display/input isolation, and remote input stay mocked until Phases 4–7.
 ## Execution Log
 
 - 2026-09-05: Plan drafted. No code written yet.
+- 2026-09-05: All 14 steps implemented in one continuous session, 8
+  coherent commits. Live-verified throughout on this host (real two-
+  seat0-session selection, all 16 capability constants matching
+  `capability-report.md`, real `systemctl --user` smoke test, real
+  `agent.sock` SO_PEERCRED connection via `socat`). `cargo test/fmt/
+  clippy(-D warnings)/check --workspace`, `cargo deny check`, `cargo
+  audit` all green (170 deps, 0 advisories, 123 tests across the
+  workspace). `std::os::unix::net::UnixStream::peer_cred()` confirmed
+  still unstable at the pinned `rustc 1.96.0` by direct compile (the
+  standard library docs page was misleadingly showing nightly-only
+  content); used `rustix::net::sockopt::socket_peercred` instead.
+- 2026-09-05: Independent review (Reviewer subagent, read-only).
+  **Verdict: FAIL initially**, 3 real gaps found (2 High, 1 Medium):
+  (1) `gnome-session-agent`'s startup treated every `discover_session`
+  error as transient/retryable, including definitive mismatches (an
+  X11-only session, an ambiguous seat0 host) that retrying can never
+  fix — fixed by splitting `session::select()` into `NoneYet` (transient) vs
+  `DefinitiveMismatch`/`Ambiguous` (permanent), mapped to
+  `ErrorCode::GnomeSessionUnavailable` (`Retryable::Conditional`) vs
+  `ErrorCode::HostUnsupported` (`Retryable::No`) respectively, and having
+  `startup::attempt` branch on `error.retryable` (reusing the project's
+  existing `Retryable` mechanism, Doc 16 §53, rather than inventing new
+  machinery); (2) `capability::detect()` hardcoded 4 of the 16 Doc 20 §8
+  constants as literal `Unknown` (correct values, matching
+  `capability-report.md`, but not computed from any evidence gathered
+  this phase) while `docs/gnome/session-discovery.md` overclaimed all 16
+  were live-verified — fixed by naming the 4 structurally-fixed constants
+  via a documented `NOT_YET_DETERMINABLE` constant and correcting the docs
+  to state precisely which 12 are live-computed vs. which 4 are
+  structurally fixed pending later phases; (3) a per-candidate logind
+  property-read failure was silently skipped in `fetch_candidates`, which
+  could manufacture a false "unique" match if a genuinely competing
+  session became transiently unreadable — fixed by propagating the
+  failure as a whole-attempt (retryable) error instead. All three fixes
+  applied; re-verified: 32 blackroom-gnome + 12 gnome-session-agent tests
+  green, live behavior re-confirmed unchanged (still reaches
+  `SESSION_READY` selecting the correct session), fmt/clippy -D warnings
+  clean workspace-wide. LESSON (matches Phase 2): a fresh independent
+  review pass caught real correctness gaps that direct re-reading of
+  freshly-written code, and even live verification of the happy path, did
+  not — the failure-path logic (not the happy path) is where self-review
+  keeps missing things.
