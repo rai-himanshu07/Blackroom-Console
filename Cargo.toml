@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/blackroom-core", "crates/blackroom-experiments", "crates/blackroom-gnome"]
+members = [
+    "crates/blackroom-core",
+    "crates/blackroom-experiments",
+    "crates/blackroom-gnome",
+    "crates/gnome-session-agent",
+]
 
 [workspace.package]
 edition = "2024"

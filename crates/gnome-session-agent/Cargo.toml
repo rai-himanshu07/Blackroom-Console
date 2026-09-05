@@ -1,0 +1,17 @@
+[package]
+name = "gnome-session-agent"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "User-session agent (Doc 05 §16-17): discovers the GNOME session, runs the Phase 3 capability gate, and reports AgentState over agent.sock."
+
+[lints]
+workspace = true
+
+[dependencies]
+blackroom-core = { version = "0.1.0", path = "../blackroom-core" }
+blackroom-gnome = { version = "0.1.0", path = "../blackroom-gnome" }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
