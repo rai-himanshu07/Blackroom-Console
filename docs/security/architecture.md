@@ -100,7 +100,7 @@ crates are only evaluated and recorded").
 | `anyhow` | 1.0.104 **(in use)** | MIT OR Apache-2.0 | current | Error handling (binaries only) | n/a | Active |
 | `tracing-journald` | 0.3.2 | MIT | 2025-11-26 | journald log sink (Doc 00 §56 logging rules) | unprivileged | Active (tokio-rs org) |
 | `sd-notify` | 0.5.0 | MIT OR Apache-2.0 | 2026-03-09 | systemd `Type=notify` readiness/watchdog | unprivileged (writes to `$NOTIFY_SOCKET`) | Active |
-| `pipewire` | 0.10.1 | MIT | 2026-08-19 | PipeWire client bindings (`ScreenCast` media) | unprivileged (user session) | Active (freedesktop.org org) |
+| `pipewire` | 0.10.1 **(in use)** | MIT | 2026-08-19 | PipeWire client bindings (`ScreenCast` media, `crates/blackroom-gnome/src/mutter/pipewire_capture.rs`) | unprivileged (user session) | Active (freedesktop.org org) |
 | `gstreamer` (+ `gstreamer-webrtc`, same repo) | 0.25.3 | MIT OR Apache-2.0 | 2026-06-29 | Media pipeline, WebRTC encode/send | unprivileged (user session, `remote-media` child) | Active (gstreamer-rs, freedesktop.org) |
 | `reis` | 0.7.1 | MIT | 2026-07-30 | Pure-Rust libei/libeis protocol (remote input) | unprivileged (user session) | Active; the only maintained pure-Rust libei binding |
 | `evdev` | 0.13.2 | MIT OR Apache-2.0 | 2025-09-15 | Fallback `EVIOCGRAB`/physical-input helper only if `InputCapture` (Doc 10 topic 6) proves insufficient | **privileged** (reads `/dev/input/event*`) | Active |
@@ -150,11 +150,12 @@ The licences above are already covered by `deny.toml`'s allow list
 (`MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, MPL-2.0,
 GPL-3.0-or-later, LGPL-2.1-or-later, Unicode-3.0`) — no new licence exceptions
 were needed when Phase 2 added `ulid`, `ed25519-dalek`, `getrandom`, and
-(dev-only) `proptest` as real dependencies (`cargo deny check` re-run and
-green, confirmed 2026-09-05). `cargo deny check` must be re-run again at
-whichever phase adds each remaining evaluated-only crate (`rand`, `tokio`,
-`schemars`, `rustix`, `argon2`, `totp-rs`, `secrecy`, `rusqlite`, `axum`,
-`hyper`, `rustls`, `tracing-journald`, `sd-notify`, `pipewire`, `gstreamer`,
-`reis`, `evdev`) — the Phase 0–1 allow-list (`zbus, serde, serde_json, clap,
-tracing, tracing-subscriber, anyhow, time`) plus the Phase 2 additions above
-are the only real dependencies as of this writing.
+(dev-only) `proptest`; Phase 3 added `rustix`; Phase 4 added `pipewire`
+(`cargo deny check` re-run and green after each, most recently confirmed
+2026-09-05). `cargo deny check` must be re-run again at whichever phase adds
+each remaining evaluated-only crate (`rand`, `tokio`, `schemars`, `argon2`,
+`totp-rs`, `secrecy`, `rusqlite`, `axum`, `hyper`, `rustls`,
+`tracing-journald`, `sd-notify`, `gstreamer`, `reis`, `evdev`) — the Phase
+0–1 allow-list (`zbus, serde, serde_json, clap, tracing, tracing-subscriber,
+anyhow, time`) plus the Phase 2–4 additions above are the only real
+dependencies as of this writing.

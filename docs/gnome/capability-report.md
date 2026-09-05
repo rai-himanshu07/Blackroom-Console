@@ -16,11 +16,11 @@ that will produce direct evidence.
 | `SYSTEMD_SUPPORTED` | `SUPPORTED` | Exp 0 | systemd 259.5-0ubuntu3.4; project requires systemd (`Type=notify`, user units, `login1`). |
 | `SESSION_FOUND` | `SUPPORTED` | Exp 1 | Unique session selected by `Type=wayland ∧ Class=user ∧ Seat=seat0 ∧ User=<uid> ∧ Active=true`; negative test (`WAYLAND_DISPLAY` removed) correctly failed closed. |
 | `MUTTER_CAPABLE` | `SUPPORTED` | Exp 2 | All required `org.gnome.Mutter.*` interfaces introspected successfully; versioned (`RemoteDesktop.Version=1`, `ScreenCast.Version=4`). |
-| `REMOTE_DESKTOP_CAPABLE` | `EXPERIMENTAL` | Exp 2; pending Phase 6 (Exp 8) | `CreateSession` method and `Version`/`SupportedDeviceTypes` properties present and reachable — presence only. `ConnectToEIS` is session-scoped and unexercised. |
-| `SCREENCAST_CAPABLE` | `EXPERIMENTAL` | Exp 2; pending Phase 3–4 (Exp 3–4) | `CreateSession`/`Version` present — presence only. `RecordVirtual` is session-scoped and unexercised (hard rule: no session creation in Phase 0–1). |
-| `PIPEWIRE_CAPABLE` | `EXPERIMENTAL` | Exp 0; pending Phase 3 (Exp 3) | PipeWire 1.6.2 / WirePlumber 0.5.13 installed and current; no PipeWire node has actually been created by this project yet. |
-| `VIRTUAL_DISPLAY_CAPABLE` | `UNKNOWN` | pending Phase 4 (Exp 4–5) | No virtual monitor has been created; `RecordVirtual`'s exact lifecycle was not directly observed (session-scoped, no mutation this phase). |
-| `DISPLAY_CONFIG_CAPABLE` | `SUPPORTED` | Exp 2 | `GetCurrentState` is not just present but was **actually called and returned correct live topology** (2 connectors, 1 logical monitor, matching Exp 0's kernel-level facts) — a real functional test, not mere presence. The all-physical-disabled edge case remains open (see `VIRTUAL_DISPLAY_CAPABLE`, `feasibility-research.md` topic 3). |
+| `REMOTE_DESKTOP_CAPABLE` | `EXPERIMENTAL` | Exp 2, Exp 3; pending Phase 6 (Exp 8) | `CreateSession` method and `Version`/`SupportedDeviceTypes` properties present and reachable; Experiment 3 additionally created and introspected a real session — but its only recorded `Session.Stop()` call was made **without** a prior `Start()` and correctly errored ("Session not started"). No successful `Start()`/verified cleanup has been exercised for `RemoteDesktop` specifically (independent-review finding, corrected from an earlier draft of this report that had promoted it to `SUPPORTED`). `ConnectToEIS` remains unexercised (Phase 6). |
+| `SCREENCAST_CAPABLE` | `SUPPORTED` | Exp 2–5; pending none (this constant) | Promoted from `EXPERIMENTAL` (Phase 4): `CreateSession`/`RecordMonitor`/`RecordVirtual`/`Start`/`Stop` all exercised for real across Experiments 3–5, including 50 clean create/destroy cycles (Doc 19 §16–17) and verified teardown. |
+| `PIPEWIRE_CAPABLE` | `SUPPORTED` | Exp 0, Exp 3, Exp 4 | Promoted from `EXPERIMENTAL` (Phase 4): real PipeWire nodes created and real frames received (Experiments 3–4); 50 create/destroy cycles left 0 leaked `Stream/*/Video` nodes (`pw-dump`-equivalent node-count check). |
+| `VIRTUAL_DISPLAY_CAPABLE` | `SUPPORTED_WITH_LIMITATIONS` | Exp 4, Exp 5 | Promoted from `UNKNOWN` (Phase 4): `RecordVirtual` creates a real, `GetCurrentState`-confirmed monitor at 1280×720/1920×1080/2560×1440@60Hz, destroyed cleanly across 50 cycles, and usable as an **additional** active display (Experiment 5) with real frames captured from it. **Not** a clean `SUPPORTED`: whether Mutter permits **zero** physical monitors enabled remains open (Phase 5 Experiment 6, assessment §7.3), and GPU-specific cross-buffer-scanout / cursor behaviour on this hybrid host stay `UNVERIFIED` (`feasibility-research.md` topics 3, 9; Phase 9/24). |
+| `DISPLAY_CONFIG_CAPABLE` | `SUPPORTED` | Exp 2 | `GetCurrentState` is not just present but was **actually called and returned correct live topology** (2 connectors, 1 logical monitor, matching Exp 0's kernel-level facts) — a real functional test, not mere presence. The all-physical-disabled edge case remains open (see `VIRTUAL_DISPLAY_CAPABLE` above and Phase 5 Experiment 6). |
 | `REMOTE_INPUT_CAPABLE` | `UNKNOWN` | pending Phase 6 (Exp 8) | `ConnectToEIS` unexercised; the `reis` crate is not yet a dependency. |
 | `PHYSICAL_INPUT_ISOLATION_CAPABLE` | `UNKNOWN` | pending Phase 7 (Exp 9, Exp 38) | This is Gate E, the highest project risk. `InputCapture.CreateSession`/`SupportedCapabilities` are present, and reading the real Mutter 50.1 source (`meta-input-capture-session.c`) confirmed the barrier-crossing mechanism exists — but whether it achieves **complete** physical keyboard+pointer isolation for this product's requirement was not established (`feasibility-research.md` topic 6). Presence must not be read as support here. |
 | `SESSION_LOCK_CAPABLE` | `EXPERIMENTAL` | Exp 2; pending Phase 8 (Exp 11) | `org.gnome.ScreenSaver.{Lock,GetActive,SetActive,ActiveChanged}` present and reachable (a real, simple functional primitive) — but interaction with an active `RemoteDesktop` session (survives lock? EIS reaches unlock dialog?) is completely untested. `org.gnome.Shell.ScreenShield` resolves to this same interface, not a separate one (`feasibility-research.md` topic 4). |
@@ -30,13 +30,21 @@ that will produce direct evidence.
 ## Overall status
 
 **`UNKNOWN` → activation blocked**, as expected at this stage (Document 00 §35:
-`UNKNOWN` never activates). Three constants are `UNKNOWN`:
-`VIRTUAL_DISPLAY_CAPABLE`, `REMOTE_INPUT_CAPABLE`,
-`PHYSICAL_INPUT_ISOLATION_CAPABLE` — the last of these is Gate E, the hard
-stop if it cannot be resolved safely (assessment §7.1). No constant is
-`UNSUPPORTED`; nothing observed this phase contradicts feasibility.
+`UNKNOWN` never activates). Two constants relevant to remote-access activation
+are still `UNKNOWN`: `REMOTE_INPUT_CAPABLE`, `PHYSICAL_INPUT_ISOLATION_CAPABLE`
+— the latter is Gate E, the hard stop if it cannot be resolved safely
+(assessment §7.1). `EMERGENCY_CAPABLE` is also still `UNKNOWN` (Phase 10,
+orthogonal to remote-access activation itself). No constant is `UNSUPPORTED`;
+nothing observed through Phase 4 contradicts feasibility.
 
-Remote-access activation remains and must remain blocked until Phases 3–10
-(Document 10 Experiments 3–10, roadmap Stage II) resolve these three
+`VIRTUAL_DISPLAY_CAPABLE`, `SCREENCAST_CAPABLE`, and `PIPEWIRE_CAPABLE` were
+promoted this phase (Phase 4, Experiments 3–5); `REMOTE_DESKTOP_CAPABLE` was
+**not** promoted (independent review found the evidence did not support it —
+see the row above) and stays `EXPERIMENTAL`. See `docs/gnome/virtual-display.md`
+for the full findings and the two decisions (tier-promotion rule and
+`GnomeBackend`-assembly deferral) this phase required.
+
+Remote-access activation remains and must remain blocked until Phases 6–7
+(Document 10 Experiments 8–9, roadmap Stage II) resolve the two remaining
 constants experimentally. This report will be re-issued after each phase that
 changes one of these classifications.
