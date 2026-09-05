@@ -1,27 +1,29 @@
 # Handoff: Blackroom Console
 
-**Updated:** 2026-09-05 (Executor session — Phase 0-1 complete, step 5 verified)
-**Workspace or branch:** Git repo, branch `main`, 22 commits
-**Active plan:** docs/plans/plan-20260904-phase0-1-discovery-and-environment.md
-**Task tier:** 3
+**Updated:** 2026-09-05 (Phase 2 — State Machine Core complete)
+**Workspace or branch:** Git repo, branch `main`
+**Active plan:** docs/plans/plan-20260905-phase2-state-machine-core.md
+**Task tier:** governed
 **Memory:** wing `blackroom_console` checkpointed this session (see diary)
 
 ## Current State
 
-- **Phase 0 + Phase 1 complete**, all 11 plan steps checked incl. step 5 (tablet
-  key-based SSH verified, password auth disabled+confirmed rejected). Rust workspace;
-  Exp 0-2 binaries + evidence; docs/gnome/*.md + docs/security/architecture.md.
-  Capability report: `UNKNOWN → activation blocked` (expected).
+- **Phase 2 complete** (all 13 plan steps). `blackroom-core`: 11 states, all
+  25 Doc 07 §8 transitions, priority resolver, lock+idempotency, ControlLease
+  (ed25519-dalek), SecurityEpoch, err001 catalogue, structured events,
+  protocol envelope/staleness, startup reconciliation. `blackroom-gnome`:
+  GnomeBackend trait (13 ops) + FakeGnomeBackend (5 fault modes, no real
+  GNOME calls). Conflict C26 filed (assessment §5); `Blackroom_Console` indexed.
 
 ## Checks
 
 - `cargo test/fmt/clippy -D warnings/check --workspace`, `cargo deny check`,
-  `cargo audit`: all green at the Phase 1 checkpoint (plan Execution Log).
+  `cargo audit`: all green (168 deps, 0 advisories; 89 new tests pass).
 
 ## Exact Stopping Point
 
-- Phase 0-1 done. Next: `/plan-task` for Phase 2 (State Machine Core, mock
-  `GnomeBackend`) after independent review of the Phase 1 research conclusions.
+- Phase 2 done. Next: independent review (Reviewer agent, read-only), then
+  `/plan-task` for Phase 3 (GNOME session discovery).
 
 ## Decisions
 
@@ -35,4 +37,4 @@
 
 ## Next Actions
 
-1. `/plan-task` for Phase 2 after independent review (Reviewer agent, read-only).
+1. Independent review of Phase 2, then `/plan-task` for Phase 3 (GNOME session discovery).
