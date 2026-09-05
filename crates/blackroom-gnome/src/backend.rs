@@ -1,8 +1,11 @@
 //! `GnomeBackend` trait (Doc 05 §8), cross-checked against
 //! `docs/gnome/api-inventory.md` (Phase 1 evidence: every Mutter/Shell/
-//! logind D-Bus interface actually present on GNOME 50.1). No real GNOME/
-//! Mutter/D-Bus call is made anywhere in this crate — a real
-//! implementation is Phase 3+ (assessment C2, mock-first).
+//! logind D-Bus interface actually present on GNOME 50.1). This trait
+//! itself still has no implementation making real calls — `mutter::session`
+//! and `mutter::capability` (Phase 3) provide the real session-discovery
+//! and capability-detection logic that a future concrete `GnomeBackend`
+//! will assemble alongside later phases' virtual-display/display-isolation/
+//! remote-input modules (assessment C2).
 #![allow(clippy::doc_markdown)]
 
 use blackroom_core::error::BlackroomError;

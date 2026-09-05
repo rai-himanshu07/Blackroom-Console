@@ -1,11 +1,13 @@
-//! `GnomeBackend` trait boundary (Doc 05 §8) and in-memory fake with fault
-//! injection. No real GNOME/Mutter/D-Bus call is made from this crate yet
-//! (mock-first, assessment C2); a real Mutter-backed implementation is
-//! Phase 3+.
+//! `GnomeBackend` trait boundary (Doc 05 §8), real session discovery and
+//! capability detection (Phase 3, `mutter` module), and an in-memory fake
+//! with fault injection. Real Mutter/RemoteDesktop/ScreenCast session
+//! creation, display isolation, and remote input remain mocked until
+//! Phases 4–7 (assessment C2).
 #![forbid(unsafe_code)]
 
 pub mod backend;
 pub mod fake;
+pub mod mutter;
 
 pub use backend::{CursorState, DisplayState, GnomeBackend, SessionInfo};
 pub use fake::{FakeGnomeBackend, FaultConfig, FaultMode};

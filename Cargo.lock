@@ -265,6 +265,10 @@ name = "blackroom-gnome"
 version = "0.1.0"
 dependencies = [
  "blackroom-core",
+ "rustix",
+ "serde",
+ "tracing",
+ "zbus",
 ]
 
 [[package]]
