@@ -155,7 +155,7 @@ configuration.
     `environment.json`; running it twice produces identical content except timestamp; no
     file outside the evidence directory changes (`inotifywait`/`git status` check).
 
-- [ ] 7. Experiment 1 — GNOME session discovery (read-only, system bus)
+- [x] 7. Experiment 1 — GNOME session discovery (read-only, system bus)
   - Files: `crates/blackroom-experiments/src/bin/exp01_session_discovery.rs`; evidence
     `docs/experiments/evidence/exp01/<date>/`.
   - Depends on: step 6.
@@ -374,4 +374,36 @@ crates (zbus/serde/clap/tracing/anyhow/time).
   card1=i915/eDP-1 connected+DP-1/DP-2 disconnected, 23 input devices,
   `XDG_SESSION_TYPE=wayland`. Result: **PASS**. Commits `03a75e3` (binary),
   `7e3b4ba` (evidence).
+- 2026-09-05 (Executor session): Step 7 done.
+  `crates/blackroom-experiments/src/bin/exp01_session_discovery.rs` calls
+  `org.freedesktop.login1.Manager.ListSessions` (signature confirmed live via `busctl
+  introspect`: `a(susso)`) over the **system** bus (zbus 5.19 blocking API), then reads
+  each `Session` object's `Type`/`Class`/`Seat` `(so)`/`Active`/`State`/`User` `(uo)`/
+  `Display`/`Desktop`/`LockedHint`/`Scope`/`Name` properties (types confirmed live via
+  `busctl get-property`). Selection requires a **unique** match on
+  `Type=wayland ∧ Class=user ∧ Seat=seat0 ∧ User.uid=<current uid> ∧ Active=true`
+  (current uid via `id -u`, no `$DISPLAY`/process-name guessing — Doc 05 §12–14); zero or
+  ambiguous (>1) matches both fail closed. Asserts `XDG_SESSION_TYPE=wayland` and that
+  `WAYLAND_DISPLAY`/`DBUS_SESSION_BUS_ADDRESS` are non-empty; reports `Desktop` and the
+  `gnome-session*`/`graphical-session*` user units via `systemctl --user list-units`.
+  `--self-test` spawns a child of itself with `WAYLAND_DISPLAY` removed
+  (`Command::env_remove`) and a `BLACKROOM_EXP01_SUPPRESS_EVIDENCE=1` guard so the child
+  computes the same classification but never writes evidence; exit codes are classified
+  `Ok=0 / SessionNotFound=2 / WaylandUnavailable=3`.
+  Verified live: 2 logind sessions found — session "2" (`seat0`, `wayland`, `user`,
+  `active=true`) **SELECTED**; session "3" (`Type=unspecified`, `Class=manager`, no seat)
+  rejected. Env assertions all true. `--self-test` child exited `3`
+  (`WaylandUnavailable`) as expected → negative test **passed**. Ran twice — `report.md`
+  (excluding `Date:`) and `session.json` byte-identical across runs; `git status
+  --porcelain` showed only the evidence directory as new.
+  **Bug caught and fixed during verification**: the first implementation redacted the
+  username only in the human-readable `observed` text, not in the `session.json`
+  structured sidecar — `grep -ril user docs/experiments/evidence/` found the raw
+  username twice in the JSON. Fixed by redacting `SessionProperties.name`/`.display` at
+  struct-construction time (before serialisation), not only at report-render time;
+  re-verified clean with the same grep (`NO_USERNAME_LEAK`). Recorded as a lesson: redact
+  structured/JSON evidence at the data-construction site, never rely on redacting only
+  the rendered text.
+  `cargo check/clippy -D warnings/fmt --check` green throughout. Result: **PASS**.
+  Commits `5ad8f9c` (binary), `0e1b0ba` (fix + evidence).
 
