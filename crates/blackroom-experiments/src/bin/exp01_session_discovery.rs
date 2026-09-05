@@ -211,7 +211,7 @@ fn discover(uid: u32) -> anyhow::Result<(Vec<SessionCandidate>, Option<String>)>
     Ok((candidates, selected_id))
 }
 
-fn render_rationale(candidates: &[SessionCandidate], redact_on: bool) -> String {
+fn render_rationale(candidates: &[SessionCandidate]) -> String {
     candidates
         .iter()
         .map(
@@ -227,7 +227,7 @@ fn render_rationale(candidates: &[SessionCandidate], redact_on: bool) -> String 
                     properties.seat,
                     properties.active,
                     properties.state,
-                    redact(&properties.name, redact_on),
+                    properties.name,
                     if candidate.selected {
                         "SELECTED"
                     } else {
@@ -257,7 +257,16 @@ fn main() -> anyhow::Result<()> {
     let now = OffsetDateTime::now_utc();
 
     let uid = current_uid()?;
-    let (candidates, selected_id) = discover(uid)?;
+    let (mut candidates, selected_id) = discover(uid)?;
+    // Redact at the source so both `session.json` and the rendered report
+    // stay clean; report-time redaction alone would leave the raw name in
+    // the JSON sidecar.
+    for candidate in &mut candidates {
+        if let Some(properties) = &mut candidate.properties {
+            properties.name = redact(&properties.name, redact_on);
+            properties.display = redact(&properties.display, redact_on);
+        }
+    }
 
     let xdg_session_type = std::env::var("XDG_SESSION_TYPE").ok();
     let wayland_display_set = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty());
@@ -303,7 +312,7 @@ fn main() -> anyhow::Result<()> {
         None
     };
 
-    let rationale = render_rationale(&candidates, redact_on);
+    let rationale = render_rationale(&candidates);
     let observed = redact(
         &format!(
             "current uid: {uid}\n{rationale}\nselected session: {}\n\
