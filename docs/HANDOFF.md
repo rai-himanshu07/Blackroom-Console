@@ -35,5 +35,6 @@
 ## Next Actions
 
 1. `/plan-task` for Phase 5 (physical display isolation, hard gate FEAS-C) —
-   needs `docs/ops/experiment-safety.md` §1–4 (SSH+watchdog), still pending
-   on this host.
+   `docs/ops/experiment-safety.md` §1 (SSH out-of-band access) is already
+   verified (Phase 0-1); §2's watchdog is a mechanism the new exp06/exp07
+   binaries must still implement, not a pending prerequisite.
