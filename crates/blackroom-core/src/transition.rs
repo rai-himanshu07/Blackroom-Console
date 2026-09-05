@@ -4,7 +4,11 @@
 
 use std::fmt;
 
+use time::OffsetDateTime;
+
 use crate::event::Event;
+use crate::events::{StateTransitionEvent, TransitionResult};
+use crate::lock::StateMachineLock;
 use crate::state::State;
 
 /// Outcome of successfully applying a legal transition.
@@ -111,6 +115,56 @@ pub fn apply(from: State, event: Event) -> Result<Transition, IllegalTransition>
     };
 
     Ok(Transition { from, event, to })
+}
+
+/// Applies `event` to the state guarded by `lock`, generating a fresh
+/// `tr_<ULID>` transition ID (Doc 07 §26: "every transition should have a
+/// unique identifier"), updating the lock's `state`/`transition_id` on
+/// success, and emitting a Doc 13 §6 structured event either way — this is
+/// the one place transition IDs are actually generated and transitions are
+/// actually recorded, rather than `apply`'s pure (state, event) -> state
+/// math alone.
+pub fn apply_and_record(
+    lock: &StateMachineLock,
+    event: Event,
+    trigger: &str,
+    component: &str,
+) -> Result<Transition, IllegalTransition> {
+    let transition_id = format!("tr_{}", ulid::Ulid::generate());
+    let from = lock.snapshot().state;
+    let result = apply(from, event);
+
+    let (new_state, transition_result) = match &result {
+        Ok(t) => (Some(t.to), TransitionResult::Success),
+        Err(_) => (None, TransitionResult::Rejected),
+    };
+
+    if let Ok(t) = &result {
+        lock.with_locked(|s| {
+            s.state = t.to;
+            s.transition_id = Some(transition_id.clone());
+        });
+    }
+
+    StateTransitionEvent {
+        timestamp: OffsetDateTime::now_utc(),
+        event: format!("{event:?}"),
+        previous_state: from,
+        new_state,
+        transition_id,
+        trigger: trigger.to_string(),
+        component: component.to_string(),
+        result: transition_result,
+        // An illegal (state, event) pair is a protocol/programming-invariant
+        // violation (`IllegalTransition`), not an operational `err001`
+        // failure — no `ErrorCode` applies here. Operational failure codes
+        // are attached by the caller when a `GnomeBackend` call itself
+        // fails and that failure is translated into a failure-class event.
+        failure_code: None,
+    }
+    .emit();
+
+    result
 }
 
 /// The Doc 07 §10 rollback sequence for [`crate::event::Event::PreparationFailureRecoverable`]
@@ -446,5 +500,49 @@ mod tests {
             reconcile_startup_state(State::FailedSafe),
             State::FailedSafe
         );
+    }
+
+    #[test]
+    fn apply_and_record_generates_a_tr_ulid_id_and_updates_the_lock_on_success() {
+        let lock = StateMachineLock::new(State::LocalActive, crate::epoch::SecurityEpoch::INITIAL);
+        let transition = apply_and_record(&lock, Event::Lock, "test", "test-component").unwrap();
+        assert_eq!(transition.to, State::LocalLocked);
+
+        let snapshot = lock.snapshot();
+        assert_eq!(snapshot.state, State::LocalLocked);
+        let transition_id = snapshot.transition_id.expect("transition_id must be set");
+        assert!(transition_id.starts_with("tr_"));
+        // The suffix must be a valid ULID (26-char Crockford Base32).
+        assert!(ulid::Ulid::from_string(&transition_id["tr_".len()..]).is_ok());
+    }
+
+    #[test]
+    fn apply_and_record_does_not_mutate_the_lock_on_an_illegal_transition() {
+        let lock = StateMachineLock::new(State::LocalActive, crate::epoch::SecurityEpoch::INITIAL);
+        let err = apply_and_record(&lock, Event::Connect, "test", "test-component").unwrap_err();
+        assert_eq!(
+            err,
+            IllegalTransition {
+                from: State::LocalActive,
+                event: Event::Connect
+            }
+        );
+        let snapshot = lock.snapshot();
+        assert_eq!(
+            snapshot.state,
+            State::LocalActive,
+            "state must be unchanged after rejection"
+        );
+        assert!(snapshot.transition_id.is_none());
+    }
+
+    #[test]
+    fn apply_and_record_generates_a_distinct_id_per_call() {
+        let lock = StateMachineLock::new(State::LocalActive, crate::epoch::SecurityEpoch::INITIAL);
+        apply_and_record(&lock, Event::Lock, "test", "test-component").unwrap();
+        let first_id = lock.snapshot().transition_id.unwrap();
+        apply_and_record(&lock, Event::Connect, "test", "test-component").unwrap();
+        let second_id = lock.snapshot().transition_id.unwrap();
+        assert_ne!(first_id, second_id);
     }
 }

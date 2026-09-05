@@ -149,8 +149,12 @@ This is recorded now, not resolved now — Non-Goal for Phase 0–1.
 The licences above are already covered by `deny.toml`'s allow list
 (`MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, MPL-2.0,
 GPL-3.0-or-later, LGPL-2.1-or-later, Unicode-3.0`) — no new licence exceptions
-are anticipated when these crates are actually added in later phases, but
-`cargo deny check` must be re-run at the phase that adds each one (Non-Goal
-this phase: none of these are dependencies yet, per the plan's crate
-allow-list for Phase 1 binaries: `zbus, serde, serde_json, clap, tracing,
-tracing-subscriber, anyhow, time`).
+were needed when Phase 2 added `ulid`, `ed25519-dalek`, `getrandom`, and
+(dev-only) `proptest` as real dependencies (`cargo deny check` re-run and
+green, confirmed 2026-09-05). `cargo deny check` must be re-run again at
+whichever phase adds each remaining evaluated-only crate (`rand`, `tokio`,
+`schemars`, `rustix`, `argon2`, `totp-rs`, `secrecy`, `rusqlite`, `axum`,
+`hyper`, `rustls`, `tracing-journald`, `sd-notify`, `pipewire`, `gstreamer`,
+`reis`, `evdev`) — the Phase 0–1 allow-list (`zbus, serde, serde_json, clap,
+tracing, tracing-subscriber, anyhow, time`) plus the Phase 2 additions above
+are the only real dependencies as of this writing.

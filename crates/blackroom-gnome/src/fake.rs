@@ -271,6 +271,8 @@ impl GnomeBackend for FakeGnomeBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
 
     #[test]
     fn normal_operation_applies_effects() {
@@ -324,6 +326,85 @@ mod tests {
         backend.lock_session().unwrap();
         backend.lock_session().unwrap();
         assert_eq!(backend.call_count("lock_session"), 2);
+        assert!(backend.is_locked());
+    }
+
+    /// Doc 07 §27's named idempotent operations, each called twice: the
+    /// second call must succeed (not error) and leave the same observable
+    /// state as the first — "safe to call repeatedly ... because crash
+    /// recovery may repeat cleanup".
+    #[test]
+    fn lock_session_is_idempotent() {
+        let mut backend = FakeGnomeBackend::default();
+        assert!(backend.lock_session().is_ok());
+        assert!(
+            backend.lock_session().is_ok(),
+            "calling lock_session again must not error"
+        );
+        assert!(backend.is_locked());
+        assert_eq!(backend.call_count("lock_session"), 2);
+    }
+
+    #[test]
+    fn disable_remote_input_is_idempotent() {
+        let mut backend = FakeGnomeBackend::default();
+        backend.enable_remote_input().unwrap();
+        assert!(backend.disable_remote_input().is_ok());
+        assert!(
+            backend.disable_remote_input().is_ok(),
+            "calling disable_remote_input when already disabled must not error"
+        );
+        assert!(!backend.is_remote_input_enabled());
+    }
+
+    #[test]
+    fn restore_physical_outputs_is_idempotent() {
+        let mut backend = FakeGnomeBackend::default();
+        backend.disable_physical_outputs().unwrap();
+        assert!(backend.restore_physical_outputs().is_ok());
+        assert!(
+            backend.restore_physical_outputs().is_ok(),
+            "calling restore_physical_outputs when already restored must not error"
+        );
+        assert!(!backend.is_physical_outputs_disabled());
+    }
+
+    #[test]
+    fn destroy_virtual_monitor_is_idempotent() {
+        let mut backend = FakeGnomeBackend::default();
+        backend.create_virtual_monitor().unwrap();
+        assert!(backend.destroy_virtual_monitor().is_ok());
+        assert!(
+            backend.destroy_virtual_monitor().is_ok(),
+            "calling destroy_virtual_monitor when it no longer exists must not error"
+        );
+        assert!(!backend.is_virtual_monitor_active());
+    }
+
+    /// `Concurrent` fault mode: every `GnomeBackend` method takes `&mut
+    /// self`, so Rust's borrow checker already forbids a true data race on
+    /// a bare `FakeGnomeBackend` — real concurrent access can only happen
+    /// through external synchronization (a shared `Mutex`, mirroring how a
+    /// real `gnome-session-agent` would guard its own backend handle
+    /// behind `StateMachineLock`). This proves that under that
+    /// synchronization, every concurrent call is still counted and
+    /// applied — none lost, none double-applied beyond what was requested.
+    #[test]
+    fn concurrent_calls_through_a_shared_mutex_are_all_counted() {
+        let faults = FaultConfig::new().inject("lock_session", FaultMode::Concurrent);
+        let backend = Arc::new(Mutex::new(FakeGnomeBackend::new(faults)));
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let backend = Arc::clone(&backend);
+            handles.push(thread::spawn(move || {
+                backend.lock().unwrap().lock_session().unwrap();
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        let backend = backend.lock().unwrap();
+        assert_eq!(backend.call_count("lock_session"), 8);
         assert!(backend.is_locked());
     }
 

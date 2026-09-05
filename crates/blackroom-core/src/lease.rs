@@ -84,14 +84,17 @@ impl ControlLease {
     }
 
     /// Invariant 1: `remote_input_enabled == true` only if the lease is
-    /// valid, unrevoked, epoch-current, and the host is `REMOTE_ACTIVE`.
-    /// Callers track revocation externally (a lease is an immutable signed
-    /// credential; revocation is a fact about the world, not a field on
-    /// it).
+    /// valid, unrevoked, epoch-current, bound to the current session, and
+    /// the host is `REMOTE_ACTIVE` (Doc 07 §13: "reject remote input when:
+    /// lease expired OR revoked OR security epoch changed OR session ID
+    /// invalid OR host state != REMOTE_ACTIVE"). Callers track revocation
+    /// externally (a lease is an immutable signed credential; revocation is
+    /// a fact about the world, not a field on it).
     pub fn validate(
         &self,
         current_epoch: SecurityEpoch,
         current_state: State,
+        current_session_id: &str,
         revoked: bool,
         now: SystemTime,
     ) -> Result<(), BlackroomError> {
@@ -111,6 +114,12 @@ impl ControlLease {
             return Err(BlackroomError::new(
                 ErrorCode::SessionEpochMismatch,
                 "control lease security epoch does not match the current epoch",
+            ));
+        }
+        if self.session_id != current_session_id {
+            return Err(BlackroomError::new(
+                ErrorCode::SessionNotFound,
+                "control lease session ID does not match the current session",
             ));
         }
         if current_state != State::RemoteActive {
@@ -182,7 +191,13 @@ mod tests {
         let lease = sample_lease(SecurityEpoch::INITIAL, now);
         assert!(
             lease
-                .validate(SecurityEpoch::INITIAL, State::RemoteActive, false, now)
+                .validate(
+                    SecurityEpoch::INITIAL,
+                    State::RemoteActive,
+                    "rs_01TESTSESSION",
+                    false,
+                    now
+                )
                 .is_ok()
         );
     }
@@ -193,7 +208,13 @@ mod tests {
         let lease = sample_lease(SecurityEpoch::INITIAL, now);
         let later = now + Duration::from_secs(31);
         let err = lease
-            .validate(SecurityEpoch::INITIAL, State::RemoteActive, false, later)
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteActive,
+                "rs_01TESTSESSION",
+                false,
+                later,
+            )
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::LeaseExpired);
     }
@@ -203,7 +224,13 @@ mod tests {
         let now = SystemTime::now();
         let lease = sample_lease(SecurityEpoch::INITIAL, now);
         let err = lease
-            .validate(SecurityEpoch::INITIAL, State::RemoteActive, true, now)
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteActive,
+                "rs_01TESTSESSION",
+                true,
+                now,
+            )
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::LeaseRevoked);
     }
@@ -216,6 +243,7 @@ mod tests {
             .validate(
                 SecurityEpoch::INITIAL.next(),
                 State::RemoteActive,
+                "rs_01TESTSESSION",
                 false,
                 now,
             )
@@ -224,11 +252,33 @@ mod tests {
     }
 
     #[test]
+    fn validate_rejects_wrong_session_id() {
+        let now = SystemTime::now();
+        let lease = sample_lease(SecurityEpoch::INITIAL, now);
+        let err = lease
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteActive,
+                "rs_01DIFFERENTSESSION",
+                false,
+                now,
+            )
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::SessionNotFound);
+    }
+
+    #[test]
     fn validate_rejects_wrong_state() {
         let now = SystemTime::now();
         let lease = sample_lease(SecurityEpoch::INITIAL, now);
         let err = lease
-            .validate(SecurityEpoch::INITIAL, State::RemoteDegraded, false, now)
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteDegraded,
+                "rs_01TESTSESSION",
+                false,
+                now,
+            )
             .unwrap_err();
         assert_eq!(err.code, ErrorCode::LeaseInvalid);
     }

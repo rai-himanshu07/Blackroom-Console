@@ -31,12 +31,24 @@ fn invariant_1_no_valid_lease_no_remote_input() {
 
     assert!(
         lease
-            .validate(SecurityEpoch::INITIAL, State::RemoteActive, false, now)
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteActive,
+                "rs_01INVARIANT",
+                false,
+                now
+            )
             .is_ok()
     );
     assert_eq!(
         lease
-            .validate(SecurityEpoch::INITIAL, State::RemoteActive, true, now)
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteActive,
+                "rs_01INVARIANT",
+                true,
+                now
+            )
             .unwrap_err()
             .code,
         ErrorCode::LeaseRevoked
@@ -46,6 +58,7 @@ fn invariant_1_no_valid_lease_no_remote_input() {
             .validate(
                 SecurityEpoch::INITIAL,
                 State::RemoteActive,
+                "rs_01INVARIANT",
                 false,
                 now + Duration::from_secs(31)
             )
@@ -58,6 +71,7 @@ fn invariant_1_no_valid_lease_no_remote_input() {
             .validate(
                 SecurityEpoch::INITIAL.next(),
                 State::RemoteActive,
+                "rs_01INVARIANT",
                 false,
                 now
             )
@@ -67,7 +81,27 @@ fn invariant_1_no_valid_lease_no_remote_input() {
     );
     assert_eq!(
         lease
-            .validate(SecurityEpoch::INITIAL, State::RemoteDegraded, false, now)
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteActive,
+                "rs_01WRONGSESSION",
+                false,
+                now
+            )
+            .unwrap_err()
+            .code,
+        ErrorCode::SessionNotFound,
+        "Doc 07 §13: session ID invalid must also reject remote input"
+    );
+    assert_eq!(
+        lease
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteDegraded,
+                "rs_01INVARIANT",
+                false,
+                now
+            )
             .unwrap_err()
             .code,
         ErrorCode::LeaseInvalid
@@ -144,7 +178,7 @@ fn invariant_6_old_epoch_leases_are_invalid_after_bump() {
     let new_epoch = old_epoch.next();
     assert_eq!(new_epoch.value(), 42);
     let err = lease
-        .validate(new_epoch, State::RemoteActive, false, now)
+        .validate(new_epoch, State::RemoteActive, "rs_01INVARIANT", false, now)
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::SessionEpochMismatch);
 }

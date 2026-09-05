@@ -36,7 +36,13 @@ fn scenario_a_no_remote_input_without_authorization() {
     // Authenticated, but not yet authorized/prepared: no state accepts
     // remote input here.
     let err = lease
-        .validate(SecurityEpoch::INITIAL, State::Authenticated, false, now)
+        .validate(
+            SecurityEpoch::INITIAL,
+            State::Authenticated,
+            "rs_01SCENARIO",
+            false,
+            now,
+        )
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::LeaseInvalid);
 }
@@ -89,21 +95,29 @@ fn scenario_e_emergency_invalidates_stale_sessions() {
     let post_emergency_epoch = pre_emergency_epoch.next();
 
     let err = stale_lease
-        .validate(post_emergency_epoch, State::RemoteActive, false, now)
+        .validate(
+            post_emergency_epoch,
+            State::RemoteActive,
+            "rs_01SCENARIO",
+            false,
+            now,
+        )
         .unwrap_err();
     assert_eq!(err.code, ErrorCode::SessionEpochMismatch);
 }
 
-/// F/G. Physical privacy/control restored after teardown: the Doc 07 §5.8
-/// teardown sequence restores physical input and display before the
-/// sequence completes (full ordering already checked in
-/// `tests/rollback.rs::teardown_sequence_revokes_input_authority_before_locking`;
-/// here we confirm both restoration steps are present at all).
+/// F. Physical display privacy is restored after remote teardown.
 #[test]
-fn scenario_f_and_g_physical_privacy_and_control_are_restored() {
+fn scenario_f_physical_display_privacy_is_restored() {
+    use blackroom_core::transition::TEARDOWN_SEQUENCE;
+    assert!(TEARDOWN_SEQUENCE.contains(&"restore_physical_display"));
+}
+
+/// G. Physical keyboard/mouse control is restored after remote teardown.
+#[test]
+fn scenario_g_physical_control_is_restored() {
     use blackroom_core::transition::TEARDOWN_SEQUENCE;
     assert!(TEARDOWN_SEQUENCE.contains(&"restore_physical_input"));
-    assert!(TEARDOWN_SEQUENCE.contains(&"restore_physical_display"));
 }
 
 /// H. No automatic unlock: the user must explicitly unlock GNOME —

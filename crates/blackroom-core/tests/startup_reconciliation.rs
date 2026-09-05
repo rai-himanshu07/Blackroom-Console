@@ -58,7 +58,13 @@ fn a_pre_restart_lease_is_rejected_after_startup_reconciliation() {
     let reconciled_state = reconcile_startup_state(State::RemoteActive);
     assert_eq!(reconciled_state, State::LocalLocked);
     let err = lease
-        .validate(pre_restart_epoch, reconciled_state, false, now)
+        .validate(
+            pre_restart_epoch,
+            reconciled_state,
+            "rs_01BEFORE",
+            false,
+            now,
+        )
         .unwrap_err();
     assert_eq!(err.code, blackroom_core::error::ErrorCode::LeaseInvalid);
 }
