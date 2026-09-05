@@ -272,6 +272,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackroom-systest"
+version = "0.1.0"
+dependencies = [
+ "blackroom-gnome",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -4,6 +4,7 @@ members = [
     "crates/blackroom-core",
     "crates/blackroom-experiments",
     "crates/blackroom-gnome",
+    "crates/blackroom-systest",
     "crates/gnome-session-agent",
 ]
 
