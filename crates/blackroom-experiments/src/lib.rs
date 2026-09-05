@@ -6,6 +6,8 @@
 //! production code (assessment §6.1 repository layout).
 pub mod cli;
 pub mod evidence;
+pub mod session;
 
 pub use cli::CommonArgs;
 pub use evidence::{ExperimentReport, ExperimentResult, evidence_dir, redact, write_evidence};
+pub use session::{SessionCandidate, SessionProperties, current_uid, discover, render_rationale};

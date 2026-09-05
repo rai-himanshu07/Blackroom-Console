@@ -1,5 +1,5 @@
 Experiment: Experiment 1 — GNOME Session Discovery
-Date: 2026-09-05T02:17:36.792885062Z
+Date: 2026-09-05T02:33:11.102654441Z
 Environment: Development workstation (host = target), Ubuntu 26.04 / GNOME 50.1
 Objective:
 Determine exactly how the active GNOME Wayland session is identified, without guessing from $DISPLAY or process names (Document 10 §8, Document 05 §12-14).
