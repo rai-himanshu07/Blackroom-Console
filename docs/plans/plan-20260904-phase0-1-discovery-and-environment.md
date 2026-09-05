@@ -127,7 +127,7 @@ configuration.
   - Verify: `python3 .github/skills/project-doctor/scripts/doctor.py` reports no missing
     required file; Phase 0 report appended to the Execution Log below.
 
-- [ ] 5. Ask the user to install prerequisites (no sudo by the agent)
+- [x] 5. Ask the user to install prerequisites (no sudo by the agent)
   - Files: none (record the command and result in the Execution Log).
   - Depends on: step 4.
   - Verify: user runs `sudo apt install libei-dev libeis-dev libpipewire-0.3-dev
@@ -245,8 +245,9 @@ configuration.
 
 ## Blockers
 
-- Step 5 requires the user to run the `sudo apt install …` command above and to verify a
-  key-based SSH login from a second device; the agent must not attempt either itself.
+- (none) — step 5 resolved 2026-09-05 (dev headers confirmed installed, tablet
+  key-based SSH verified, password authentication disabled and confirmed rejected; see
+  Execution Log).
 
 ## Execution Log
 
@@ -627,5 +628,22 @@ transitions, invariants, transition IDs, idempotency against a mock `GnomeBacken
 no real GNOME) after independent review of this Phase 1 report and its research
 conclusions (`governed` policy: Reviewer agent, read-only).
 ```
+
+- 2026-09-05 (Executor session, follow-up): Step 5 fully resolved. Dev-header packages
+  confirmed installed (`pkg-config --modversion` for libei-1.0/libeis-1.0/libpipewire-0.3/
+  gstreamer-1.0/gstreamer-webrtc-1.0/pam all resolved). User's tablet ed25519 public key
+  installed in `~/.ssh/authorized_keys` (perms 700/600 verified); first login attempt hit
+  a client-side typo (`19.168.1.15` vs `192.168.1.50`, diagnosed via `ssh -v` on the tablet
+  showing the wrong target IP — server-side config was already correct: home 750, no
+  `sshd_config.d` drop-ins, no `Match`/`AllowUsers`/`AuthenticationMethods` restrictions).
+  Retried with the correct IP: user confirmed key-based login succeeded. User then ran
+  (own sudo, not the agent): created `/etc/ssh/sshd_config.d/99-blackroom-key-only.conf`
+  with `PasswordAuthentication no`, validated with `sshd -t`, reloaded via
+  `systemctl try-restart ssh.service`. Verified by forcing password-only auth from the
+  tablet (`ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password ...`); user
+  confirmed the expected `Permission denied (publickey)` response, i.e. password
+  authentication is rejected and only the key works. `docs/ops/experiment-safety.md` §1
+  updated accordingly. Experiment 6/9 prerequisite (out-of-band SSH channel) is now
+  satisfied.
 
 

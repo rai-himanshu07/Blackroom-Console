@@ -12,11 +12,12 @@ is both the development machine and the target, so there is no disposable test b
   `192.168.1.50`.
 - A second device (tablet/phone, e.g. Termux) must reach the host over SSH using
   **key-based** authentication before Experiment 6/9 run for the first time.
-- Status as of 2026-09-05: `ssh.socket` active; `~/.ssh/authorized_keys` is empty and
-  password authentication is still enabled. **Pending user action** (plan step 5): install
-  a key in `authorized_keys`, verify `ssh <user>@192.168.1.50` from the second device, then
-  disable password authentication in `/etc/ssh/sshd_config.d/`. Until this is verified,
-  do not run Experiment 6 or later display/input-mutating experiments.
+- Status as of 2026-09-05: **Verified.** `ssh.socket` active; tablet ed25519 key installed
+  in `~/.ssh/authorized_keys`; key-based login confirmed from the second device; password
+  authentication disabled via `/etc/ssh/sshd_config.d/99-blackroom-key-only.conf`
+  (`PasswordAuthentication no`) and confirmed rejected (forced password-only attempt from
+  the tablet returned `Permission denied (publickey)`). Plan step 5 complete; the
+  Experiment 6/9 prerequisite is satisfied.
 
 ## 2. Experiment watchdog (armed before every mutating experiment)
 
