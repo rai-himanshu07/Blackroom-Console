@@ -383,14 +383,15 @@ Object path: `/org/freedesktop/login1/session/_32`
 
 ## DisplayConfig.GetCurrentState summary
 
-Serial: `1`
+Serial: `3`
 
 | Connector | Vendor | Product | Serial (hashed) | Current mode | Modes |
 |---|---|---|---|---|---|
-| `HDMI-1` | SAM | Smart M80C | `7fddfc2eecca3d01` | (none marked current) | 31 |
 | `eDP-1` | AUO | 0xed8f | `cfb3d220f3780aae` | 1920x1080@120.21Hz (1920x1080@120.213) | 128 |
+| `HDMI-1` | SAM | Smart M80C | `7fddfc2eecca3d01` | 3840x2160@29.97Hz (3840x2160@29.970) | 31 |
 
 | Logical monitor | Position | Scale | Transform | Primary | Connectors |
 |---|---|---|---|---|---|
-| — | (0, 0) | 1 | 0 | true | eDP-1 |
+| — | (0, 0) | 1.25 | 0 | false | HDMI-1 |
+| — | (3072, 1078) | 1 | 0 | true | eDP-1 |
 

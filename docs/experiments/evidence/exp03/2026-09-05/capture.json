@@ -1,0 +1,21 @@
+{
+  "capture_attempts": [
+    {
+      "connector_argument": "eDP-1",
+      "error": null,
+      "method_tried": "RecordMonitor",
+      "succeeded": true
+    }
+  ],
+  "cleanup_verified": true,
+  "connector": "eDP-1",
+  "frames_received": 1,
+  "observed_format": {
+    "format": "VideoFormat::BGRx",
+    "framerate_denom": 1,
+    "framerate_num": 0,
+    "height": 1080,
+    "width": 1920
+  },
+  "stream_path": "/org/gnome/Mutter/ScreenCast/Stream/u8"
+}
