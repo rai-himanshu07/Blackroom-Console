@@ -455,8 +455,10 @@ encoding/WebRTC — those remain Phases 5–8 and Stage III+.
 
 ## Blockers
 
-- None currently open. Decision #3 (Risks, last item) was implicitly accepted
-  when the user approved execution; still worth a final confirmation at step 7.
+- None. Decision #3 (Risks, last item) received explicit user sign-off
+  2026-09-05, after the user separately confirmed this host is a laptop
+  whose inbuilt panel (`eDP-1`) can never be physically unplugged (only the
+  external `HDMI-1` can) — approved "as is" with no changes requested.
 
 ## Execution Log
 

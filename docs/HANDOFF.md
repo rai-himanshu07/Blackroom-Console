@@ -9,26 +9,25 @@
 ## Current State
 
 - **Phase 4 complete** (12 steps, independently reviewed — 3 real gaps found
-  and fixed, see plan Execution Log). First mutating GNOME/PipeWire code:
-  `blackroom-gnome` gained `mutter::{remote_desktop,screencast,
-  virtual_monitor,pipewire_capture}`. Experiments 3–5 all live-PASS
-  (`docs/experiments/evidence/exp0{3,4,5}/`). Capability tiers: only
-  `screencast_capable`/`pipewire_capable`/`virtual_display_capable` promoted
-  (review reverted an unsupported `remote_desktop_capable` promotion).
+  and fixed). First mutating GNOME/PipeWire code: `blackroom-gnome` gained
+  `mutter::{remote_desktop,screencast,virtual_monitor,pipewire_capture}`.
+  Experiments 3–5 all live-PASS (`docs/experiments/evidence/exp0{3,4,5}/`).
+  Only `screencast_capable`/`pipewire_capable`/`virtual_display_capable`
+  promoted (review reverted an unsupported `remote_desktop_capable` bump).
 
 ## Checks
 
 - `cargo test/fmt/clippy -D warnings/check`, `deny check`, `audit`: green
-  (201 deps, 0 vulnerabilities). Live-verified: exp03–05 all PASS,
-  independently re-checked (byte-identical topology restore, 0 leaked
-  PipeWire nodes, GNOME Shell survived).
+  (201 deps, 0 vulnerabilities). exp03–05 independently re-checked live
+  (byte-identical topology restore, 0 leaked PipeWire nodes, Shell survived).
 
 ## Decisions
 
 - Capability tiers structurally fixed in `capability.rs` (not a live call in
   `detect()` — Doc 19 §16–17 repeated-cycle risk). No `GnomeBackend`
   assembly this phase (stays modules-only). Physical-monitor removal
-  deferred to Phase 5 Exp 6 (user sign-off pending — flag before Phase 5).
+  deferred to Phase 5 Exp 6 — user approved this scoping 2026-09-05 (laptop:
+  `eDP-1` inbuilt has no unplug fallback, only `HDMI-1` external does).
 
 ## Blockers
 - (none)
