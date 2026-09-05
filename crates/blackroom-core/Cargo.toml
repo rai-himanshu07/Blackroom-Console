@@ -11,3 +11,15 @@ description = "Core state machine, protocol, and domain types for Blackroom Cons
 workspace = true
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+time = { version = "0.3.55", features = ["formatting", "macros", "parsing"] }
+tracing = "0.1.44"
+ulid = "3.0.0"
+ed25519-dalek = { version = "3.0.0", features = ["rand_core", "zeroize"] }
+getrandom = "0.4.3"
+
+[dev-dependencies]
+proptest = "1.11.0"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
