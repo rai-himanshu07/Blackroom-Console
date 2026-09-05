@@ -135,6 +135,17 @@ fn gpu_capable_tier(loaded_gpu_modules: &[String]) -> CapabilityTier {
     }
 }
 
+/// `Supported` ceiling reflects Phase 4 evidence (Experiments 3-4: real
+/// PipeWire frames/nodes, not merely installed packages); `Unknown` if
+/// either package is absent.
+fn pipewire_capable_tier(pipewire_installed: bool, wireplumber_installed: bool) -> CapabilityTier {
+    if pipewire_installed && wireplumber_installed {
+        CapabilityTier::Supported
+    } else {
+        CapabilityTier::Unknown
+    }
+}
+
 // ---------------------------------------------------------------------
 // Real, non-D-Bus evidence gathering (ported from `exp00_environment`).
 // ---------------------------------------------------------------------
@@ -303,18 +314,37 @@ fn screensaver_reachable(conn: &Connection) -> bool {
     .is_ok()
 }
 
-/// 4 of the 16 Doc 20 §8 constants (`VIRTUAL_DISPLAY_CAPABLE`,
-/// `REMOTE_INPUT_CAPABLE`, `PHYSICAL_INPUT_ISOLATION_CAPABLE`,
-/// `EMERGENCY_CAPABLE`) cannot be resolved this phase without violating the
-/// non-mutation rule (each would require creating a session/virtual
-/// monitor, or a component — `remote-emergencyd` — that does not exist
-/// yet). Unlike every other `CapabilityReport` field, these are **not**
-/// computed from any runtime evidence gathered this phase; they are fixed
-/// at `Unknown` (matching `docs/gnome/capability-report.md`'s own Phase 0-1
-/// classification, arrived at by the same non-mutation reasoning, not by
-/// live computation) until the phase named at each use site adds the
-/// mutating call each one requires.
+/// 3 of the 16 Doc 20 §8 constants (`REMOTE_INPUT_CAPABLE`,
+/// `PHYSICAL_INPUT_ISOLATION_CAPABLE`, `EMERGENCY_CAPABLE`) cannot be
+/// resolved this phase without violating the non-mutation rule for *their*
+/// mechanism (each would require `ConnectToEIS`, physical input isolation,
+/// or a component — `remote-emergencyd` — that does not exist yet). Unlike
+/// every other `CapabilityReport` field, these are **not** computed from any
+/// runtime evidence gathered so far; they are fixed at `Unknown` (matching
+/// `docs/gnome/capability-report.md`'s own classification, arrived at by the
+/// same non-mutation reasoning, not by live computation) until the phase
+/// named at each use site adds the mutating call each one requires.
+/// (`VIRTUAL_DISPLAY_CAPABLE` was the 4th member of this group through Phase
+/// 3; Phase 4 promoted it — see [`VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS`].)
 const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
+
+/// `VIRTUAL_DISPLAY_CAPABLE`: promoted from `Unknown` this phase (Phase 4,
+/// Experiments 4–5, `docs/experiments/evidence/exp0{4,5}/`) —
+/// `RecordVirtual` creates a real, `DisplayConfig`-confirmed monitor at
+/// 1280×720/1920×1080/2560×1440@60Hz, usable as an *additional* active
+/// display (Experiment 5), destroyed cleanly across 50 create/destroy
+/// cycles with 0 leaked PipeWire nodes and no GNOME Shell crash (Doc 19
+/// §16–17). **Not** a clean `Supported`: whether Mutter permits **zero**
+/// physical monitors enabled (assessment §7.3) is deliberately deferred to
+/// Phase 5 Experiment 6 (Phase 4 plan Decision #3), and GPU-specific
+/// cross-buffer-scanout / cursor behaviour on this hybrid host remain
+/// `UNVERIFIED` (`feasibility-research.md` topics 3, 9; escalated to Phase
+/// 9/24). Structurally fixed (not computed inside `detect()`) for the same
+/// reason as [`NOT_YET_DETERMINABLE`]: creating/destroying a real virtual
+/// monitor on every `gnome-session-agent` startup would itself be the
+/// repeated-cycle reliability risk Doc 19 §16–17 warns against.
+const VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS: CapabilityTier =
+    CapabilityTier::SupportedWithLimitations;
 
 /// Detects all 16 Doc 20 §8 capability constants for the already-discovered
 /// `session`. Strictly read-only throughout. 12 of the 16 are computed from
@@ -327,12 +357,15 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
     let wayland_supported = wayland_supported_tier(session.is_wayland);
     let systemd_supported = systemd_supported_tier(dpkg_version("systemd").as_deref());
     let gpu_capable = gpu_capable_tier(&loaded_gpu_modules());
-    let pipewire_capable =
-        if dpkg_version("pipewire").is_some() && dpkg_version("wireplumber").is_some() {
-            CapabilityTier::Experimental
-        } else {
-            CapabilityTier::Unknown
-        };
+    // Presence check stays live/cheap every `detect()` call (Doc 19 §17:
+    // safe, read-only); the tier ceiling for "present" was raised from
+    // `Experimental` to `Supported` this phase because Phase 4 (Experiments
+    // 3-4, `docs/experiments/evidence/exp0{3,4}/`) proved real PipeWire
+    // frames/nodes, not merely that the packages are installed.
+    let pipewire_capable = pipewire_capable_tier(
+        dpkg_version("pipewire").is_some(),
+        dpkg_version("wireplumber").is_some(),
+    );
 
     let (
         mutter_capable,
@@ -355,13 +388,27 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
             } else {
                 CapabilityTier::Unsupported
             };
+            // Presence check stays live/cheap every call. Independent-review
+            // finding: Experiment 3 created a `RemoteDesktop` session and
+            // introspected it, but its only recorded `Session.Stop()` call
+            // was made *without* a prior `Start()` and correctly errored
+            // ("Session not started") — no successful `Start`/verified
+            // cleanup was ever exercised for `RemoteDesktop` specifically
+            // (unlike `ScreenCast`, which Experiments 3-5 fully proved).
+            // Stays `EXPERIMENTAL` (presence only) pending Phase 6 (Exp 8),
+            // which exercises `ConnectToEIS` and will need a real Start.
             let remote_desktop_capable = if remote_desktop_version.is_some() {
                 CapabilityTier::Experimental
             } else {
                 CapabilityTier::Unsupported
             };
+            // Promoted `Experimental`→`Supported` this phase: Phase 4
+            // Experiments 3-5 proved real `CreateSession`/`RecordMonitor`/
+            // `RecordVirtual`/`Start`/`Stop` calls with verified cleanup
+            // (unlike `RemoteDesktop` above, `ScreenCast`'s full lifecycle
+            // was actually exercised, not just a Stop-without-Start probe).
             let screencast_capable = if screencast_version.is_some() {
-                CapabilityTier::Experimental
+                CapabilityTier::Supported
             } else {
                 CapabilityTier::Unsupported
             };
@@ -407,9 +454,10 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
         remote_desktop_capable,
         screencast_capable,
         pipewire_capable,
-        // Not evidence-computed this phase (see `NOT_YET_DETERMINABLE`):
-        // no virtual monitor has been created yet (Phase 4).
-        virtual_display_capable: NOT_YET_DETERMINABLE,
+        // Promoted from `Unknown` this phase (see
+        // `VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS`): Experiments 4-5 created,
+        // confirmed, and destroyed real virtual monitors.
+        virtual_display_capable: VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS,
         display_config_capable,
         // Not evidence-computed this phase: `ConnectToEIS` is unexercised
         // (Phase 6).
@@ -512,6 +560,25 @@ mod tests {
             CapabilityTier::SupportedWithLimitations
         );
         assert_eq!(gpu_capable_tier(&[]), CapabilityTier::Unknown);
+    }
+
+    #[test]
+    fn pipewire_capable_supported_when_both_packages_present() {
+        assert_eq!(pipewire_capable_tier(true, true), CapabilityTier::Supported);
+        assert_eq!(pipewire_capable_tier(true, false), CapabilityTier::Unknown);
+        assert_eq!(pipewire_capable_tier(false, true), CapabilityTier::Unknown);
+        assert_eq!(pipewire_capable_tier(false, false), CapabilityTier::Unknown);
+    }
+
+    #[test]
+    fn virtual_display_promoted_to_supported_with_limitations_not_a_clean_supported() {
+        // Phase 4 evidence (Experiments 4-5) justifies a real promotion from
+        // `Unknown`, but the zero-physical-monitor question (Phase 5) and
+        // GPU/cursor caveats (Phase 9/24) keep it below a clean `Supported`.
+        assert_eq!(
+            VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS,
+            CapabilityTier::SupportedWithLimitations
+        );
     }
 
     fn all_supported_report() -> CapabilityReport {
