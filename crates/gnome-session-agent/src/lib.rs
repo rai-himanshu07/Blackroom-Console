@@ -5,6 +5,7 @@
 //! unit-testable via `cargo test -p gnome-session-agent`.
 #![forbid(unsafe_code)]
 
+pub mod ipc;
 pub mod startup;
 pub mod state;
 

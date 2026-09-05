@@ -618,6 +618,7 @@ version = "0.1.0"
 dependencies = [
  "blackroom-core",
  "blackroom-gnome",
+ "rustix",
  "tracing",
  "tracing-subscriber",
 ]

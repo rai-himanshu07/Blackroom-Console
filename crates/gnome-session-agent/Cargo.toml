@@ -13,5 +13,6 @@ workspace = true
 [dependencies]
 blackroom-core = { version = "0.1.0", path = "../blackroom-core" }
 blackroom-gnome = { version = "0.1.0", path = "../blackroom-gnome" }
+rustix = { version = "1.1.4", features = ["net"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
