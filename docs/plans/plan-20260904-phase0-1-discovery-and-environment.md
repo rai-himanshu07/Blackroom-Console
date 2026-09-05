@@ -208,7 +208,7 @@ configuration.
     specific behaviour (NVIDIA proprietary + Intel `xe`/`i915`, hardware cursors, encoders
     via `gst-inspect-1.0 | grep -E 'va|nv|x264'`).
 
-- [ ] 10. Capability report and architecture decisions
+- [x] 10. Capability report and architecture decisions
   - Files: `docs/gnome/capability-report.md`; `docs/security/architecture.md`.
   - Depends on: steps 8–9.
   - Verify: capability report classifies every Document 20 §8 constant with the Doc 00
@@ -484,4 +484,35 @@ crates (zbus/serde/clap/tracing/anyhow/time).
   risk realised exactly as predicted) — GitLab tags were the documented fallback.
   No code changes this step (`cargo check/clippy/fmt` unaffected). `grep -ril` for the
   real username found nothing in the new document.
+- 2026-09-05 (Executor session): Step 10 done.
+  `docs/gnome/capability-report.md` classifies all 16 Document 20 §8 capability
+  constants with Document 00 §35 tiers and an evidence pointer: 7 `SUPPORTED`
+  (`OS_SUPPORTED`, `GNOME_SUPPORTED`, `WAYLAND_SUPPORTED`, `SYSTEMD_SUPPORTED`,
+  `SESSION_FOUND`, `MUTTER_CAPABLE`, `DISPLAY_CONFIG_CAPABLE`), 4 `EXPERIMENTAL`
+  (`REMOTE_DESKTOP_CAPABLE`, `SCREENCAST_CAPABLE`, `PIPEWIRE_CAPABLE`,
+  `SESSION_LOCK_CAPABLE`), 1 `SUPPORTED_WITH_LIMITATIONS` (`GPU_CAPABLE`), 4 `UNKNOWN`
+  (`VIRTUAL_DISPLAY_CAPABLE`, `REMOTE_INPUT_CAPABLE`,
+  `PHYSICAL_INPUT_ISOLATION_CAPABLE` — Gate E, and `EMERGENCY_CAPABLE`), 0
+  `UNSUPPORTED`. Overall status **`UNKNOWN → activation blocked`**, exactly as the
+  plan expects at this stage.
+  `docs/security/architecture.md` records assessment §6.1–§6.5 verbatim (languages/
+  toolchain/layout, names/paths/accounts, IPC/privilege-crossing, cryptography/secrets,
+  numeric defaults) plus a 24-crate Document 00 §51 evaluation table (security/
+  maintenance/licence/privilege domain/attack surface). Real crates.io data fetched via
+  the lightweight search endpoint (`GET /api/v1/crates?q=<name>&per_page=1`) — the full
+  `/api/v1/crates/{name}` endpoint returns the entire version history and proved too
+  context-expensive after one trial fetch; switched approaches after that single
+  observation (Executor operational-safety guidance: try an alternative after a failed
+  approach rather than repeating it).
+  **Finding — crate rejected with alternative recorded (Doc 00 §51 "actively
+  maintained" criterion)**: both `pam` (last release 2023-11-01, 4 versions ever) and
+  `pam-client` (last release 2022-07-30, 8 versions ever) are effectively unmaintained.
+  Recorded alternative: `nonstick` (actively developed, last release 2026-03-13, but
+  young/pre-1.0, first published 2025-04-15) — Phase 15 must run its own security
+  review before adopting it, or reconsider shelling out to `pam_unix`-compatible
+  tooling directly; not resolved this phase (Non-Goal). `ed25519-dalek` is
+  BSD-3-Clause, not MIT (dalek-cryptography convention) — already covered by
+  `deny.toml`'s allow list from step 2, no new exception needed.
+  No code changes this step. `grep -ril` for the real username found nothing in either
+  document.
 
