@@ -19,8 +19,8 @@
 
 ## Checks
 
-- Phase 6: signed input gate, fake-sink and synthetic EI Sender handshake
-  green; no GNOME handshake/input. Workspace/security sweep pending.
+- Phase 6: signed input gate, bounded fake Sender/seat event tests green;
+  no GNOME handshake/input. Workspace/security sweep at checkpoint.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
@@ -35,6 +35,6 @@
 
 ## Next Actions
 
-1. Verify GNOME 50.1 session EIS semantics and `reis` 0.7.1 APIs offline.
-2. Implement minimal fake-tested EI sender/authority gate; do not start an
-  input session or promote FEAS-D without separate live approval.
+1. Fake-test bounded seat binding, device resume and one authorized key
+  event; do not start an input session or promote FEAS-D.
+2. Separate review/approval required before live GNOME EIS or input.

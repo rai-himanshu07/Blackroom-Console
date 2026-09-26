@@ -93,8 +93,9 @@ live FEAS-D proof requires a separate supervised approval.
 - Intel/NVIDIA cursor and absolute-coordinate mapping must be measured, not
   inferred from a pointer moving on one GPU.
 - `reis::event::EiConvertEventIterator::next` blocks while waiting for
-  seat/device events. Before using it on a live Mutter socket, bound
-  negotiation and device-readiness waits and guarantee teardown on timeout.
+  seat/device events. The offline EI owner now uses a deadline-driven poll,
+  public converter and bounded handshake/event read instead; live seat/device
+  readiness and teardown still need independent verification on Mutter.
 
 ## Steps
 
@@ -186,3 +187,12 @@ live FEAS-D proof requires a separate supervised approval.
   `EiConnection` deliberately exposes no event-send operation; its private
   event iterator can block indefinitely and must gain a bounded wait before
   live use. This is an open Step 2 requirement, not a FEAS-D result.
+- 2026-09-27 (bounded offline EI readiness): the prior high-level iterator
+  calls an unbounded internal poll, so the GNOME wrapper now drives public
+  `EiHandshaker`/`EiEventConverter` with `rustix` poll deadlines instead.
+  Silent synthetic peers time out during the Sender handshake and after
+  handshake; a fake EIS peer advertises a keyboard-capable seat and the
+  bounded client receives `SeatAdded`. The fake seat test passed four
+  consecutive runs. No seat was bound, no device was resumed, and no key or
+  pointer event was sent. Step 2 remains open for bounded device readiness
+  and authorized event dispatch; no live EIS permission or FEAS-D claim.
