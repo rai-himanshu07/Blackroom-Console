@@ -212,6 +212,30 @@ struct ResolutionResult {
     teardown_confirmed: bool,
 }
 
+struct SessionStopGuard<'a> {
+    conn: &'a Connection,
+    path: OwnedObjectPath,
+    disarmed: bool,
+}
+
+impl Drop for SessionStopGuard<'_> {
+    fn drop(&mut self) {
+        if self.disarmed {
+            return;
+        }
+        let result = Proxy::new(
+            self.conn,
+            "org.gnome.Mutter.ScreenCast",
+            self.path.clone(),
+            "org.gnome.Mutter.ScreenCast.Session",
+        )
+        .and_then(|proxy| proxy.call::<_, _, ()>("Stop", &()));
+        if let Err(error) = result {
+            eprintln!("Failed to stop ScreenCast session {}: {error}", self.path);
+        }
+    }
+}
+
 /// Tries a small set of candidate property-key spellings for `width`/
 /// `height`/`framerate` in one call each, in order, since Mutter's
 /// `RecordVirtual` properties-dict schema is not documented anywhere in
@@ -265,6 +289,11 @@ fn one_cycle(
     )?;
     let empty_props: HashMap<&str, Value<'_>> = HashMap::new();
     let session_path: OwnedObjectPath = screencast_proxy.call("CreateSession", &(empty_props,))?;
+    let mut session_guard = SessionStopGuard {
+        conn,
+        path: session_path.clone(),
+        disarmed: false,
+    };
     let session_proxy = Proxy::new(
         conn,
         "org.gnome.Mutter.ScreenCast",
@@ -326,10 +355,11 @@ fn one_cycle(
             .cloned();
     }
 
-    let stop_error = session_proxy
-        .call::<_, _, ()>("Stop", &())
-        .err()
-        .map(|e| e.to_string());
+    let stop_error = session_proxy.call::<_, _, ()>("Stop", &()).err();
+    if stop_error.is_none() {
+        session_guard.disarmed = true;
+    }
+    let stop_error = stop_error.map(|error| error.to_string());
     let after_create_count = before.connectors.len() + new_after_create.len();
 
     let after_destroy = poll_until_connector_count_changes(conn, after_create_count)?;
@@ -439,6 +469,42 @@ fn run_cycles(conn: &Connection, width: i32, height: i32, refresh_rate: f64) -> 
         });
     }
     outcomes
+}
+
+fn classify_result(
+    all_confirmed: bool,
+    all_torn_down: bool,
+    reliability_proven: Option<bool>,
+) -> ExperimentResult {
+    if all_confirmed && all_torn_down && reliability_proven == Some(true) {
+        ExperimentResult::Pass
+    } else if all_confirmed && all_torn_down {
+        ExperimentResult::Partial
+    } else {
+        ExperimentResult::Fail
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unmeasured_reliability_cannot_pass() {
+        assert_eq!(classify_result(true, true, None), ExperimentResult::Partial);
+        assert_eq!(
+            classify_result(true, true, Some(false)),
+            ExperimentResult::Partial
+        );
+        assert_eq!(
+            classify_result(true, true, Some(true)),
+            ExperimentResult::Pass
+        );
+        assert_eq!(
+            classify_result(false, true, Some(true)),
+            ExperimentResult::Fail
+        );
+    }
 }
 
 mod pipewire_probe {
@@ -610,35 +676,35 @@ fn main() -> anyhow::Result<()> {
             )
         };
 
-    let cycles_clean = cycle_outcomes
-        .iter()
-        .all(|c| !c.timed_out && c.error.is_none());
-    let no_leaked_nodes = match (node_count_before, node_count_after) {
-        (Some(b), Some(a)) => a <= b,
-        _ => cycle_outcomes.is_empty(),
-    };
-    let shell_survived = shell_pid_before == shell_pid_after;
+    let cycles_clean = (!args.skip_cycles).then(|| {
+        cycle_outcomes.len() == CYCLE_COUNT as usize
+            && cycle_outcomes
+                .iter()
+                .all(|cycle| !cycle.timed_out && cycle.error.is_none())
+    });
+    let no_leaked_nodes = node_count_before
+        .zip(node_count_after)
+        .map(|(before, after)| after <= before);
+    let shell_survived = shell_pid_before
+        .as_ref()
+        .zip(shell_pid_after.as_ref())
+        .map(|(before, after)| before == after);
 
-    let result = if all_confirmed
-        && all_torn_down
-        && (args.skip_cycles || (cycles_clean && no_leaked_nodes && shell_survived))
-    {
-        ExperimentResult::Pass
-    } else if all_confirmed && all_torn_down {
-        ExperimentResult::Partial
-    } else {
-        ExperimentResult::Fail
-    };
+    let reliability_proven = cycles_clean
+        .zip(no_leaked_nodes)
+        .zip(shell_survived)
+        .map(|((cycles, nodes), shell)| cycles && nodes && shell);
+    let result = classify_result(all_confirmed, all_torn_down, reliability_proven);
 
     let observed = redact(
         &format!(
             "resolution_results={results:#?}\n\
              all_confirmed={all_confirmed}\nall_torn_down={all_torn_down}\n\
-             cycles_run={}\ncycles_clean={cycles_clean}\n\
+             cycles_run={}\ncycles_clean={cycles_clean:?}\n\
              screencast_video_nodes_before={node_count_before:?}\n\
-             screencast_video_nodes_after={node_count_after:?}\nno_leaked_nodes={no_leaked_nodes}\n\
+             screencast_video_nodes_after={node_count_after:?}\nno_leaked_nodes={no_leaked_nodes:?}\n\
              shell_pid_before={shell_pid_before:?}\nshell_pid_after={shell_pid_after:?}\n\
-             shell_survived={shell_survived}",
+             shell_survived={shell_survived:?}",
             cycle_outcomes.len(),
         ),
         redact_on,

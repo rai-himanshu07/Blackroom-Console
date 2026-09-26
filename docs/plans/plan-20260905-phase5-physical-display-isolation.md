@@ -819,3 +819,36 @@ read-only run. See Risks.
   --all-targets -- -D warnings`, `cargo check --workspace --all-targets`,
   and the project doctor passed; real-GNOME tests remained ignored. No new
   dependency was added (deny/audit last passed at the preceding checkpoint).
+- 2026-09-26 (operator returned; supervised reassessment proposed, not run):
+  no separate GNOME host was created in earlier sessions. Operator is at
+  the workstation with second-device SSH ready and accepts the possibility
+  of a crash on the daily-driver laptop. `ssh.socket` is active;
+  `gnome-remote-desktop.service` is disabled/inactive; no exp06 timer is
+  pending. Existing exp04 `--skip-cycles` still tests three virtual-monitor
+  sizes, but leaves physical outputs enabled. The recovery branches and
+  limits are now written in `docs/ops/experiment-safety.md` §7. No GNOME
+  mutation, SIGKILL, Gate FEAS-C reclassification, or new live-test approval
+  has yet occurred; obtain approval for the exact diagnostic command first.
+- 2026-09-26 (bounded diagnostic approval): operator confirmed a fresh
+  second-device SSH login works and explicitly approved **one**
+  `exp04_virtual_monitor --skip-cycles` run on this laptop after reviewing
+  §7's recovery branches and possible GNOME crash/logout. This approval
+  excludes exp06, physical-output isolation, SIGKILL, and any repeat run.
+  A passing exp04 result will not lift the Phase 5 stop or prove Gate FEAS-C.
+- 2026-09-26 (single approved diagnostic completed): exp04 returned `PASS`;
+  all three virtual monitors (1280x720, 1920x1080, 2560x1440) were detected,
+  yielded two frames each, and reported clean Stop/removal. Independently,
+  Shell PID stayed `34735`, journal showed three normal Meta-0 removals with
+  no matched crash signature, `PowerSaveMode=0`, and no Meta connector was
+  found in a fresh GetCurrentState. The competing service was unmasked back
+  to its prior disabled/inactive state. **Qualification:** `--skip-cycles`
+  ran zero reliability cycles, but exp04's old code printed `cycles_clean`,
+  `no_leaked_nodes`, and `shell_survived` as `true` from empty/None inputs;
+  the generated report's PASS must therefore be read as a partial
+  three-resolution observation, not a 50-cycle reliability pass. The
+  separate PID check above did verify Shell continuity for this one run.
+  Source now represents unmeasured fields as None and reserves PASS for
+  full measured reliability; a focused regression test passed. Original
+  generated evidence was retained unchanged. This run neither reproduced
+  the earlier crash nor proves abrupt-session loss or zero-physical display
+  teardown safe. **Phase 5 stop and Gate FEAS-C unproven status remain.**

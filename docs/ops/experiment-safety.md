@@ -118,6 +118,52 @@ target, so there is no disposable test box.
 - This is distinct from §2's watchdog: it bounds automated test loops against a hang, not
   operator recovery from a lost physical display/input.
 
+## 7. Supervised crash reassessment (Phase 5 stop still applies)
+
+This is a recovery procedure, not authorization to run an experiment. Before any new
+GNOME mutation, the operator must be at the workstation, establish a fresh SSH login
+from a second device, and approve the exact command. Keep that SSH shell open. Record
+the start time and GNOME Shell PID; check `ssh.socket` is active and no earlier exp06
+watchdog timer is pending. `gnome-remote-desktop.service` must be masked per §5 for
+ScreenCast experiments. Do not run a deliberate SIGKILL or physical-output isolation
+as an initial crash diagnostic. A single `exp04_virtual_monitor --skip-cycles` run
+leaves physical outputs active but still creates/stops three virtual-monitor sessions
+and can crash GNOME; it requires separate approval. A passing run would not clear the
+Phase 5 stop or prove the hybrid-GPU crash path safe.
+
+If a later, separately approved exp06 run leaves the display blank while the *original*
+GNOME session is still alive:
+
+1. From the second-device SSH shell, check the named watchdog timer from exp06's output
+   with `systemctl --user list-timers --all 'blackroom-exp06-watchdog-*'`. Allow the
+   45-second timer to fire; check its service result in `journalctl --user -u
+   '<printed-watchdog-unit>.service' -b --no-pager`. `Ctrl+Alt+F3` can show a text
+   console, but `Ctrl+Alt+F2` alone cannot restore an isolated desktop.
+2. Only if the watchdog did not restore the *still-running original session*, use
+   the exact absolute `backup.json` path exp06 printed. From SSH as the same user:
+
+   ```sh
+   repo='/media/user/Playground/Playground_Sys/Blackroom Console'
+   backup='/absolute/path/printed/by/exp06/backup.json'
+   cd "$repo"
+   test -f "$backup" && XDG_RUNTIME_DIR="/run/user/$(id -u)" \
+     DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus" \
+     "$repo/target/debug/exp07_restore" --backup "$backup"
+   ```
+
+   Confirm physical output and desktop visibility independently. If exp06 is still
+   paused, send Enter to its original terminal only after restoration so it can stop
+   its ScreenCast session; never assume exp07 removed that session for it.
+
+If GNOME Shell crashes or logs out, the original D-Bus session may be gone. **Do not
+apply an old backup to a new login** or assume the watchdog can resurrect the Shell.
+Use the second-device SSH shell or visible `tty3` to collect the exact incident time,
+`journalctl --user -b` around it, the exp06 watchdog unit result (if any), and
+`coredumpctl info gnome-shell` if a dump exists; keep raw logs local until checked
+for private data. Log back in normally if GDM presents a working login screen.
+If the GUI does not recover, stop the experiment and use local administrative
+recovery; do not retry display mutation against an unhealthy compositor.
+
 ## Scope note
 
 Phase 0–1 performed **no** GNOME mutation: no `RemoteDesktop`/`ScreenCast` sessions, no

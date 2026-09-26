@@ -19,8 +19,8 @@
 
 ## Checks
 
-- 2026-09-26: offline evidence/watchdog fixes pass workspace test/fmt/clippy/
-  check; no live GNOME run. Deny/audit last green at `cc3dcd7`.
+- 2026-09-26: one approved exp04 --skip-cycles run tore down 3 virtual
+  monitors; Shell PID stable. No physical isolation or 50-cycle proof.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
