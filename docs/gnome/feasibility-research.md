@@ -227,6 +227,20 @@ This narrows the
 research question but does not promote remote-input capability or authorize a
 session on the Phase 5-stopped host.
 
+**Source follow-up, 2026-09-27:** Mutter 50.1's
+`src/backends/meta-remote-desktop-session.c` (`handle_connect_to_eis`,
+`meta_remote_desktop_session_start`/`close`) lazily creates `MetaEis` on
+`ConnectToEIS`, accepts an optional `device-types` `u32` (default keyboard,
+pointer and touchscreen), and returns a client socket through a D-Bus
+Unix-FD list. When the session is already started it initializes viewports;
+session close releases the EIS object. Source:
+`https://gitlab.gnome.org/GNOME/mutter/-/raw/50.1/src/backends/meta-remote-desktop-session.c`.
+`reis` 0.7.1 offers `ei::Context::new(UnixStream)` and a Sender handshake;
+the returned FD must be owned by the client and closed on teardown. The
+exact negotiated devices, event ordering, authorization by Mutter, and
+whether an isolated fake peer can exercise a full Sender handshake remain
+unverified; no live EIS connection or input event was attempted.
+
 ---
 
 ## 6. Physical input isolation candidates

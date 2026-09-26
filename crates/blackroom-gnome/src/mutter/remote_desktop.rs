@@ -13,10 +13,15 @@
 //! "if required" resolved to "not required" for that case) — this session
 //! stands alone for now.
 
+use std::collections::HashMap;
+
 use zbus::blocking::{Connection, Proxy};
-use zbus::zvariant::OwnedObjectPath;
+use zbus::zvariant::{OwnedFd, OwnedObjectPath, Value};
 
 use blackroom_core::error::{BlackroomError, ErrorCode};
+use blackroom_core::lease::InputAuthorization;
+
+use super::eis::EiConnection;
 
 fn mutter_unavailable(detail: impl std::fmt::Display) -> BlackroomError {
     BlackroomError::new(ErrorCode::MutterUnavailable, detail.to_string())
@@ -75,6 +80,25 @@ impl<'a> RemoteDesktopSession<'a> {
             .map_err(mutter_unavailable)?;
         self.started = true;
         Ok(())
+    }
+
+    pub fn connect_to_eis(
+        &self,
+        authority: &InputAuthorization<'_>,
+    ) -> Result<EiConnection, BlackroomError> {
+        authority.validate()?;
+        if !self.started {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "remote desktop session must be started before EIS input",
+            ));
+        }
+        let options: HashMap<&str, Value<'_>> = HashMap::new();
+        let fd: OwnedFd = self
+            .session_proxy()?
+            .call("ConnectToEIS", &(options,))
+            .map_err(mutter_unavailable)?;
+        EiConnection::from_fd(fd)
     }
 
     /// Idempotent (Doc 07 §27): a session that was never started is left

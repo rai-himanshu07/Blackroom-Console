@@ -12,6 +12,7 @@
 
 pub mod capability;
 pub mod display_config;
+pub mod eis;
 pub mod pipewire_capture;
 pub mod remote_desktop;
 pub mod screencast;

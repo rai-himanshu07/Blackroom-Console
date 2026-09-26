@@ -1,15 +1,16 @@
 # Plan: Phase 6 Remote Input Readiness
 
 **Created:** 2026-09-26
-**Status:** draft, inactive; research only while Phase 5 is stopped
-**Approved by:** not yet approved
+**Status:** in progress; isolated offline PoC exception, live input blocked
+**Approved by:** user (2026-09-27, narrow Phase 6 PoC exception)
 **Task tier:** governed
 
 ## Goal
 
-Prepare a verifiable path to Gate FEAS-D (remote input to the existing GNOME
-session) without creating an EIS session or injecting input on the daily-driver
-host while the Phase 5 Mutter-instability stop remains in force.
+Build and test the minimal Phase 6 remote-input path offline, without creating
+an EIS session or injecting input on the daily-driver host. Gate FEAS-C and
+the Phase 5 Mutter-instability stop remain in force for product activation;
+live FEAS-D proof requires a separate supervised approval.
 
 ## Acceptance Criteria
 
@@ -30,10 +31,10 @@ host while the Phase 5 Mutter-instability stop remains in force.
 
 ## Non-Goals
 
-- No source-code implementation, dependency installation, `CreateSession`,
-  `ConnectToEIS`, input injection, or physical input isolation in this draft.
-- No bypass of the Phase 5 stop condition, no Gate FEAS-C promotion, and no
-  change to the active Phase 5 plan or its operator approval boundary.
+- No live `CreateSession`, `ConnectToEIS`, input injection, or physical input
+  isolation without a separate supervised test approval.
+- No Gate FEAS-C promotion, product remote-mode activation, Phase 7 work, or
+  relaxation of the Phase 5 stop for live display experiments.
 - No browser transport, product networking, or hostd deployment (later phases).
 
 ## Evidence And Decisions
@@ -62,9 +63,20 @@ host while the Phase 5 Mutter-instability stop remains in force.
   `https://docs.rs/reis/0.7.1/reis/ei/handshake/enum.ContextType.html`
   defines `Sender` (EI client sends input) versus `Receiver` (client receives
   captured input); Phase 6 targets the former, Phase 7 evaluates the latter.
+- Mutter 50.1 source (`src/backends/meta-remote-desktop-session.c`) confirms
+  lazy `MetaEis` creation, optional `device-types: u32` (default keyboard,
+  pointer, touch), Unix-FD-list return, viewport initialization when started,
+  and EIS teardown when the session closes. Real negotiation and event delivery
+  remain unknown; the offline PoC must not infer host compatibility.
 - Decision: finish session-contract and crate research offline first. Keep
   remote input (Gate D) separate from physical input isolation (Gate E); do
   not use an InputCapture finding as proof of RemoteDesktop input or vice versa.
+- 2026-09-27 exception: the user explicitly authorized an isolated Phase 6
+  PoC to avoid blocking all offline work on Gate C. Only research, minimal
+  implementation and fake/synthetic tests are authorized; `reis` may be added
+  once its exact API and license are reviewed. Do not wire an input listener
+  into agent startup or enable remote mode. This does not amend Doc 00 §49's
+  live safety stop or certify any feasibility gate.
 
 ## Risks
 
@@ -75,25 +87,32 @@ host while the Phase 5 Mutter-instability stop remains in force.
   target windows, bounded event delivery, and independent recovery.
 - An agent that accepts input before lease/epoch/state checks would violate
   Doc 05 §43 even if Experiment 8's happy path succeeds.
+- The offline gate accepts a verifying key and authentication/authorization
+  snapshot from its caller. Until the agent binds those to trusted hostd
+  state, synthetic tests cannot establish the real trust boundary.
 - Intel/NVIDIA cursor and absolute-coordinate mapping must be measured, not
   inferred from a pointer moving on one GPU.
 
 ## Steps
 
-- [ ] 1. Read GNOME 50.1 session-interface source and the selected `reis`
+- [x] 1. Read GNOME 50.1 session-interface source and the selected `reis`
       version's documentation; write down the FD ownership, seat/device
       negotiation, event lifecycle, and teardown contract without opening a
       live session.
   - Files: `docs/gnome/feasibility-research.md`
   - Depends on: none (research-only exception to the implementation stop)
   - Verify: every contract claim cites a current source or is marked unknown.
-- [ ] 2. After the Phase 5 stop is resolved and a new plan is approved, design
-      the minimal `eis.rs` owner and the per-event authorization boundary.
-  - Files: `crates/blackroom-gnome/src/mutter/eis.rs`
-  - Depends on: step 1 and explicit safety/architecture approval
+- [ ] 2. Under the approved offline exception, implement the minimal `eis.rs`
+      owner and an explicit per-event authorization boundary behind fake
+      transports, without connecting to Mutter or agent startup.
+  - Files: `crates/blackroom-core/src/lease.rs`,
+    `crates/blackroom-gnome/src/mutter/{eis,remote_desktop}.rs`,
+    `crates/blackroom-gnome/Cargo.toml`
+  - Depends on: step 1 and the 2026-09-27 offline-only exception
   - Verify: focused fake-hostd negative tests for all five authority terms;
     no input after revoke, teardown, or stale epoch.
-- [ ] 3. On a separately prepared host with an operator and recovery path,
+- [ ] 3. Only after a separate live-test approval on a prepared host with an
+  operator and recovery path,
       implement and run Experiments 8 and 28 using bounded input events.
   - Files: `crates/blackroom-experiments/src/bin/exp08_remote_input.rs`,
     `crates/blackroom-experiments/src/bin/exp28_cursor.rs`
@@ -108,15 +127,16 @@ host while the Phase 5 Mutter-instability stop remains in force.
 
 ## Final Verification
 
-- Research-only work: review current source and project-doctor diagnostics;
-  no code tests or live GNOME operation required.
-- If implementation is later authorized, follow `AGENTS.md`'s focused and
-  broad Rust gates and the active plan's operator-evidence requirements.
+- Run focused synthetic tests after each offline implementation slice, then
+  `AGENTS.md`'s Rust workspace gates and dependency checks if `reis` is added.
+- No GNOME input session or gate promotion can be validated by unit tests;
+  these require separate operator evidence and independent review.
 
 ## Blockers
 
-- Phase 5 stop-and-report and unproven FEAS-C; operator absent from host.
-  No Phase 6 implementation or live input experiment is authorized here.
+- Phase 5 stop-and-report and unproven FEAS-C block product activation and
+  live input experiments. The exception authorizes offline Phase 6 PoC code
+  only; its live test still requires fresh, explicit approval.
 
 ## Execution Log
 
@@ -126,3 +146,21 @@ host while the Phase 5 Mutter-instability stop remains in force.
   entry points verified, but no EIS fd was requested, no handshake was run,
   and step 1's runtime/ownership questions remain open. No implementation
   or GNOME mutation.
+- 2026-09-27: user approved a narrow offline Phase 6 implementation
+  exception while leaving Gate C and live test authorization unchanged.
+- 2026-09-27: read Mutter 50.1 `handle_connect_to_eis` and `reis` 0.7.1
+  `ei::Context`/Sender docs; filed confirmed fd/options/lifecycle facts in
+  feasibility research and kept negotiation/event delivery unknown. Core
+  `ControlLease::validate` now rejects VIEW-only remote input; focused
+  regression and formatting checks pass. No GNOME session was created.
+- 2026-09-27 (Step 2 partial, offline only): added `reis` 0.7.1 to
+  `blackroom-gnome` (cargo check/deny green). `EiConnection` owns the
+  D-Bus-returned Unix FD; a synthetic socket-pair test confirms peer EOF
+  after drop. `RemoteDesktopSession::connect_to_eis` requires a started
+  session and `InputAuthorization::validate` before making any D-Bus call.
+  The core gate checks authentication, authorization, the signed lease,
+  current session/epoch/state/revocation/expiry and CONTROL capability;
+  a fake-sink test rejects events after revoke or leaving REMOTE_ACTIVE.
+  No code calls ConnectToEIS, starts a new session, handshakes with Mutter,
+  or sends an input event. Sender device negotiation and an actual
+  auth-checked EI event path remain to implement before Step 2 is complete.

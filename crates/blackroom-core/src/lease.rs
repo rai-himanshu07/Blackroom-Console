@@ -43,6 +43,59 @@ pub struct ControlLease {
     pub capabilities: Vec<Capability>,
 }
 
+/// Values supplied by the trusted agent for each remote input event.
+/// The verifier must come from the host identity, never from the client.
+pub struct InputAuthorization<'a> {
+    pub lease: &'a ControlLease,
+    pub signature: &'a Signature,
+    pub verifying_key: &'a VerifyingKey,
+    pub authenticated: bool,
+    pub authorized: bool,
+    pub current_epoch: SecurityEpoch,
+    pub current_state: State,
+    pub current_session_id: &'a str,
+    pub revoked: bool,
+    pub now: SystemTime,
+}
+
+impl InputAuthorization<'_> {
+    pub fn validate(&self) -> Result<(), BlackroomError> {
+        if !self.authenticated {
+            return Err(BlackroomError::new(
+                ErrorCode::AuthInvalid,
+                "remote input requires authentication",
+            ));
+        }
+        if !self.authorized {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "remote input requires authorization",
+            ));
+        }
+        self.lease
+            .verify(self.verifying_key, self.signature)
+            .map_err(|_| {
+                BlackroomError::new(ErrorCode::LeaseInvalid, "invalid control lease signature")
+            })?;
+        self.lease.validate(
+            self.current_epoch,
+            self.current_state,
+            self.current_session_id,
+            self.revoked,
+            self.now,
+        )
+    }
+
+    pub fn dispatch<T>(
+        &self,
+        event: T,
+        send: impl FnOnce(T) -> Result<(), BlackroomError>,
+    ) -> Result<(), BlackroomError> {
+        self.validate()?;
+        send(event)
+    }
+}
+
 impl ControlLease {
     /// Deterministic byte representation signed/verified. Plain formatted
     /// fields, not a wire format — the wire envelope is `protocol::envelope`.
@@ -128,6 +181,12 @@ impl ControlLease {
                 "remote input requires state == REMOTE_ACTIVE",
             ));
         }
+        if !self.capabilities.contains(&Capability::Control) {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "remote input requires the CONTROL capability",
+            ));
+        }
         Ok(())
     }
 }
@@ -154,6 +213,120 @@ mod tests {
             expires_at: now + Duration::from_secs(30),
             capabilities: vec![Capability::View, Capability::Control],
         }
+    }
+
+    #[test]
+    fn validate_rejects_view_only_lease_for_remote_input() {
+        let now = SystemTime::now();
+        let mut lease = sample_lease(SecurityEpoch::INITIAL, now);
+        lease.capabilities = vec![Capability::View];
+        let error = lease
+            .validate(
+                SecurityEpoch::INITIAL,
+                State::RemoteActive,
+                "rs_01TESTSESSION",
+                false,
+                now,
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::LeaseInvalid);
+    }
+
+    #[test]
+    fn input_authorization_checks_auth_signature_and_current_lease() {
+        let now = SystemTime::now();
+        let lease = sample_lease(SecurityEpoch::INITIAL, now);
+        let (signing_key, verifying_key) = test_keypair();
+        let signature = lease.sign(&signing_key);
+        let mut authorization = InputAuthorization {
+            lease: &lease,
+            signature: &signature,
+            verifying_key: &verifying_key,
+            authenticated: true,
+            authorized: true,
+            current_epoch: SecurityEpoch::INITIAL,
+            current_state: State::RemoteActive,
+            current_session_id: "rs_01TESTSESSION",
+            revoked: false,
+            now,
+        };
+        assert!(authorization.validate().is_ok());
+
+        authorization.authenticated = false;
+        assert_eq!(
+            authorization.validate().unwrap_err().code,
+            ErrorCode::AuthInvalid
+        );
+        authorization.authenticated = true;
+        authorization.authorized = false;
+        assert_eq!(
+            authorization.validate().unwrap_err().code,
+            ErrorCode::LeaseInvalid
+        );
+        authorization.authorized = true;
+
+        let (other_signing_key, _) = test_keypair();
+        let wrong_signature = lease.sign(&other_signing_key);
+        authorization.signature = &wrong_signature;
+        assert_eq!(
+            authorization.validate().unwrap_err().code,
+            ErrorCode::LeaseInvalid
+        );
+        authorization.signature = &signature;
+
+        authorization.revoked = true;
+        assert_eq!(
+            authorization.validate().unwrap_err().code,
+            ErrorCode::LeaseRevoked
+        );
+        authorization.revoked = false;
+        authorization.current_session_id = "rs_OTHER";
+        assert_eq!(
+            authorization.validate().unwrap_err().code,
+            ErrorCode::SessionNotFound
+        );
+        authorization.current_session_id = "rs_01TESTSESSION";
+        authorization.current_state = State::LocalLocked;
+        assert_eq!(
+            authorization.validate().unwrap_err().code,
+            ErrorCode::LeaseInvalid
+        );
+    }
+
+    #[test]
+    fn input_dispatch_never_calls_sink_after_revocation_or_state_change() {
+        use std::cell::Cell;
+
+        let now = SystemTime::now();
+        let lease = sample_lease(SecurityEpoch::INITIAL, now);
+        let (signing_key, verifying_key) = test_keypair();
+        let signature = lease.sign(&signing_key);
+        let mut authorization = InputAuthorization {
+            lease: &lease,
+            signature: &signature,
+            verifying_key: &verifying_key,
+            authenticated: true,
+            authorized: true,
+            current_epoch: SecurityEpoch::INITIAL,
+            current_state: State::RemoteActive,
+            current_session_id: "rs_01TESTSESSION",
+            revoked: false,
+            now,
+        };
+        let sent = Cell::new(0);
+        let send = |event| {
+            sent.set(sent.get() + event);
+            Ok(())
+        };
+
+        authorization.dispatch(1, send).unwrap();
+        assert_eq!(sent.get(), 1);
+        authorization.revoked = true;
+        assert!(authorization.dispatch(1, send).is_err());
+        authorization.revoked = false;
+        authorization.current_state = State::LocalLocked;
+        assert!(authorization.dispatch(1, send).is_err());
+        assert_eq!(sent.get(), 1);
     }
 
     fn test_keypair() -> (SigningKey, VerifyingKey) {

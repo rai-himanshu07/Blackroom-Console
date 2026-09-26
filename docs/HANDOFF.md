@@ -1,8 +1,8 @@
 # Handoff: Blackroom Console
 
-**Updated:** 2026-09-26 (Phase 5 stopped for reassessment; Gate FEAS-C unproven)
+**Updated:** 2026-09-27 (Phase 6 offline PoC exception; Gate FEAS-C unproven)
 **Workspace or branch:** Git repo, branch `main`
-**Active plan:** docs/plans/plan-20260905-phase5-physical-display-isolation.md
+**Active plan:** docs/plans/plan-20260926-phase6-remote-input-readiness.md
 **Task tier:** governed
 **Memory:** wing `blackroom_console`
 
@@ -19,22 +19,22 @@
 
 ## Checks
 
-- 2026-09-26: supervised self-SIGKILL once, watchdog restored; workspace
-  cargo gates green. No independent photo/50 cycles; audit unchanged.
+- Phase 6: CONTROL lease, signed input gate and synthetic FD ownership tests
+  green; no EIS handshake/input. Workspace/security sweep pending.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
 
-- Keep exp06/exp07 independent; defer GnomeBackend. No weakened Gate FEAS-C.
+- Phase 6 offline PoC only: no live EIS/input, startup wiring, or product
+  activation. Phase 5 stop and Gate FEAS-C remain unchanged.
 
 ## Blockers
 
-- Doc 00 §49 / Doc 10 §49 stop-and-report applies to reported Mutter instability.
-  No more live isolation here without a new safety review and approval.
+- Doc 00 §49 / Doc 10 §49 still block live/product progress after Mutter
+  instability. FEAS-D and Phase 7 also remain unproven.
 
 ## Next Actions
 
-1. Do not repeat the kill test. Investigate the earlier crash and brief
-  built-in flicker with independent visual evidence; no Gate C PASS yet.
-2. Obtain separate safety approval before further live work; Phase 6 and
-  Gate FEAS-C remain blocked.
+1. Verify GNOME 50.1 session EIS semantics and `reis` 0.7.1 APIs offline.
+2. Implement minimal fake-tested EI sender/authority gate; do not start an
+  input session or promote FEAS-D without separate live approval.
