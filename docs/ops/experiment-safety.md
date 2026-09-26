@@ -206,11 +206,18 @@ or failed watchdog ends the test without a repeat or Gate FEAS-C promotion.
 
 If the operator can watch but cannot communicate until the GUI returns, the
 manual-kill procedure above is not executable as written. Do not extend the
-timer or start another run hoping for a chat reply. A distinct, not-yet-
-implemented machine-gated diagnostic could check the armed watchdog and
-zero-physical logical topology, persist evidence, and trigger one process
-death without interactive input; it requires a new safety review and explicit
-approval. That machine check cannot prove the panel was visually blank.
+timer or start another run hoping for a chat reply. An opt-in, **not yet
+live-approved** `exp06 --pause-after-isolate --watchdog-seconds <45-120>
+--auto-kill-after-isolate` diagnostic is prepared. It allows one self-SIGKILL
+only from an HDMI-only starting layout, with the named timer still active,
+the same `org.gnome.Mutter.ScreenCast` D-Bus owner PID, DPMS OFF,
+virtual-only logical topology, HDMI still in
+raw inventory, and less than 10 seconds since watchdog arming. It writes
+PARTIAL pre-kill evidence and rechecks immediately before signaling; if any
+check fails, the normal restore guard remains armed. This machine check
+cannot prove the panel was visually blank and cannot prevent a compositor
+crash. The executable must not be run until a new safety review and exact
+operator approval; no chat reply is requested during the blank interval.
 The observer must report actual physical-screen observations **after**
 recovery; if the compositor crashes, follow the recovery branch below.
 

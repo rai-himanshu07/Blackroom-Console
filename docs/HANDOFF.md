@@ -34,7 +34,7 @@
 
 ## Next Actions
 
-1. Never require chat input while the display is blank; operator can watch
-  but report only after restore. Review a distinct machine-gated diagnostic.
+1. Never require chat while blank; operator reports after restore. The
+  opt-in machine-gated diagnostic is prepared offline, not live-approved.
 2. Investigate old crash; obtain safety approval for any live test. Phase 6
   and Gate FEAS-C remain blocked.

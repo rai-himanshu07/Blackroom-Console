@@ -1070,3 +1070,52 @@ read-only run. See Risks.
   afterward and cannot serve as a pre-kill veto. New design, risk review,
   and explicit approval are required before any implementation or live
   execution. Phase 5 stop/Gate FEAS-C status are unchanged.
+- 2026-09-26 (offline diagnostic design authorized, no live approval):
+  operator clarified they can watch without interacting and report only
+  after the screen returns; requested an option selected before launch.
+  Design a distinct opt-in auto-owner-loss mode, leaving manual/default
+  paths unchanged. It requires `--pause-after-isolate` and an explicit
+  45-120s watchdog duration, an original HDMI-1-only logical layout,
+  persisted backup, the same GNOME Shell PID, active named timer, DPMS OFF,
+  exactly one virtual-only logical monitor and HDMI-1 still in raw
+  inventory, all within 10s of beginning watchdog arming. Persist a
+  `PARTIAL` pre-kill record before signaling only its own PID once. Any
+  failed precondition or write error returns normally through restore
+  guards; missing timer or elapsed window must never trigger a kill.
+  A machine check is **not** a visual-privacy attestation; the operator
+  reports observed physical screen state after recovery. Validate CLI
+  exclusions, fail-closed predicate, workspace Rust gates, and review the
+  binary offline. Do not run this mode until separate approval covering
+  GNOME crash/logout, no pre-kill visual veto, and SSH recovery.
+- 2026-09-26 (opt-in diagnostic implemented offline, NOT executed): exp06
+  adds `--auto-kill-after-isolate`, requiring explicit pause mode and an
+  explicit bounded watchdog duration. Default/manual behavior is unchanged.
+  The automatic branch checks HDMI-1-only original topology before
+  mutation, retains RAII restore guards through backup/pre-kill evidence,
+  and verifies original Shell PID, timer active, DPMS OFF, one virtual-only
+  logical monitor and raw HDMI-1 within 10 seconds of watchdog arming.
+  A second structured state/timer/PID check follows evidence write and
+  stdout flush immediately before `/usr/bin/kill` targets only its own PID.
+  Any precondition/write/command failure returns through the restore guard;
+  `pre_kill.json` and its report are PARTIAL, not proof that a signal was
+  delivered or a physical panel blanked. Synthetic CLI/exclusion and
+  individual precondition-failure tests passed; actual timer race, Shell
+  survival and watchdog restoration after SIGKILL remain **unverified**.
+  No live invocation or Gate FEAS-C change has been approved.
+- 2026-09-26 (independent safety review correction, offline): a read-only
+  Reviewer found the initial `pgrep -xo gnome-shell` PID comparison could
+  select a greeter or another session's Shell, so it was a blocker to live
+  use. Replaced it with `org.freedesktop.DBus.GetConnectionUnixProcessID`
+  for the exact `org.gnome.Mutter.ScreenCast` service on exp06's own user
+  bus connection, before and after isolation; missing owner or changed PID
+  now aborts through the restore guard. The read-only D-Bus query returned
+  PID 34735, matching this host's Shell. Focused compile, format and
+  fail-closed tests passed after the fix. No live use or Gate promotion.
+- 2026-09-26 (final offline check): full workspace test/fmt/clippy/check,
+  project doctor and freshly rebuilt exp06 `--help` passed after the
+  bus-owner correction. A second independent read-only Reviewer pass found
+  no further concrete blocker in the opt-in auto-kill branch. It identified
+  runtime-only residual risks: a slow run can safely abort at the 10s gate;
+  post-SIGKILL Shell survival, watchdog restoration, and physical privacy
+  remain unverified until a separately approved operator-witnessed run.
+  No GNOME mutation or auto-kill invocation occurred during preparation.

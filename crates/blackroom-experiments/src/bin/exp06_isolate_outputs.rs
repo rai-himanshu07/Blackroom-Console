@@ -22,7 +22,7 @@
 //! run.
 
 use std::collections::HashMap;
-use std::io::BufRead;
+use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
@@ -64,6 +64,10 @@ struct Args {
     /// Pause-only restore timer in seconds; default 45, maximum 120.
     #[arg(long, value_parser = clap::value_parser!(u64).range(45..=120), requires = "pause_after_isolate")]
     watchdog_seconds: Option<u64>,
+    /// Kill only this process after verified HDMI-only isolation and persisted
+    /// pre-kill evidence. May crash GNOME; requires separate live approval.
+    #[arg(long, requires_all = ["pause_after_isolate", "watchdog_seconds"])]
+    auto_kill_after_isolate: bool,
 }
 
 impl Args {
@@ -76,9 +80,110 @@ impl Args {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct AutoKillPreflight {
+    original_logical_connectors: Vec<String>,
+    raw_connectors: Vec<String>,
+    active_logical_connectors: Vec<String>,
+    logical_monitor_count: usize,
+    virtual_connector: String,
+    power_save_mode: i32,
+    shell_pid_before: u32,
+    shell_pid_now: u32,
+    timer_active: bool,
+    arm_elapsed_ms: u128,
+}
+
+impl AutoKillPreflight {
+    fn ready(&self) -> bool {
+        self.original_logical_connectors == ["HDMI-1"]
+            && self.raw_connectors.iter().any(|name| name == "HDMI-1")
+            && self.logical_monitor_count == 1
+            && self.active_logical_connectors == [self.virtual_connector.as_str()]
+            && self.power_save_mode == POWER_SAVE_OFF
+            && self.shell_pid_before == self.shell_pid_now
+            && self.timer_active
+            && self.arm_elapsed_ms < 10_000
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn valid_preflight() -> AutoKillPreflight {
+        AutoKillPreflight {
+            original_logical_connectors: vec!["HDMI-1".to_string()],
+            raw_connectors: vec![
+                "eDP-1".to_string(),
+                "HDMI-1".to_string(),
+                "Meta-0".to_string(),
+            ],
+            active_logical_connectors: vec!["Meta-0".to_string()],
+            logical_monitor_count: 1,
+            virtual_connector: "Meta-0".to_string(),
+            power_save_mode: POWER_SAVE_OFF,
+            shell_pid_before: 1000,
+            shell_pid_now: 1000,
+            timer_active: true,
+            arm_elapsed_ms: 500,
+        }
+    }
+
+    #[test]
+    fn automatic_kill_requires_an_explicit_bounded_pause_mode() {
+        assert!(Args::try_parse_from(["exp06", "--auto-kill-after-isolate"]).is_err());
+        assert!(
+            Args::try_parse_from([
+                "exp06",
+                "--pause-after-isolate",
+                "--auto-kill-after-isolate"
+            ])
+            .is_err()
+        );
+        let args = Args::try_parse_from([
+            "exp06",
+            "--pause-after-isolate",
+            "--watchdog-seconds",
+            "90",
+            "--auto-kill-after-isolate",
+        ])
+        .unwrap();
+        assert!(args.auto_kill_after_isolate);
+    }
+
+    #[test]
+    fn automatic_kill_preflight_fails_closed_on_each_missing_condition() {
+        assert!(valid_preflight().ready());
+        let mut preflight = valid_preflight();
+        preflight
+            .original_logical_connectors
+            .push("eDP-1".to_string());
+        assert!(!preflight.ready());
+        let mut preflight = valid_preflight();
+        preflight.raw_connectors.retain(|name| name != "HDMI-1");
+        assert!(!preflight.ready());
+        let mut preflight = valid_preflight();
+        preflight.logical_monitor_count = 2;
+        assert!(!preflight.ready());
+        let mut preflight = valid_preflight();
+        preflight
+            .active_logical_connectors
+            .push("HDMI-1".to_string());
+        assert!(!preflight.ready());
+        let mut preflight = valid_preflight();
+        preflight.power_save_mode = POWER_SAVE_ON;
+        assert!(!preflight.ready());
+        let mut preflight = valid_preflight();
+        preflight.shell_pid_now = 1001;
+        assert!(!preflight.ready());
+        let mut preflight = valid_preflight();
+        preflight.timer_active = false;
+        assert!(!preflight.ready());
+        let mut preflight = valid_preflight();
+        preflight.arm_elapsed_ms = 10_000;
+        assert!(!preflight.ready());
+    }
 
     #[test]
     fn pause_watchdog_override_is_explicit_and_bounded() {
@@ -757,6 +862,56 @@ fn disarm_watchdog(unit_name: &str) {
         .status();
 }
 
+fn gnome_shell_pid(conn: &Connection) -> anyhow::Result<u32> {
+    let proxy = zbus::blocking::fdo::DBusProxy::new(conn)?;
+    Ok(
+        proxy.get_connection_unix_process_id(zbus::names::BusName::try_from(
+            "org.gnome.Mutter.ScreenCast",
+        )?)?,
+    )
+}
+
+fn auto_kill_preflight(
+    conn: &Connection,
+    original_write_side: &[LogicalMonitorConfig],
+    virtual_connector: &str,
+    watchdog_unit: &str,
+    shell_pid_before: u32,
+    watchdog_started: Instant,
+) -> anyhow::Result<AutoKillPreflight> {
+    let (_serial, monitors, logical) = read_state(conn)?;
+    let timer_active = Command::new("systemctl")
+        .args([
+            "--user",
+            "is-active",
+            "--quiet",
+            &format!("{watchdog_unit}.timer"),
+        ])
+        .status()?
+        .success();
+    Ok(AutoKillPreflight {
+        original_logical_connectors: original_write_side
+            .iter()
+            .flat_map(|monitor| monitor.monitors.iter().map(|item| item.connector.clone()))
+            .collect(),
+        raw_connectors: monitors
+            .iter()
+            .map(|monitor| monitor.connector_info.connector.clone())
+            .collect(),
+        active_logical_connectors: logical
+            .iter()
+            .flat_map(|monitor| monitor.monitors.iter().map(|item| item.connector.clone()))
+            .collect(),
+        logical_monitor_count: logical.len(),
+        virtual_connector: virtual_connector.to_string(),
+        power_save_mode: display_config_proxy(conn)?.get_property("PowerSaveMode")?,
+        shell_pid_before,
+        shell_pid_now: gnome_shell_pid(conn)?,
+        timer_active,
+        arm_elapsed_ms: watchdog_started.elapsed().as_millis(),
+    })
+}
+
 // ---------------------------------------------------------------------
 // Host info (Phase 5 plan Decision 5 — GPU-matrix fields folded in here
 // rather than a dedicated Experiment 29 binary).
@@ -880,6 +1035,21 @@ fn main() -> anyhow::Result<()> {
     //    be able to restore from this file alone).
     let (_serial0, monitors0, logical0) = read_state(&conn)?;
     let backup = build_backup(&monitors0, &logical0);
+    let shell_pid_before = if args.auto_kill_after_isolate {
+        anyhow::ensure!(
+            logical0.len() == 1
+                && logical0[0].monitors.len() == 1
+                && logical0[0].monitors[0].connector == "HDMI-1",
+            "automatic owner-loss probe requires HDMI-1 as the sole active output"
+        );
+        anyhow::ensure!(
+            std::path::Path::new("/usr/bin/kill").is_file(),
+            "external kill command unavailable"
+        );
+        Some(gnome_shell_pid(&conn)?)
+    } else {
+        None
+    };
     // Absolute: `systemd-run`'s transient watchdog unit does not share this
     // process's working directory (found live 2026-09-05 — a relative path
     // here made the watchdog's restore command fail with "No such file or
@@ -925,6 +1095,7 @@ fn main() -> anyhow::Result<()> {
     // 3. Arm the restore watchdog before the first real disable.
     let watchdog_unit = format!("blackroom-exp06-watchdog-{}", now.unix_timestamp());
     let watchdog_seconds = args.watchdog_duration();
+    let watchdog_started = Instant::now();
     arm_watchdog(&watchdog_unit, watchdog_seconds, &backup_path)?;
     let watchdog_armed = true;
 
@@ -946,6 +1117,72 @@ fn main() -> anyhow::Result<()> {
             serial,
             &zero_physical_config(&virtual_connector, &virtual_mode_id),
         )?;
+        if args.auto_kill_after_isolate {
+            let shell_pid_before = shell_pid_before.expect("automatic mode captured Shell PID");
+            let preflight = auto_kill_preflight(
+                &conn,
+                &original_write_side,
+                &virtual_connector,
+                &watchdog_unit,
+                shell_pid_before,
+                watchdog_started,
+            )?;
+            anyhow::ensure!(preflight.ready(), "automatic owner-loss preflight failed");
+            let report = ExperimentReport {
+                experiment: "Experiment 6 — Automatic HDMI-only Owner-Loss Probe".to_string(),
+                environment: "Development workstation (host = target), Ubuntu 26.04 / GNOME 50.1"
+                    .to_string(),
+                objective: "Observe process death while a virtual-only display configuration is active."
+                    .to_string(),
+                hypothesis: "Mutter removes the owning virtual monitor and restores physical outputs when exp06 is killed."
+                    .to_string(),
+                procedure: "Persist the original HDMI-only backup, arm the watchdog, isolate outputs, verify timer/topology/Shell/power twice, persist pre-kill evidence, then signal only this exp06 PID. Inspect restoration independently."
+                    .to_string(),
+                expected: "Physical panels show no desktop during isolation; watchdog or Mutter restores the original topology without a Shell crash."
+                    .to_string(),
+                observed: redact(&format!("pre_kill={preflight:#?}"), redact_on),
+                evidence: vec![
+                    dir.join("backup.json").display().to_string(),
+                    dir.join("pre_kill.json").display().to_string(),
+                ],
+                result: ExperimentResult::Partial,
+                failure: None,
+                root_cause: None,
+                security_impact: Some("Physical desktop privacy cannot be verified by D-Bus; the independent observer reports after recovery. GNOME Shell may crash.".to_string()),
+                recommended_action: Some("Verify Shell PID, journal, physical screen and original topology from independent SSH before any further experiment.".to_string()),
+                follow_up: None,
+            };
+            write_evidence(
+                &dir,
+                &redact(&report.render(now), redact_on),
+                "pre_kill.json",
+                &preflight,
+            )?;
+            println!(
+                "Pre-kill evidence at {}; watchdog={} ({}s); PID={}",
+                dir.display(),
+                watchdog_unit,
+                watchdog_seconds,
+                std::process::id()
+            );
+            std::io::stdout().flush()?;
+            let final_preflight = auto_kill_preflight(
+                &conn,
+                &original_write_side,
+                &virtual_connector,
+                &watchdog_unit,
+                shell_pid_before,
+                watchdog_started,
+            )?;
+            anyhow::ensure!(
+                final_preflight.ready(),
+                "automatic owner-loss final check failed"
+            );
+            let status = Command::new("/usr/bin/kill")
+                .args(["-s", "KILL", &std::process::id().to_string()])
+                .status()?;
+            anyhow::bail!("self-SIGKILL unexpectedly returned with status {status}");
+        }
         println!(
             "Isolated. PID={}, backup={}",
             std::process::id(),
