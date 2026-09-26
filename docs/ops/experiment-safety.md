@@ -206,9 +206,10 @@ or failed watchdog ends the test without a repeat or Gate FEAS-C promotion.
 
 If the operator can watch but cannot communicate until the GUI returns, the
 manual-kill procedure above is not executable as written. Do not extend the
-timer or start another run hoping for a chat reply. An opt-in, **not yet
-live-approved** `exp06 --pause-after-isolate --watchdog-seconds <45-120>
---auto-kill-after-isolate` diagnostic is prepared. It allows one self-SIGKILL
+timer or start another run hoping for a chat reply. An opt-in
+`exp06 --pause-after-isolate --watchdog-seconds 45
+--auto-kill-after-isolate` diagnostic was run once with separate approval;
+**no repeat is approved**. It allows one self-SIGKILL
 only from an HDMI-only starting layout, with the named timer still active,
 the same `org.gnome.Mutter.ScreenCast` D-Bus owner PID, DPMS OFF,
 virtual-only logical topology, HDMI still in
@@ -220,6 +221,13 @@ crash. The executable must not be run until a new safety review and exact
 operator approval; no chat reply is requested during the blank interval.
 The observer must report actual physical-screen observations **after**
 recovery; if the compositor crashes, follow the recovery branch below.
+On the approved run, HDMI stayed blank until exp07 unblanked it. The
+disabled built-in panel flickered too briefly for the operator to determine
+whether desktop content was exposed. The operator accepts that flicker as
+privacy-acceptable for the run; it does not prove no content was visible.
+Mutter restored HDMI logically after
+the owner died but left DPMS OFF until the watchdog fired; Shell survived.
+This does not prove Gate FEAS-C or justify a repeat without new review.
 
 The 2026-09-26 90-second attempt had no continuous visual observer (the
 operator later clarified they were away during the isolation window). Its

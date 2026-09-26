@@ -1,0 +1,20 @@
+{
+  "original_logical_connectors": [
+    "HDMI-1"
+  ],
+  "raw_connectors": [
+    "eDP-1",
+    "HDMI-1",
+    "Meta-0"
+  ],
+  "active_logical_connectors": [
+    "Meta-0"
+  ],
+  "logical_monitor_count": 1,
+  "virtual_connector": "Meta-0",
+  "power_save_mode": 3,
+  "shell_pid_before": 34735,
+  "shell_pid_now": 34735,
+  "timer_active": true,
+  "arm_elapsed_ms": 826
+}

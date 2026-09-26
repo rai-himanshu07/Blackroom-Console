@@ -446,7 +446,7 @@ read-only run. See Risks.
   - Depends on: step 2
   - Verify: `cargo build -p blackroom-experiments --bin exp07_restore` clean;
     `cargo clippy` clean. No live run yet.
-- [ ] 5. Live-run `exp06`+`exp07` for the `HDMI-1`-alone row first (Decision 8,
+- [x] 5. Live-run `exp06`+`exp07` for the `HDMI-1`-alone row first (Decision 8,
       lowest risk) — **operator-required** throughout: confirm recovery over
       the SSH channel after the first normal cycle; then run the deliberate
       `--kill-before-restore` scenario once (watchdog armed, operator standing
@@ -456,9 +456,11 @@ read-only run. See Risks.
       evidence.
   - Files: `docs/experiments/evidence/exp06/`, `docs/experiments/evidence/exp07/`
   - Depends on: steps 3, 4
-  - Verify: `exp06`/`exp07` `report.md` `Result: PASS` (or a recorded `FAIL`/
-    `BLOCKED` with root cause, per Doc 00 §49); the crash-recovery finding is
-    written down either way, not left unresolved.
+  - Verify: normal restore and independent exp07 report PASS (or record
+    FAIL/BLOCKED and root cause). For intentional SIGKILL, exp06 necessarily
+    ends with a PARTIAL pre-kill report; independent journal/GetCurrentState
+    and exp07 evidence must establish the post-kill outcome. Record the
+    privacy observation separately; this step does not promote Gate FEAS-C.
 - [ ] 6. Live-run `exp06`+`exp07` for the `eDP-1`-alone row — **operator-
       required** — only after step 5 is fully green and the watchdog has been
       proven to fire correctly at least once.
@@ -1126,3 +1128,53 @@ read-only run. See Risks.
   correct snapshot if the original Shell survives but the watchdog fails;
   never apply it after a new GNOME login. Focused compile/format/tests
   passed; no auto-kill run or Gate FEAS-C reclassification.
+- 2026-09-26 (explicit automatic diagnostic approval): operator confirmed
+  they are physically watching HDMI throughout, can report observations
+  after recovery, saved their work, and verified HDMI-only plus a fresh
+  second-device SSH command. They explicitly approved **one**
+  `exp06 --pause-after-isolate --watchdog-seconds 45
+  --auto-kill-after-isolate` run with automatic SIGKILL only if the
+  machine-gated preconditions pass, accepting possible GNOME Shell
+  crash/logout and no pre-kill human visual veto. No repeat, no default
+  behavior change, and no automatic FEAS-C promotion. If the original
+  Shell lives but watchdog fails, use only the exact printed backup;
+  never restore an old backup into a new GNOME login.
+- 2026-09-26 (one automatic owner-death run completed): the explicitly
+  approved exp06 self-SIGKILL produced PARTIAL pre-kill evidence in
+  `docs/experiments/evidence/exp06/2026-09-26-4/`. It records HDMI-1 as
+  the original sole logical output, Meta-0 as the sole active output,
+  `PowerSaveMode=3`, the timer active, the same ScreenCast owner PID 34735,
+  and 826ms since watchdog arming. The 00:10:41 local journal reports
+  both `Removed virtual monitor Meta-0` and `D-Bus client with active
+  sessions vanished`; exp06 no longer ran afterward. **Before the
+  watchdog**, read-only exp02 evidence at
+  `docs/experiments/evidence/exp02/2026-09-26-3/` found HDMI-1 already
+  active logically with eDP-1 still disabled in logical topology, but
+  `PowerSaveMode` remained 3 (OFF). This directly answers the automatic
+  restoration question: Mutter re-enabled the original logical output
+  on owner loss but did not physically unblank it. The timer fired at
+  00:11:32; exp07 reported PASS at 00:11:33, matched the exact backup
+  without retry, and set `PowerSaveMode=0`. Final independent checks:
+  Shell PID unchanged at 34735; no Meta connector or timer; service
+  restored to disabled/inactive. Operator touched nothing during the run:
+  HDMI went blank until the UI returned; built-in panel flickered and
+  then blanked, but the flicker was **too brief to determine whether any
+  desktop content appeared**. Operator confirmed HDMI showed no content
+  during isolation. Step 5's process-kill and watched-restore diagnostic
+  is complete (pre-kill PARTIAL by design; exp07 PASS). This single clean
+  run does not explain the earlier SIGSEGV, prove repeat reliability, or
+  prove physical privacy on the built-in panel. Gate FEAS-C remains
+  **UNPROVEN** and the Mutter-instability stop remains in force; no repeat
+  or later-phase live work is approved by this result.
+- 2026-09-27 (operator privacy acceptance and evidence addendum): operator
+  explicitly accepts the brief built-in flicker as privacy-acceptable for
+  this run. They remain unsure whether readable content appeared during
+  the flicker; approval does not change that observation into proof of no
+  desktop exposure. Independent journal chronology, the saved pre-watchdog
+  exp02 inventory and the contemporaneous (not separately persisted) DPMS
+  reading are attributed in
+  `docs/experiments/evidence/exp06/2026-09-26-4/observation.md`. Step 5's
+  verification text now recognizes that the deliberately killed exp06 can
+  write only PARTIAL pre-kill evidence while the independent exp07 restore
+  reports PASS. Full Gate FEAS-C acceptance still needs its remaining
+  matrix/privacy/reliability criteria and resolution of earlier instability.
