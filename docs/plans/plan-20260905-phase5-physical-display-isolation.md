@@ -875,3 +875,24 @@ read-only run. See Risks.
   Direct Stop-on-write-failure behavior has not been exercised with a live
   D-Bus session; source ordering and offline CLI/compile checks are not proof
   of runtime recovery. No live owner-loss probe has been run or approved.
+- 2026-09-26 (bounded owner-loss approval): operator again confirmed being
+  at the workstation with a working fresh second-device SSH session and
+  explicitly approved **one** `exp04_virtual_monitor --probe-owner-loss`
+  run. This closes one D-Bus session-owner connection after persisting
+  pre-close evidence, with physical displays left active; GNOME Shell may
+  crash/logout. Approval excludes exp06, display isolation, SIGKILL, and
+  repeat runs. Follow `docs/ops/experiment-safety.md` §7 on any failure.
+- 2026-09-26 (single owner-loss probe completed): pre-close PARTIAL evidence
+  at `docs/experiments/evidence/exp04/2026-09-26-2/` records a confirmed
+  1280x720 Meta-0 virtual monitor and two frames. The probe explicitly
+  closed its own D-Bus connection without `ScreenCast.Session.Stop`.
+  Independent journal shows both `Removed virtual monitor Meta-0` and
+  `D-Bus client with active sessions vanished` at 22:38:38 local time;
+  GNOME Shell PID stayed 34735, a fresh GetCurrentState call succeeded
+  without Meta, PowerSaveMode remained 0, and the operator confirmed the
+  built-in desktop visible and responsive. `gnome-remote-desktop` was
+  restored to disabled/inactive. This **does not reproduce** the earlier
+  crash in the non-isolating configuration, but neither establishes
+  reliability nor rules out zero-physical/hybrid-GPU teardown as the
+  trigger. Gate FEAS-C and the Phase 5 stop remain unresolved. The one-run
+  approval has been used; exp06 and any repeat require separate review.

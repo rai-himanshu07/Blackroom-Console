@@ -131,13 +131,16 @@ leaves physical outputs active but still creates/stops three virtual-monitor ses
 and can crash GNOME; it requires separate approval. A passing run would not clear the
 Phase 5 stop or prove the hybrid-GPU crash path safe.
 
-An optional `exp04_virtual_monitor --probe-owner-loss` mode is prepared but
-**not approved for live execution**. It retains a Stop-on-error guard until it
+An optional `exp04_virtual_monitor --probe-owner-loss` mode had one separately
+approved live run on 2026-09-26; **no repeat or exp06 run is approved**. It retains a Stop-on-error guard until it
 has persisted a PARTIAL pre-close report for one confirmed 1280x720 virtual
 monitor, then closes that client's D-Bus connection without Stop. This tests
 owner disappearance with physical outputs active, not display isolation;
 it may still crash GNOME, and there is no exp07 backup for this mode. The
 independent Shell PID, journal, and display-state checks below remain required.
+That single run removed Meta-0 without a Shell restart (PID 34735 throughout),
+and the operator observed a responsive desktop. It does not establish safety
+with zero physical displays or on a repeated run.
 
 If a later, separately approved exp06 run leaves the display blank while the *original*
 GNOME session is still alive:

@@ -1,0 +1,26 @@
+{
+  "phase": "before_owner_close",
+  "resolution": {
+    "frames_received": 2,
+    "height": 720,
+    "monitor_confirmed": true,
+    "new_connectors_after_create": [
+      "Meta-0"
+    ],
+    "new_connectors_after_destroy": [],
+    "observed_mode": {
+      "connector": "Meta-0",
+      "height": 720,
+      "refresh_rate": 60.0,
+      "width": 1280
+    },
+    "record_virtual_error": null,
+    "refresh_rate": 60.0,
+    "resolution_honored": true,
+    "stop_error": null,
+    "teardown_confirmed": false,
+    "width": 1280
+  },
+  "shell_pid_before": "34735",
+  "teardown_observed": false
+}

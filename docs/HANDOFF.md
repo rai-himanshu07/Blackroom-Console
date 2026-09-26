@@ -13,14 +13,14 @@
 - On the `HDMI-1`-alone routine run, the operator saw the external panel
   blank; the watchdog restored before a deliberate kill. Date-keyed exp06
   evidence now conflicts with exp07's HDMI-only report. Step 5 remains open.
-- The next session reported GNOME Shell SIGSEGV and a fresh login around
-  virtual-monitor removal. Operator cannot recall whether exp06 was killed;
-  logs/artifact are unavailable. Desktop usable on built-in panel; no causal PASS.
+- Earlier GNOME Shell SIGSEGV/logout remains unexplained; old logs absent.
+  One later non-isolating owner-loss run removed Meta-0 without a crash
+  (Shell PID stable; operator confirmed desktop usable). Gate C unproven.
 
 ## Checks
 
-- 2026-09-26: one approved exp04 --skip-cycles run tore down 3 virtual
-  monitors; Shell PID stable. No physical isolation or 50-cycle proof.
+- 2026-09-26: one approved owner-loss probe returned PARTIAL, no crash;
+  workspace cargo gates green. No exp06 or 50-cycle proof; audit unchanged.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
