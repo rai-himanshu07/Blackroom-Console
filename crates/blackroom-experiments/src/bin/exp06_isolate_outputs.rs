@@ -61,6 +61,52 @@ struct Args {
     /// deliberate ungraceful-termination scenario. Ignores `--cycles`.
     #[arg(long, default_value_t = false)]
     pause_after_isolate: bool,
+    /// Pause-only restore timer in seconds; default 45, maximum 120.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(45..=120), requires = "pause_after_isolate")]
+    watchdog_seconds: Option<u64>,
+}
+
+impl Args {
+    fn watchdog_duration(&self) -> u64 {
+        if self.pause_after_isolate {
+            self.watchdog_seconds.unwrap_or(WATCHDOG_SECONDS_DEFAULT)
+        } else {
+            WATCHDOG_SECONDS_DEFAULT.max(u64::from(self.cycles) * 15 + 30)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pause_watchdog_override_is_explicit_and_bounded() {
+        let pause =
+            Args::try_parse_from(["exp06", "--pause-after-isolate", "--cycles", "50"]).unwrap();
+        assert_eq!(pause.watchdog_duration(), 45);
+
+        let extended =
+            Args::try_parse_from(["exp06", "--pause-after-isolate", "--watchdog-seconds", "90"])
+                .unwrap();
+        assert_eq!(extended.watchdog_duration(), 90);
+
+        let repeated = Args::try_parse_from(["exp06", "--cycles", "50"]).unwrap();
+        assert_eq!(repeated.watchdog_duration(), 780);
+
+        for seconds in ["44", "121"] {
+            assert!(
+                Args::try_parse_from([
+                    "exp06",
+                    "--pause-after-isolate",
+                    "--watchdog-seconds",
+                    seconds,
+                ])
+                .is_err()
+            );
+        }
+        assert!(Args::try_parse_from(["exp06", "--watchdog-seconds", "90"]).is_err());
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -878,7 +924,7 @@ fn main() -> anyhow::Result<()> {
 
     // 3. Arm the restore watchdog before the first real disable.
     let watchdog_unit = format!("blackroom-exp06-watchdog-{}", now.unix_timestamp());
-    let watchdog_seconds = WATCHDOG_SECONDS_DEFAULT.max(u64::from(args.cycles) * 15 + 30);
+    let watchdog_seconds = args.watchdog_duration();
     arm_watchdog(&watchdog_unit, watchdog_seconds, &backup_path)?;
     let watchdog_armed = true;
 

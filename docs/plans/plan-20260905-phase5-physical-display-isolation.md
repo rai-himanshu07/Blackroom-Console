@@ -998,3 +998,22 @@ read-only run. See Risks.
   earlier Shell crash remains unexplained; Step 5 and Gate FEAS-C stop
   remain open. Safety §7 now requires confirming the timer and isolated
   state are still active immediately before any future kill attempt.
+- 2026-09-26 (offline timing preparation, no run approved): operator asks
+  for clear instructions before another attempt. During the blank window,
+  observe HDMI and reply immediately from the second device; do not switch
+  VT, press Enter, or send a kill. Use VT/SSH only for recovery. A 45-second
+  window was insufficient during the previous observation. Prepare an
+  optional `--watchdog-seconds` for **pause mode only**, bounded to 45-120,
+  leaving the default 45 seconds and repeated-cycle timing unchanged.
+  A proposed 90-second window gives the observer more time but also extends
+  the unattended blank if recovery is needed. Before any future SIGKILL,
+  verify the named timer remains active and original session still isolated.
+  This is not approval to run or repeat exp06, nor a Gate FEAS-C promotion.
+- 2026-09-26 (offline timing option complete, still no live approval): exp06
+  now accepts `--watchdog-seconds` only with `--pause-after-isolate`, bounded
+  to 45-120; absent an override, pause mode uses 45 regardless of `--cycles`.
+  The normal repeated-cycle calculation is unchanged. Focused parsing and
+  duration tests, workspace cargo test/fmt/clippy/check, project doctor,
+  fresh binary build and `--help` all passed. A 90-second supervised retry
+  remains a proposal: saving work, fresh SSH, HDMI-only preflight and exact
+  one-run SIGKILL approval must be reconfirmed before any execution.

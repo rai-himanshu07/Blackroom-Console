@@ -180,6 +180,10 @@ test and requires its own explicit approval; earlier GNOME Shell SIGSEGV under
 virtual-monitor removal remains unexplained. Save unsaved work first and keep
 the second-device SSH connection open. Record exp06's printed PID, exact
 absolute backup path, timer name and Shell PID. Confirm HDMI is cleanly blank
+and report that from the second device immediately; do not switch VT or press
+F2/F3 unless recovery is needed. The pause-only `--watchdog-seconds` option
+accepts 45-120 seconds; the default stays 45. A longer blank interval
+increases recovery risk and does not authorize a new run. Confirm HDMI is still isolated
 and verify the *printed timer* is still active and the original GNOME session
 still isolated before sending exactly one `kill -9 <printed-PID>` from a
 separate shell. If the timer has already fired or the GUI has returned,

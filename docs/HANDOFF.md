@@ -12,7 +12,7 @@
   restore verified. PowerSaveMode blanking observed on `eDP-1` and both outputs.
 - HDMI-only blanking and watched restore succeeded. A later approved kill
   attempt missed the timer window; no kill was sent, watchdog restored again.
-  Step 5 crash-recovery remains open.
+  Step 5 remains open; an optional 90s timer is built but not live-approved.
 - Earlier GNOME Shell SIGSEGV/logout remains unexplained; old logs absent.
   One later non-isolating owner-loss run removed Meta-0 without a crash
   (Shell PID stable; operator confirmed desktop usable). Gate C unproven.
