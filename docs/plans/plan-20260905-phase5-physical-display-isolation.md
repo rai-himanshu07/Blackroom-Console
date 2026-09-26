@@ -1017,3 +1017,33 @@ read-only run. See Risks.
   fresh binary build and `--help` all passed. A 90-second supervised retry
   remains a proposal: saving work, fresh SSH, HDMI-only preflight and exact
   one-run SIGKILL approval must be reconfirmed before any execution.
+- 2026-09-26 (explicit bounded retry approval): operator reconfirmed saved
+  work, HDMI-only visible desktop and a fresh second-device SSH command;
+  explicitly approved **one** exp06 `--pause-after-isolate
+  --watchdog-seconds 90` attempt with possible Shell crash/logout. After
+  visual blanking, independently verify the printed timer is still active
+  and GetCurrentState contains no active physical logical output; only then
+  send one SIGKILL to the printed exp06 PID. If either check fails or the
+  timer restores first, abort kill and clean up. No Enter/VT switch while
+  isolated, no repeat, no old-backup restore into a new GNOME login, and no
+  automatic FEAS-C promotion. This is separate from the prior spent
+  45-second approval.
+- 2026-09-26 (one 90-second attempt, **no SIGKILL performed**): exp06
+  paused at PID 403830 with timer `blackroom-exp06-watchdog-1790446557`
+  and backup `exp06/2026-09-26-3/backup.json`. The process reported
+  isolation, but the operator answered "already restored / unsure", not
+  a timely confirmation of clean blanking. Before independent timer and
+  isolated-state checks could justify a kill, the timer fired at 23:47:40
+  local and exp07 reported PASS with the exact original HDMI-only topology
+  matching, no retry or apply error. Per the approval's abort condition,
+  **no kill was sent and no repeat was started**. Enter after restoration
+  let exp06 redundantly apply its backup and Stop its ScreenCast session;
+  its pause-mode PARTIAL and timer-not-loaded warning are expected. Shell
+  PID stayed 34735, PowerSaveMode 0, GetCurrentState returned with no
+  Meta connector, no timer remained, service returned to disabled/inactive,
+  and the operator confirmed HDMI desktop responsive with built-in off.
+  Generated exp06/exp07 evidence is in `2026-09-26-3` under each experiment.
+  This is another safe watched restore, **not** a visual privacy attestation
+  for this run or an abnormal-termination observation. The one-run 90s
+  approval is consumed. Do not lengthen/retry automatically on the
+  daily-driver host; Step 5 and FEAS-C stop remain open.

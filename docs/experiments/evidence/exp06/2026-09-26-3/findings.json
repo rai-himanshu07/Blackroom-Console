@@ -1,0 +1,22 @@
+{
+  "host": {
+    "kernel": "7.0.0-34-generic",
+    "gpu_modules": [
+      "xe",
+      "nvidia",
+      "i915"
+    ]
+  },
+  "physical_connectors_before": [
+    "eDP-1",
+    "HDMI-1"
+  ],
+  "virtual_connector": "Meta-0",
+  "apply_monitors_config_allowed": true,
+  "watchdog_armed": true,
+  "watchdog_unit": "blackroom-exp06-watchdog-1790446557",
+  "cycles": [],
+  "stop_error": null,
+  "virtual_connector_fully_gone": true,
+  "paused_for_manual_kill_test": true
+}

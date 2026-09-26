@@ -188,7 +188,9 @@ and verify the *printed timer* is still active and the original GNOME session
 still isolated before sending exactly one `kill -9 <printed-PID>` from a
 separate shell. If the timer has already fired or the GUI has returned,
 **abort the kill**; confirm restore and clean up the still-paused owner with
-Enter, with no automatic repeat. Never kill by a broad process-name match
+Enter, with no automatic repeat. If the visual state is uncertain, also abort
+the kill. Do not keep extending the watchdog window to force this experiment
+on the daily-driver host. Never kill by a broad process-name match
 or press Enter while isolated. Immediately make a
 read-only `GetCurrentState` attempt to observe Mutter's automatic behavior,
 then allow the already-armed watchdog to fire. If the original Shell and
