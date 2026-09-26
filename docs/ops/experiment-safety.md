@@ -32,6 +32,26 @@ target, so there is no disposable test box.
   SSH channel (not over the connection/session being tested).
 - If confirmation does not arrive in time, the timer fires and restores the pre-experiment
   state unconditionally.
+- Status as of 2026-09-05 (Phase 5, first implementation): `exp06_isolate_outputs` arms
+  `systemd-run --user --unit=blackroom-exp06-watchdog-<unix-timestamp>
+  --on-active=<N>s -- <path-to-exp07_restore> --backup <path-to-backup.json>` before its
+  first real `ApplyMonitorsConfig` disable (`N` scales with `--cycles`, floor 45s) and
+  disarms it (`systemctl --user stop <unit>.service`) only once the run's own restore is
+  verified.
+- **Incident, same day, first live run:** the watchdog's restore command was passed a
+  *relative* `--backup` path, which failed once `systemd-run`'s transient unit ran in a
+  different working directory (`journalctl` showed `Error: No such file or directory`,
+  unit status `FAILURE`) — the watchdog did **not** fire successfully. Separately, the
+  binary's own `--pause-after-isolate` "press Enter to restore" path had a code bug and
+  never actually restored either. The operator had to restore manually over SSH (§1) —
+  exactly what §1 exists for, but neither inner safety net did its job. Both bugs fixed
+  same session (absolute path via `std::path::absolute`; the pause branch now actually
+  calls and verifies restore). **Verified live same day:** a fresh isolate run was left
+  deliberately untouched past the 45s window; the watchdog fired completely unattended,
+  invoked `exp07_restore` with the correct absolute path, and restored correctly
+  (`journalctl` showed `Result: PASS`; independently confirmed via a fresh
+  `GetCurrentState` read and a `gnome-shell` health check). The watchdog mechanism is now
+  considered trustworthy for `eDP-1`/`HDMI-1` zero-physical isolation on this host.
 
 ## 3. VT fallback (display-only experiments)
 
@@ -41,6 +61,34 @@ target, so there is no disposable test box.
   isolated, the physical keyboard cannot be assumed to reach the VT switch either;
   the watchdog (§2) and out-of-band SSH (§1) are the only trusted recovery paths at
   that point.
+- Status as of 2026-09-05 (Phase 5): **resolved, empirically, for `eDP-1`** via the
+  `org.gnome.Mutter.DisplayConfig.PowerSaveMode` probe (`readwrite i`, confirmed present in
+  `docs/gnome/api-inventory.md`; DPMS-standard value `3` = OFF, confirmed live — reading
+  the property back before the probe showed `0` = ON, matching the screen being visibly on).
+  Setting `PowerSaveMode` to `3` visibly blanked **both** `eDP-1` and `HDMI-1` (the property
+  is global, not per-output); moving the mouse did **not** wake either panel (normal input
+  is not a reliable undo for this state). `Ctrl+Alt+F3` **did** show a visible, readable
+  `tty3` login console — the operator confirmed this directly — and `Ctrl+Alt+F2` returned
+  cleanly to the graphical session with no crash (`gnome-shell` PID unchanged throughout).
+  **Scope caveat:** this tested `PowerSaveMode`/DPMS-off specifically, not yet a real
+  `ApplyMonitorsConfig` zero-physical-monitor disable (Experiment 6) — VT-switching acts
+  below Mutter's compositor at the kernel/DRM level, so this finding is expected to
+  generalize to that case too, but that is reasoned, not independently proven for the
+  exact mechanism Experiment 6 uses. Re-confirm during the first real Experiment 6 run
+  rather than assuming. Out-of-band SSH (§1) remains the primary trusted path regardless;
+  `Ctrl+Alt+F3` is now a reasonably-confirmed secondary path for `eDP-1` specifically, not
+  merely an unverified assumption.
+- **Update, first real Experiment 6 run, same day:** `Ctrl+Alt+F3` again showed a visible
+  `tty3` console under the real `ApplyMonitorsConfig` zero-physical mechanism — that part
+  of the generalization held. **But `Ctrl+Alt+F2` did NOT restore the GUI this time**
+  (unlike the `PowerSaveMode` case) — switching back to Mutter's VT does not help when
+  Mutter's own compositor config genuinely has zero physical monitors active; only an
+  actual `ApplyMonitorsConfig` restore fixes that, which is what actually happened, run
+  manually by the operator over SSH after two automated restore paths turned out to be
+  buggy (see §2). Net effect for `eDP-1`: `Ctrl+Alt+F3` reliably gets a console for
+  running recovery commands (e.g. `exp07_restore` directly from `tty3`), but is **not** a
+  path back to the GUI on its own — SSH (§1) or an explicit restore command remain the
+  only ways to actually get the desktop back.
 
 ## 4. Snapshot before every run
 
@@ -86,3 +134,11 @@ physical display/input) does not apply yet. §1–4 become mandatory again start
 Phase 5 (Experiment 6, physical output isolation) and Phase 7 (Experiment 9, physical
 input isolation), which is why §1's out-of-band SSH prerequisite was verified ahead of
 time in Phase 0–1 rather than deferred to Phase 5.
+
+Phase 5 update (2026-09-26): real isolation runs have since occurred; §3's VT question
+was resolved and the watchdog was observed restoring unattended. However, the latest
+session reported a GNOME Shell crash and fresh login near virtual-monitor removal;
+whether a deliberate exp06 kill preceded it is unknown (the operator no longer recalls).
+Doc 00 §49 / Doc 10 §49's Mutter-instability stop condition now applies: do not run
+another physical-output mutation or the crash-recovery scenario on this host without
+a new safety review and explicit operator approval. Gate FEAS-C is not proven.

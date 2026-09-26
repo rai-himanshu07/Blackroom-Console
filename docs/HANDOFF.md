@@ -1,40 +1,40 @@
 # Handoff: Blackroom Console
 
-**Updated:** 2026-09-05 (Phase 4 — Virtual Display PoC complete, reviewed)
+**Updated:** 2026-09-26 (Phase 5 stopped for reassessment; Gate FEAS-C unproven)
 **Workspace or branch:** Git repo, branch `main`
-**Active plan:** docs/plans/plan-20260905-phase4-virtual-display-poc.md
+**Active plan:** docs/plans/plan-20260905-phase5-physical-display-isolation.md
 **Task tier:** governed
-**Memory:** wing `blackroom_console` checkpointed this session (see diary)
+**Memory:** wing `blackroom_console`
 
 ## Current State
 
-- **Phase 4 complete** (12 steps, independently reviewed — 3 real gaps found
-  and fixed). First mutating GNOME/PipeWire code: `blackroom-gnome` gained
-  `mutter::{remote_desktop,screencast,virtual_monitor,pipewire_capture}`.
-  Experiments 3–5 all live-PASS (`docs/experiments/evidence/exp0{3,4,5}/`).
-  Only `screencast_capable`/`pipewire_capable`/`virtual_display_capable`
-  promoted (review reverted an unsupported `remote_desktop_capable` bump).
+- Steps 1–4 complete. Watchdog path/cwd and pause-restore bugs fixed; unattended
+  restore verified. PowerSaveMode blanking observed on `eDP-1` and both outputs.
+- On the `HDMI-1`-alone routine run, the operator saw the external panel
+  blank; the watchdog restored before a deliberate kill. Date-keyed exp06
+  evidence now conflicts with exp07's HDMI-only report. Step 5 remains open.
+- The next session reported GNOME Shell SIGSEGV and a fresh login around
+  virtual-monitor removal. Operator cannot recall whether exp06 was killed;
+  logs/artifact are unavailable. Desktop usable on built-in panel; no causal PASS.
 
 ## Checks
 
-- `cargo test/fmt/clippy -D warnings/check`, `deny check`, `audit`: green
-  (201 deps, 0 vulnerabilities). exp03–05 independently re-checked live
-  (byte-identical topology restore, 0 leaked PipeWire nodes, Shell survived).
+- 2026-09-26: cargo test/fmt/clippy/check, deny, audit green; real-GNOME
+  tests stayed ignored. No live display test was run.
+- Graph lacks `Blackroom_Console`; re-index before the next code edit.
 
 ## Decisions
 
-- Capability tiers structurally fixed in `capability.rs` (not a live call in
-  `detect()` — Doc 19 §16–17 repeated-cycle risk). No `GnomeBackend`
-  assembly this phase (stays modules-only). Physical-monitor removal
-  deferred to Phase 5 Exp 6 — user approved this scoping 2026-09-05 (laptop:
-  `eDP-1` inbuilt has no unplug fallback, only `HDMI-1` external does).
+- Keep exp06/exp07 independent; defer GnomeBackend. No weakened Gate FEAS-C.
 
 ## Blockers
-- (none)
+
+- Doc 00 §49 / Doc 10 §49 stop-and-report applies to reported Mutter instability.
+  No more live isolation here without a new safety review and approval.
 
 ## Next Actions
 
-1. `/plan-task` for Phase 5 (physical display isolation, hard gate FEAS-C) —
-   `docs/ops/experiment-safety.md` §1 (SSH out-of-band access) is already
-   verified (Phase 0-1); §2's watchdog is a mechanism the new exp06/exp07
-   binaries must still implement, not a pending prerequisite.
+1. Investigate the compositor crash from retained diagnostics or a separately
+  prepared host; preserve the uncertainty about whether exp06 was killed.
+2. Reassess architecture and obtain safety review/approval before any new
+  live test. Do not advance Phase 6 or promote Gate FEAS-C.

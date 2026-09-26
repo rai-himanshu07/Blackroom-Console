@@ -4,11 +4,14 @@
 //! RemoteDesktop/ScreenCast/PipeWire session mechanics) make real
 //! `CreateSession`/`Start`/`Stop`/`RecordMonitor`/`RecordVirtual` calls plus
 //! real PipeWire frame capture, evidence-cited to Experiments 3–4
-//! (`docs/experiments/evidence/exp0{3,4}/`). Still no `ApplyMonitorsConfig`
-//! call that disables a physical output, and no `ConnectToEIS` call,
-//! anywhere in this module tree — those remain Phase 5/Phase 6.
+//! (`docs/experiments/evidence/exp0{3,4}/`). `display_config` (Phase 5)
+//! adds the first `ApplyMonitorsConfig` call that disables a physical
+//! output, evidence-cited to Experiments 6–7/26–27/37
+//! (`docs/experiments/evidence/exp{06,07,26,27,37}/`). Still no
+//! `ConnectToEIS` call anywhere in this module tree — that remains Phase 6.
 
 pub mod capability;
+pub mod display_config;
 pub mod pipewire_capture;
 pub mod remote_desktop;
 pub mod screencast;
