@@ -805,3 +805,17 @@ read-only run. See Risks.
   `cargo check --workspace --all-targets`, `cargo deny check`, and
   `cargo audit` passed. Real-GNOME system tests remained ignored. These
   static/unit checks do not discharge the stop condition or Gate FEAS-C.
+- 2026-09-26 (offline harness hardening; no live GNOME tests): reserve each
+  experiment run's evidence directory atomically; preserve existing
+  date-keyed reports with numbered same-day siblings and record the actual
+  path in exp06/exp07 reports. Refuse to isolate outputs if the watchdog
+  cannot arm, and cancel its pending timer (not its inactive service) after
+  verified restoration. This prevents recurrence of the documented evidence
+  overwrite and closes two harness safety gaps; it does not explain the
+  reported compositor crash or lift the stop condition. The retained journal
+  starts 2026-09-13, after the incident, so the prior crash timeline still
+  cannot be independently reconstructed from this host's current logs.
+  `cargo test --workspace`, `cargo fmt --check`, `cargo clippy --workspace
+  --all-targets -- -D warnings`, `cargo check --workspace --all-targets`,
+  and the project doctor passed; real-GNOME tests remained ignored. No new
+  dependency was added (deny/audit last passed at the preceding checkpoint).

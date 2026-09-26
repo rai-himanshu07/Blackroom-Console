@@ -36,7 +36,7 @@ target, so there is no disposable test box.
   `systemd-run --user --unit=blackroom-exp06-watchdog-<unix-timestamp>
   --on-active=<N>s -- <path-to-exp07_restore> --backup <path-to-backup.json>` before its
   first real `ApplyMonitorsConfig` disable (`N` scales with `--cycles`, floor 45s) and
-  disarms it (`systemctl --user stop <unit>.service`) only once the run's own restore is
+  disarms it (`systemctl --user stop <unit>.timer`) only once the run's own restore is
   verified.
 - **Incident, same day, first live run:** the watchdog's restore command was passed a
   *relative* `--backup` path, which failed once `systemd-run`'s transient unit ran in a
@@ -93,7 +93,8 @@ target, so there is no disposable test box.
 ## 4. Snapshot before every run
 
 - Save `org.gnome.Mutter.DisplayConfig.GetCurrentState` output to
-  `docs/experiments/evidence/<expNN>/<date>/` before making any change.
+  `docs/experiments/evidence/<expNN>/<date>/` before making any change
+  (later same-day runs use `<date>-2`, `<date>-3`, etc.; never overwrite a prior run).
 - Back up relevant `gsettings` display state. **Never edit `monitors.xml` directly.**
 
 ## 5. `gnome-remote-desktop` masking

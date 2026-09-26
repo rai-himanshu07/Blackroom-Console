@@ -346,6 +346,7 @@ fn main() -> anyhow::Result<()> {
         ExperimentResult::Fail
     };
 
+    let dir = evidence_dir(EXP_ID, now)?;
     let observed = redact(&format!("{findings:#?}"), redact_on);
     let report = ExperimentReport {
         experiment: "Experiment 7 — Display Restoration".to_string(),
@@ -367,9 +368,7 @@ fn main() -> anyhow::Result<()> {
                    exactly; no unexpected connector remains from a lingering virtual monitor."
             .to_string(),
         observed,
-        evidence: vec![format!(
-            "docs/experiments/evidence/{EXP_ID}/<date>/report.md"
-        )],
+        evidence: vec![dir.join("report.md").display().to_string()],
         result,
         failure: if matches!(result, ExperimentResult::Pass) {
             None
@@ -394,7 +393,6 @@ fn main() -> anyhow::Result<()> {
         follow_up: None,
     };
 
-    let dir = evidence_dir(EXP_ID, now)?;
     write_evidence(
         &dir,
         &redact(&report.render(now), redact_on),

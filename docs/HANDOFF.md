@@ -19,9 +19,9 @@
 
 ## Checks
 
-- 2026-09-26: cargo test/fmt/clippy/check, deny, audit green; real-GNOME
-  tests stayed ignored. No live display test was run.
-- Graph lacks `Blackroom_Console`; re-index before the next code edit.
+- 2026-09-26: offline evidence/watchdog fixes pass workspace test/fmt/clippy/
+  check; no live GNOME run. Deny/audit last green at `cc3dcd7`.
+- `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
 

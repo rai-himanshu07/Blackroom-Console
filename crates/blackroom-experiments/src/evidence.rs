@@ -137,17 +137,35 @@ fn read_hostname() -> anyhow::Result<String> {
     Ok(raw.trim().to_string())
 }
 
-/// Create (if needed) and return `docs/experiments/evidence/<exp_id>/<date>/`.
+/// Reserve a new directory under `docs/experiments/evidence/<exp_id>/` for each run.
 pub fn evidence_dir(exp_id: &str, at: OffsetDateTime) -> anyhow::Result<PathBuf> {
     let date = at
         .to_offset(time::UtcOffset::UTC)
         .format(time::macros::format_description!("[year]-[month]-[day]"))
         .expect("date-only format always succeeds");
-    let dir = Path::new("docs/experiments/evidence")
+    let base = Path::new("docs/experiments/evidence")
         .join(exp_id)
         .join(date);
-    fs::create_dir_all(&dir)?;
-    Ok(dir)
+    reserve_run_dir(&base)
+}
+
+fn reserve_run_dir(base: &Path) -> anyhow::Result<PathBuf> {
+    let parent = base.parent().expect("evidence directory has a parent");
+    let name = base.file_name().expect("evidence directory has a date");
+    fs::create_dir_all(parent)?;
+    for run in 1.. {
+        let dir = if run == 1 {
+            base.to_path_buf()
+        } else {
+            parent.join(format!("{}-{run}", name.to_string_lossy()))
+        };
+        match fs::create_dir(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    unreachable!("run number cannot be exhausted")
 }
 
 /// Write `report.md` plus one JSON sidecar into `dir`. Never touches any path
@@ -162,4 +180,34 @@ pub fn write_evidence<T: Serialize>(
     let json = serde_json::to_string_pretty(json_value)?;
     fs::write(dir.join(json_name), json)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_run_preserves_existing_evidence() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!(
+            "blackroom-evidence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_nanos()
+        ));
+        fs::create_dir(&root)?;
+        let base = root.join("2026-09-26");
+        let first = reserve_run_dir(&base)?;
+        write_evidence(&first, "first run", "findings.json", &1)?;
+        let second = reserve_run_dir(&base)?;
+        write_evidence(&second, "second run", "findings.json", &2)?;
+
+        assert_eq!(first, base);
+        assert_eq!(second, root.join("2026-09-26-2"));
+        assert_eq!(fs::read_to_string(first.join("report.md"))?, "first run");
+        assert_eq!(fs::read_to_string(first.join("findings.json"))?, "1");
+        assert_eq!(fs::read_to_string(second.join("report.md"))?, "second run");
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
 }

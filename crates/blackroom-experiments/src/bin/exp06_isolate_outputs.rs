@@ -704,11 +704,10 @@ fn arm_watchdog(
     Ok(())
 }
 
-/// Best-effort: the unit may have already fired and self-cleaned, or never
-/// existed if arming failed earlier — either is fine to ignore.
+/// Best-effort: the timer may have already fired and self-cleaned.
 fn disarm_watchdog(unit_name: &str) {
     let _ = Command::new("systemctl")
-        .args(["--user", "stop", &format!("{unit_name}.service")])
+        .args(["--user", "stop", &format!("{unit_name}.timer")])
         .status();
 }
 
@@ -880,7 +879,8 @@ fn main() -> anyhow::Result<()> {
     // 3. Arm the restore watchdog before the first real disable.
     let watchdog_unit = format!("blackroom-exp06-watchdog-{}", now.unix_timestamp());
     let watchdog_seconds = WATCHDOG_SECONDS_DEFAULT.max(u64::from(args.cycles) * 15 + 30);
-    let watchdog_armed = arm_watchdog(&watchdog_unit, watchdog_seconds, &backup_path).is_ok();
+    arm_watchdog(&watchdog_unit, watchdog_seconds, &backup_path)?;
+    let watchdog_armed = true;
 
     let mut restore_guard = RestoreGuard {
         conn: &conn,
@@ -1044,8 +1044,8 @@ fn write_experiment_report(
             .to_string(),
         observed,
         evidence: vec![
-            format!("docs/experiments/evidence/{EXP_ID}/<date>/report.md"),
-            format!("docs/experiments/evidence/{EXP_ID}/<date>/backup.json"),
+            dir.join("report.md").display().to_string(),
+            dir.join("backup.json").display().to_string(),
         ],
         result,
         failure: if matches!(result, ExperimentResult::Pass) {
