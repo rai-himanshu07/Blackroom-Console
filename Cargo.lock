@@ -295,6 +295,7 @@ name = "blackroom-gnome"
 version = "0.1.0"
 dependencies = [
  "blackroom-core",
+ "ed25519-dalek",
  "pipewire",
  "reis",
  "rustix",

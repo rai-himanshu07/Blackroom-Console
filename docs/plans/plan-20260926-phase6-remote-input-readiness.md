@@ -207,3 +207,18 @@ live FEAS-D proof requires a separate supervised approval.
   stop-emulation sequence must invoke `InputAuthorization::dispatch` at
   each event boundary and be fake-tested under revocation/state changes.
   No real Mutter handshake or live key was sent; Step 2 remains open.
+- 2026-09-27 (authorized synthetic key tap, Step 2 still partial): the
+  EI owner now accepts an `InputAuthorization` for each key-tap command
+  and validates the signed CONTROL lease before any EI write. It sends
+  press and release in separate CLOCK_MONOTONIC frames, followed by
+  stop-emulation; release is required cleanup even if authority changes
+  after the command begins. A fake EIS peer observes keycode 30 pressed,
+  then released with a later timestamp and stop-emulation. Revocation or
+  leaving `REMOTE_ACTIVE` before a new command prevents another send;
+  a failed socket flush marks the EI sender not-ready. Core tests cover
+  invalid authentication, authorization, signature, capability, expiry,
+  epoch, session and state. This **does not** establish live typing:
+  the trusted agent has not supplied/bound the verifier and state snapshot,
+  device pause/removal is not tracked, pointer/scroll remain unimplemented,
+  and no Mutter EIS connection or input event has been opened. Gate FEAS-D
+  and Step 2 remain open; no live test is authorized.

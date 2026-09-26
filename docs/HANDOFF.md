@@ -19,8 +19,8 @@
 
 ## Checks
 
-- Phase 6: signed input gate; bounded fake Sender/seat/device and framed
-  keycode tests green. No live GNOME input. Workspace sweep at checkpoint.
+- Phase 6: signed fake key tap delivered press/release and refused revoke/
+  wrong-state sends; no live GNOME input. Workspace sweep at checkpoint.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
@@ -35,6 +35,6 @@
 
 ## Next Actions
 
-1. Add fake-tested authorized EI key press/release with safe teardown;
-  do not start a live input session or promote FEAS-D.
+1. Bind authorization to trusted agent state; fake-test device pause/remove
+  and pointer/scroll before any live EIS or FEAS-D claim.
 2. Separate review/approval required before live GNOME EIS or input.
