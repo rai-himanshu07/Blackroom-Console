@@ -10,9 +10,9 @@
 
 - Steps 1–4 complete. Watchdog path/cwd and pause-restore bugs fixed; unattended
   restore verified. PowerSaveMode blanking observed on `eDP-1` and both outputs.
-- Fresh `HDMI-1`-alone routine run: external panel blanked, unattended
-  watchdog exp07 PASS, original HDMI-only layout matched afterward; no
-  SIGKILL. Step 5 crash-recovery criterion remains open.
+- HDMI-only blanking and watched restore succeeded. A later approved kill
+  attempt missed the timer window; no kill was sent, watchdog restored again.
+  Step 5 crash-recovery remains open.
 - Earlier GNOME Shell SIGSEGV/logout remains unexplained; old logs absent.
   One later non-isolating owner-loss run removed Meta-0 without a crash
   (Shell PID stable; operator confirmed desktop usable). Gate C unproven.

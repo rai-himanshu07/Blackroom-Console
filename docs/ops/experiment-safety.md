@@ -175,6 +175,25 @@ an independently verified SSH/visual confirmation; waiting for the watchdog
 avoids relying on that weaker path for this supervised observation. No new
 isolate run is authorized solely by this procedure.
 
+The deliberate **HDMI-only SIGKILL** scenario is a different, higher-risk
+test and requires its own explicit approval; earlier GNOME Shell SIGSEGV under
+virtual-monitor removal remains unexplained. Save unsaved work first and keep
+the second-device SSH connection open. Record exp06's printed PID, exact
+absolute backup path, timer name and Shell PID. Confirm HDMI is cleanly blank
+and verify the *printed timer* is still active and the original GNOME session
+still isolated before sending exactly one `kill -9 <printed-PID>` from a
+separate shell. If the timer has already fired or the GUI has returned,
+**abort the kill**; confirm restore and clean up the still-paused owner with
+Enter, with no automatic repeat. Never kill by a broad process-name match
+or press Enter while isolated. Immediately make a
+read-only `GetCurrentState` attempt to observe Mutter's automatic behavior,
+then allow the already-armed watchdog to fire. If the original Shell and
+session remain alive but the watchdog fails, follow the explicit-backup
+exp07 procedure above. If Shell crashes or a new GDM login appears, do **not**
+apply the old backup to that new session; capture journal/coredump diagnostics
+from SSH, then use the normal login/local recovery. Any crash, unknown state,
+or failed watchdog ends the test without a repeat or Gate FEAS-C promotion.
+
 If GNOME Shell crashes or logs out, the original D-Bus session may be gone. **Do not
 apply an old backup to a new login** or assume the watchdog can resurrect the Shell.
 Use the second-device SSH shell or visible `tty3` to collect the exact incident time,

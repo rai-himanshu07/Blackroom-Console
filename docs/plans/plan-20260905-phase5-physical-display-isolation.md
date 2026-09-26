@@ -960,3 +960,41 @@ read-only run. See Risks.
   owner loss was tested in zero-physical state. Step 5's crash-recovery
   criterion, the earlier compositor-crash uncertainty, and Gate FEAS-C stop
   remain unresolved; this single routine PASS does not promote a gate.
+- 2026-09-26 (next risk decision, no new test): operator requested a
+  supervised HDMI-only process-kill investigation. Recovery and stop steps
+  are recorded in `docs/ops/experiment-safety.md` §7: save work, fresh
+  second-device SSH, exact PID/backup/timer, one kill after observing blank,
+  immediate read-only state check, then independent watchdog/recovery check.
+  If GNOME crashes into a new login, do not apply an old backup. A request
+  is not execution approval; obtain a separate confirmation that unsaved
+  work is safe, SSH/HDMI-only preconditions hold, and this exact one-run
+  SIGKILL risk is accepted. No automatic retries or gate promotion.
+- 2026-09-26 (explicit process-kill authorization): operator confirmed all
+  unsaved work is safe, accepted possible GNOME crash/logout, confirmed
+  HDMI-only desktop and a fresh second-device SSH command, and approved
+  **one** exp06 `--pause-after-isolate` followed by `kill -9` of only its
+  printed PID after visually confirming blanking. Permit its already-armed
+  watchdog to fire and inspect state from SSH; no Enter before the kill,
+  no retry, no old-backup restore into a new GNOME login, and no automatic
+  Gate FEAS-C promotion. Record outcome even if Shell crashes or state is
+  unknown.
+- 2026-09-26 (approved attempt, **no SIGKILL performed**): exp06 paused
+  with PID 377437, exact backup in `exp06/2026-09-26-2/`, timer
+  `blackroom-exp06-watchdog-1790443804` armed. Operator observed HDMI
+  blank/black and the disabled built-in panel light up blank, then switched
+  VT (F3 showed tty3; F2 initially failed and later returned to the HDMI
+  GUI). By the time isolation could be independently checked, the timer
+  was inactive and exp07 had already run at 23:00:56 local with PASS:
+  original HDMI-only topology matched, no retry/apply error. In accordance
+  with the one-run approval, **the printed PID was not killed and no repeat
+  was started**. After verifying the original session was restored, Enter
+  let the paused exp06 redundantly apply its backup and stop Meta-0;
+  pause-mode PARTIAL and timer-already-unloaded warning are expected.
+  Independent final checks found Shell PID 34735 unchanged, PowerSaveMode
+  0, no Meta connector/timer, stop_error=None, and original service state
+  disabled/inactive; operator confirmed HDMI desktop responsive, built-in
+  off. Evidence: `docs/experiments/evidence/{exp06,exp07}/2026-09-26-2/`.
+  No automatic-restore-after-process-death observation was made. The
+  earlier Shell crash remains unexplained; Step 5 and Gate FEAS-C stop
+  remain open. Safety §7 now requires confirming the timer and isolated
+  state are still active immediately before any future kill attempt.
