@@ -92,6 +92,9 @@ live FEAS-D proof requires a separate supervised approval.
   state, synthetic tests cannot establish the real trust boundary.
 - Intel/NVIDIA cursor and absolute-coordinate mapping must be measured, not
   inferred from a pointer moving on one GPU.
+- `reis::event::EiConvertEventIterator::next` blocks while waiting for
+  seat/device events. Before using it on a live Mutter socket, bound
+  negotiation and device-readiness waits and guarantee teardown on timeout.
 
 ## Steps
 
@@ -176,3 +179,10 @@ live FEAS-D proof requires a separate supervised approval.
   while this host has 1.5; use keyboard/pointer capability paths instead.
   No real handshake or input event was sent. Step 2 stays open pending
   fake-tested seat/device negotiation and keyboard/pointer dispatch.
+- 2026-09-27 (bounded next slice): reviewed `reis` 0.7.1's `SeatAdded`,
+  `DeviceAdded`, `DeviceResumed` and `EisRequestConverter` APIs. Sender
+  keyboard delivery requires advertised/bound keyboard capability, a
+  resumed device serial, start/frame/stop emulation and flush. The current
+  `EiConnection` deliberately exposes no event-send operation; its private
+  event iterator can block indefinitely and must gain a bounded wait before
+  live use. This is an open Step 2 requirement, not a FEAS-D result.
