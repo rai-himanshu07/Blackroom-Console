@@ -1119,3 +1119,10 @@ read-only run. See Risks.
   post-SIGKILL Shell survival, watchdog restoration, and physical privacy
   remain unverified until a separately approved operator-witnessed run.
   No GNOME mutation or auto-kill invocation occurred during preparation.
+- 2026-09-26 (recovery read-through fix, offline): the opt-in pre-kill
+  message now includes the exact absolute backup path alongside the
+  watchdog unit and PID, and flushes that output before its final
+  state/timer check and self-signal. This lets SSH recovery use the
+  correct snapshot if the original Shell survives but the watchdog fails;
+  never apply it after a new GNOME login. Focused compile/format/tests
+  passed; no auto-kill run or Gate FEAS-C reclassification.

@@ -1159,8 +1159,9 @@ fn main() -> anyhow::Result<()> {
                 &preflight,
             )?;
             println!(
-                "Pre-kill evidence at {}; watchdog={} ({}s); PID={}",
+                "Pre-kill evidence at {}; backup={}; watchdog={} ({}s); PID={}",
                 dir.display(),
+                backup_path.display(),
                 watchdog_unit,
                 watchdog_seconds,
                 std::process::id()
