@@ -177,8 +177,11 @@ isolate run is authorized solely by this procedure.
 
 The deliberate **HDMI-only SIGKILL** scenario is a different, higher-risk
 test and requires its own explicit approval; earlier GNOME Shell SIGSEGV under
-virtual-monitor removal remains unexplained. Save unsaved work first and keep
-the second-device SSH connection open. Record exp06's printed PID, exact
+virtual-monitor removal remains unexplained. Before launch, confirm the
+operator is physically watching HDMI and can remain through restoration; if
+they step away, do not start (or, if already running, let the watchdog
+restore without a kill). Save unsaved work first and keep the second-device
+SSH connection open. Record exp06's printed PID, exact
 absolute backup path, timer name and Shell PID. Confirm HDMI is cleanly blank
 and report that from the second device immediately; do not switch VT or press
 F2/F3 unless recovery is needed. The pause-only `--watchdog-seconds` option
@@ -199,6 +202,12 @@ exp07 procedure above. If Shell crashes or a new GDM login appears, do **not**
 apply the old backup to that new session; capture journal/coredump diagnostics
 from SSH, then use the normal login/local recovery. Any crash, unknown state,
 or failed watchdog ends the test without a repeat or Gate FEAS-C promotion.
+
+The 2026-09-26 90-second attempt had no continuous visual observer (the
+operator later clarified they were away during the isolation window). Its
+watchdog restore PASS is useful, but it is not evidence of physical-screen
+privacy or abnormal-termination recovery. A new run requires fresh approval
+and a present observer from start through restoration.
 
 If GNOME Shell crashes or logs out, the original D-Bus session may be gone. **Do not
 apply an old backup to a new login** or assume the watchdog can resurrect the Shell.

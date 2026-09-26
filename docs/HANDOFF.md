@@ -10,17 +10,17 @@
 
 - Steps 1–4 complete. Watchdog path/cwd and pause-restore bugs fixed; unattended
   restore verified. PowerSaveMode blanking observed on `eDP-1` and both outputs.
-- HDMI-only routine restore succeeded. Two later approved kill windows
-  (45s and 90s) closed before verification; neither PID was killed. Both
-  watchdog restores passed; Step 5 crash-recovery remains untested.
+- HDMI-only routine restore succeeded. Two requested kill windows (45s,
+  90s) expired without SIGKILL; the 90s run lacked a visual observer.
+  Both watchdogs restored; Step 5 crash-recovery remains untested.
 - Earlier GNOME Shell SIGSEGV/logout remains unexplained; old logs absent.
   One later non-isolating owner-loss run removed Meta-0 without a crash
   (Shell PID stable; operator confirmed desktop usable). Gate C unproven.
 
 ## Checks
 
-- 2026-09-26: one approved owner-loss probe returned PARTIAL, no crash;
-  workspace cargo gates green. No exp06 or 50-cycle proof; audit unchanged.
+- 2026-09-26: routine exp06 restore and two no-kill attempts; Shell stable.
+  Workspace cargo gates green; no 50-cycle proof; audit unchanged.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions

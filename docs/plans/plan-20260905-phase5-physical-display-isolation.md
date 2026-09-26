@@ -1047,3 +1047,13 @@ read-only run. See Risks.
   for this run or an abnormal-termination observation. The one-run 90s
   approval is consumed. Do not lengthen/retry automatically on the
   daily-driver host; Step 5 and FEAS-C stop remain open.
+- 2026-09-26 (operator correction after the 90-second attempt): operator
+  clarified they were **not physically present to watch** during that
+  isolation window and can watch now. The earlier "already restored /
+  unsure" response therefore cannot attest to HDMI blanking, absence of
+  desktop content, or the kill window. The recorded exp07 topology PASS
+  remains a valid machine result, but the test lacked the mandatory
+  continuous human observer. No SIGKILL occurred. Safety §7 now requires
+  the operator to confirm physical presence **before launch**, remain
+  through recovery, and abort any kill if they step away. This correction
+  does not authorize a new run or lift the Mutter-instability stop.
