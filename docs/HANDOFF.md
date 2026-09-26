@@ -34,7 +34,7 @@
 
 ## Next Actions
 
-1. Investigate the compositor crash from retained diagnostics or a separately
-  prepared host; preserve the uncertainty about whether exp06 was killed.
-2. Reassess architecture and obtain safety review/approval before any new
-  live test. Do not advance Phase 6 or promote Gate FEAS-C.
+1. Never require chat input while the display is blank; operator can watch
+  but report only after restore. Review a distinct machine-gated diagnostic.
+2. Investigate old crash; obtain safety approval for any live test. Phase 6
+  and Gate FEAS-C remain blocked.

@@ -1057,3 +1057,16 @@ read-only run. See Risks.
   the operator to confirm physical presence **before launch**, remain
   through recovery, and abort any kill if they step away. This correction
   does not authorize a new run or lift the Mutter-instability stop.
+- 2026-09-26 (communication-path correction): operator is able to watch
+  the HDMI screen but cannot send a VS Code chat message while the GUI is
+  blank; they can report their observation only after restoration. Asking
+  for a timely in-blank chat reply was an impossible requirement, even
+  with a present observer. Do not repeat timed chat-mediated attempts or
+  lengthen the blank window. A separate machine-gated owner-loss diagnostic
+  may be designed offline: require armed watchdog and read-only verified
+  zero-physical logical topology, persist pre-death evidence, then trigger
+  one owner exit without relying on an operator message. Such checks do
+  **not** prove the physical panel blank: operator observation is collected
+  afterward and cannot serve as a pre-kill veto. New design, risk review,
+  and explicit approval are required before any implementation or live
+  execution. Phase 5 stop/Gate FEAS-C status are unchanged.

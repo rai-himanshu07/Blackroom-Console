@@ -183,8 +183,9 @@ they step away, do not start (or, if already running, let the watchdog
 restore without a kill). Save unsaved work first and keep the second-device
 SSH connection open. Record exp06's printed PID, exact
 absolute backup path, timer name and Shell PID. Confirm HDMI is cleanly blank
-and report that from the second device immediately; do not switch VT or press
-F2/F3 unless recovery is needed. The pause-only `--watchdog-seconds` option
+using an independent observer/channel if attempting a manual kill; **never
+require a VS Code chat reply while the desktop is blank**. Do not switch VT
+or press F2/F3 unless recovery is needed. The pause-only `--watchdog-seconds` option
 accepts 45-120 seconds; the default stays 45. A longer blank interval
 increases recovery risk and does not authorize a new run. Confirm HDMI is still isolated
 and verify the *printed timer* is still active and the original GNOME session
@@ -202,6 +203,16 @@ exp07 procedure above. If Shell crashes or a new GDM login appears, do **not**
 apply the old backup to that new session; capture journal/coredump diagnostics
 from SSH, then use the normal login/local recovery. Any crash, unknown state,
 or failed watchdog ends the test without a repeat or Gate FEAS-C promotion.
+
+If the operator can watch but cannot communicate until the GUI returns, the
+manual-kill procedure above is not executable as written. Do not extend the
+timer or start another run hoping for a chat reply. A distinct, not-yet-
+implemented machine-gated diagnostic could check the armed watchdog and
+zero-physical logical topology, persist evidence, and trigger one process
+death without interactive input; it requires a new safety review and explicit
+approval. That machine check cannot prove the panel was visually blank.
+The observer must report actual physical-screen observations **after**
+recovery; if the compositor crashes, follow the recovery branch below.
 
 The 2026-09-26 90-second attempt had no continuous visual observer (the
 operator later clarified they were away during the isolation window). Its
