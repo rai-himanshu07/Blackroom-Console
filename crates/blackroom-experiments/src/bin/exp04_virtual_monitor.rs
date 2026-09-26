@@ -44,8 +44,12 @@ struct Args {
     common: CommonArgs,
     /// Skip the 50-cycle reliability loop (for fast iteration while
     /// discovering RecordVirtual's real property schema).
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = false, conflicts_with = "probe_owner_loss")]
     skip_cycles: bool,
+    /// Prepare one virtual monitor, persist evidence, then close its D-Bus
+    /// owner without Stop. May crash GNOME; requires separate live approval.
+    #[arg(long, default_value_t = false)]
+    probe_owner_loss: bool,
 }
 
 // ---------------------------------------------------------------------
@@ -273,13 +277,24 @@ fn try_record_virtual(
     (None, attempts)
 }
 
-fn one_cycle(
-    conn: &Connection,
+fn one_cycle<'a>(
+    conn: &'a Connection,
     width: i32,
     height: i32,
     refresh_rate: f64,
-) -> anyhow::Result<ResolutionResult> {
+    probe_owner_loss: bool,
+) -> anyhow::Result<(ResolutionResult, Option<SessionStopGuard<'a>>)> {
     let before = snapshot_state(conn)?;
+    if probe_owner_loss {
+        anyhow::ensure!(
+            before.logical_monitor_count > 0
+                && before
+                    .connectors
+                    .iter()
+                    .all(|name| !name.starts_with("Meta-")),
+            "owner-loss probe requires active physical displays and no prior virtual connector"
+        );
+    }
 
     let screencast_proxy = Proxy::new(
         conn,
@@ -355,6 +370,34 @@ fn one_cycle(
             .cloned();
     }
 
+    let resolution_honored = observed_mode
+        .as_ref()
+        .is_some_and(|mode| mode.width == width && mode.height == height);
+
+    if probe_owner_loss {
+        anyhow::ensure!(
+            new_after_create.len() == 1 && frames_received > 0 && resolution_honored,
+            "owner-loss probe requires one confirmed 1280x720 virtual connector with captured frames"
+        );
+        return Ok((
+            ResolutionResult {
+                width,
+                height,
+                refresh_rate,
+                record_virtual_error,
+                new_connectors_after_create: new_after_create,
+                observed_mode,
+                resolution_honored,
+                frames_received,
+                stop_error: None,
+                new_connectors_after_destroy: Vec::new(),
+                monitor_confirmed: true,
+                teardown_confirmed: false,
+            },
+            Some(session_guard),
+        ));
+    }
+
     let stop_error = session_proxy.call::<_, _, ()>("Stop", &()).err();
     if stop_error.is_none() {
         session_guard.disarmed = true;
@@ -365,24 +408,23 @@ fn one_cycle(
     let after_destroy = poll_until_connector_count_changes(conn, after_create_count)?;
     let new_after_destroy = new_connectors(&before, &after_destroy);
 
-    let resolution_honored = observed_mode
-        .as_ref()
-        .is_some_and(|m| m.width == width && m.height == height);
-
-    Ok(ResolutionResult {
-        width,
-        height,
-        refresh_rate,
-        record_virtual_error,
-        monitor_confirmed: !new_after_create.is_empty(),
-        new_connectors_after_create: new_after_create,
-        observed_mode,
-        resolution_honored,
-        frames_received,
-        stop_error,
-        teardown_confirmed: new_after_destroy.is_empty(),
-        new_connectors_after_destroy: new_after_destroy,
-    })
+    Ok((
+        ResolutionResult {
+            width,
+            height,
+            refresh_rate,
+            record_virtual_error,
+            monitor_confirmed: !new_after_create.is_empty(),
+            new_connectors_after_create: new_after_create,
+            observed_mode,
+            resolution_honored,
+            frames_received,
+            stop_error,
+            teardown_confirmed: new_after_destroy.is_empty(),
+            new_connectors_after_destroy: new_after_destroy,
+        },
+        None,
+    ))
 }
 
 // ---------------------------------------------------------------------
@@ -447,7 +489,7 @@ fn run_cycles(conn: &Connection, width: i32, height: i32, refresh_rate: f64) -> 
         let (tx, rx) = std::sync::mpsc::channel();
         thread::scope(|scope| {
             scope.spawn(|| {
-                let result = one_cycle(conn, width, height, refresh_rate)
+                let result = one_cycle(conn, width, height, refresh_rate, false)
                     .map(|_| ())
                     .map_err(|e| e.to_string());
                 let _ = tx.send(result);
@@ -488,6 +530,28 @@ fn classify_result(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owner_loss_probe_requires_an_explicit_exclusive_flag() {
+        assert!(
+            !Args::try_parse_from(["exp04_virtual_monitor"])
+                .unwrap()
+                .probe_owner_loss
+        );
+        assert!(
+            Args::try_parse_from(["exp04_virtual_monitor", "--probe-owner-loss"])
+                .unwrap()
+                .probe_owner_loss
+        );
+        assert!(
+            Args::try_parse_from([
+                "exp04_virtual_monitor",
+                "--probe-owner-loss",
+                "--skip-cycles"
+            ])
+            .is_err()
+        );
+    }
 
     #[test]
     fn unmeasured_reliability_cannot_pass() {
@@ -648,10 +712,60 @@ fn main() -> anyhow::Result<()> {
 
     let conn = Connection::session()?;
 
+    if args.probe_owner_loss {
+        let shell_pid_before = gnome_shell_pid()
+            .filter(|pid| !pid.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("cannot establish GNOME Shell PID before owner loss"))?;
+        let (result, guard) = one_cycle(&conn, 1280, 720, 60.0, true)?;
+        let mut guard = guard.expect("owner-loss preparation retains its Stop guard");
+        let dir = evidence_dir(EXP_ID, now)?;
+        let report = ExperimentReport {
+            experiment: "Experiment 4 — Virtual Monitor Owner-Loss Probe".to_string(),
+            environment: "Development workstation (host = target), Ubuntu 26.04 / GNOME 50.1"
+                .to_string(),
+            objective: "Observe session-owner disappearance without disabling physical outputs."
+                .to_string(),
+            hypothesis: "Closing the ScreenCast owner's D-Bus connection without Stop removes its virtual monitor without crashing GNOME Shell."
+                .to_string(),
+            procedure: "Create and confirm one virtual monitor, capture frames, persist evidence, then close the owning D-Bus connection without Stop. External read-only checks must verify the outcome."
+                .to_string(),
+            expected: "Original physical displays remain active; virtual monitor removal and Shell survival must be confirmed independently."
+                .to_string(),
+            observed: redact(&format!("before_owner_close={result:#?}\nshell_pid_before={shell_pid_before:?}"), redact_on),
+            evidence: vec![dir.join("report.md").display().to_string()],
+            result: ExperimentResult::Partial,
+            failure: None,
+            root_cause: None,
+            security_impact: Some("May crash GNOME Shell; physical outputs are not disabled. No FEAS-C conclusion follows from this probe.".to_string()),
+            recommended_action: Some("Check Shell PID, journal, and GetCurrentState from an independent connection before any further experiment.".to_string()),
+            follow_up: None,
+        };
+        write_evidence(
+            &dir,
+            &redact(&report.render(now), redact_on),
+            "owner_loss.json",
+            &serde_json::json!({
+                "phase": "before_owner_close",
+                "shell_pid_before": shell_pid_before,
+                "resolution": result,
+                "teardown_observed": false,
+            }),
+        )?;
+        println!(
+            "Pre-close evidence at {} (PARTIAL; independent checks required)",
+            dir.display()
+        );
+        guard.disarmed = true;
+        drop(guard);
+        conn.close()?;
+        println!("Owner D-Bus connection closed; no further GNOME calls were made");
+        return Ok(());
+    }
+
     let resolutions = [(1280, 720, 60.0), (1920, 1080, 60.0), (2560, 1440, 60.0)];
     let mut results = Vec::new();
     for (width, height, refresh_rate) in resolutions {
-        results.push(one_cycle(&conn, width, height, refresh_rate)?);
+        results.push(one_cycle(&conn, width, height, refresh_rate, false)?.0);
     }
 
     let all_confirmed = results.iter().all(|r| r.monitor_confirmed);

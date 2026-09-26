@@ -852,3 +852,26 @@ read-only run. See Risks.
   generated evidence was retained unchanged. This run neither reproduced
   the earlier crash nor proves abrupt-session loss or zero-physical display
   teardown safe. **Phase 5 stop and Gate FEAS-C unproven status remain.**
+- 2026-09-26 (owner-loss diagnostic design, offline only): the operator chose
+  to **prepare**, not run, a single non-isolating owner-loss probe next.
+  zbus 5.19's blocking `Connection::close(self)` explicitly closes its
+  D-Bus socket; unlike SIGKILL, the diagnostic process can persist evidence
+  first. Proposed bounded mode: create and confirm one virtual monitor at
+  1280x720 with physical outputs still active, keep a Stop guard armed for
+  every early failure, persist a pre-close report, then intentionally skip
+  `ScreenCast.Session.Stop` and close only that session-owner connection.
+  Independent read-only GetCurrentState, Shell PID and journal checks are
+  required afterward; no PASS can be asserted solely by the probe. This
+  tests owner disappearance without zero-physical topology but could still
+  crash GNOME. **No live invocation, retry, exp06, or SIGKILL is approved.**
+- 2026-09-26 (offline preparation): implemented the explicit exp04
+  `--probe-owner-loss` mode, exclusive with `--skip-cycles`. It requires
+  active physical display state with no pre-existing Meta connector, one
+  confirmed 1280x720 virtual connector and captured frames, and a Shell PID
+  baseline. The Stop guard stays armed through the pre-close evidence write;
+  after that write succeeds, the mode disarms it and calls zbus 5.19's
+  `Connection::close(self)` on its own session-bus connection. It reports
+  PARTIAL and leaves removal/crash verification to an independent observer.
+  Direct Stop-on-write-failure behavior has not been exercised with a live
+  D-Bus session; source ordering and offline CLI/compile checks are not proof
+  of runtime recovery. No live owner-loss probe has been run or approved.
