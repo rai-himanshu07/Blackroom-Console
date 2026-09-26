@@ -166,6 +166,15 @@ GNOME session is still alive:
    paused, send Enter to its original terminal only after restoration so it can stop
    its ScreenCast session; never assume exp07 removed that session for it.
 
+For a routine `exp06 --pause-after-isolate` observation, do not send Enter or
+terminate the process while isolated. Let the armed watchdog fire, confirm from
+SSH that it restored the original topology and the physical desktop is visible,
+then send Enter for the original process's ScreenCast cleanup. The exp06
+graceful path currently disarms the timer after its own topology check, before
+an independently verified SSH/visual confirmation; waiting for the watchdog
+avoids relying on that weaker path for this supervised observation. No new
+isolate run is authorized solely by this procedure.
+
 If GNOME Shell crashes or logs out, the original D-Bus session may be gone. **Do not
 apply an old backup to a new login** or assume the watchdog can resurrect the Shell.
 Use the second-device SSH shell or visible `tty3` to collect the exact incident time,

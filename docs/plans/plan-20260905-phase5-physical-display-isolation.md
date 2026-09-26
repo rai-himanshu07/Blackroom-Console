@@ -896,3 +896,32 @@ read-only run. See Risks.
   reliability nor rules out zero-physical/hybrid-GPU teardown as the
   trigger. Gate FEAS-C and the Phase 5 stop remain unresolved. The one-run
   approval has been used; exp06 and any repeat require separate review.
+- 2026-09-26 (HDMI-only routine test review, no isolation): operator
+  reconnected the external display and selected second-screen-only;
+  reported HDMI desktop visible and built-in panel off. Read-only exp02
+  inventory at `docs/experiments/evidence/exp02/2026-09-26/` confirms raw
+  connectors `eDP-1` and `HDMI-1`, with only `HDMI-1` in logical monitors
+  (primary, scale 1.25). **Evidence limitation:** exp02's executable was
+  still the 2026-09-05 build, predating the per-run evidence-directory fix;
+  its second invocation reused the date path and overwrote the earlier
+  built-in-only snapshot. That first result was seen in the session but no
+  longer exists as a file. Rebuilt exp02 against the current helper without
+  another inventory run; restored historical `api-inventory.md` content
+  after the generator's incidental session-ID/topology rewrite. Current
+  HDMI-only evidence is valid; no exp06, SIGKILL, or further physical-state
+  mutation has been approved or performed by this review.
+- 2026-09-26 (routine HDMI-only path reviewed, not run): the standalone
+  exp06/exp07 binaries dated September 5/6, before current watchdog/evidence
+  fixes; both were rebuilt from current source. Proposed one-run sequence:
+  with HDMI-1 the only active display and fresh second-device SSH, mask the
+  competing service, start `exp06 --pause-after-isolate`, observe external
+  blanking, leave its process untouched until the 45-second watchdog fires,
+  independently confirm exp07's restoration and the physical desktop over
+  SSH, then send Enter to the still-paused exp06 for ScreenCast cleanup.
+  Do not choose its printed `kill -9` suggestion. Exp06's normal graceful
+  branch can disarm its watchdog after only an internal topology check,
+  before out-of-band confirmation (experiment-safety §2); this procedure
+  instead exercises the unattended watchdog. This remains a harness gap
+  for future general use. It does not test abrupt owner loss under
+  zero-physical topology or resolve the earlier crash. No live exp06 run,
+  SIGKILL, or Phase 5 gate promotion is approved by this review.
