@@ -211,6 +211,22 @@ pattern, from direct source).
 **Escalation:** Document 10 Experiment 8 (Remote Input) will exercise the
 `reis` crate against this exact `ConnectToEIS` path — Phase 6.
 
+**Read-only update, 2026-09-26:** Experiment 3 subsequently captured a real
+RemoteDesktop session's introspection XML at
+`docs/gnome/introspection/remotedesktop-session-exp03.xml`. It confirms the
+*session method signature* `ConnectToEIS(a{sv} options) -> h fd`; the method
+was not called, so valid option keys, fd handoff, handshake, and working input
+remain unverified. The `reis` 0.7.1 documentation identifies
+`reis::ei::Context::new(UnixStream)`, `handshake_blocking`, and client-side
+seat/device event wrappers. Its handshake `ContextType::Sender` sends input
+to EIS, while `Receiver` receives captured events (the Phase 7 direction);
+it also says the library is incomplete and
+subject to change. See `https://docs.rs/reis/0.7.1/reis/ei/struct.Context.html`
+and `https://docs.rs/reis/0.7.1/reis/ei/handshake/enum.ContextType.html`.
+This narrows the
+research question but does not promote remote-input capability or authorize a
+session on the Phase 5-stopped host.
+
 ---
 
 ## 6. Physical input isolation candidates
