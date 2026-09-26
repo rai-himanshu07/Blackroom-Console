@@ -164,3 +164,15 @@ live FEAS-D proof requires a separate supervised approval.
   No code calls ConnectToEIS, starts a new session, handshakes with Mutter,
   or sends an input event. Sender device negotiation and an actual
   auth-checked EI event path remain to implement before Step 2 is complete.
+- 2026-09-27 (offline Sender handshake and fake event gate): `EiConnection`
+  now negotiates `ContextType::Sender` over a synthetic Unix socket pair
+  using `reis`'s server-side handshaker; the peer asserts Sender and four
+  consecutive focused runs passed. Negotiated connection/event objects
+  remain private. `InputAuthorization::dispatch` validates immediately
+  before calling a fake event sink; revocation or leaving REMOTE_ACTIVE
+  leaves the sink unchanged. Mutter 50.1 source confirms FD options/cleanup;
+  `reis` examples show keyboard events need seat binding and a resumed
+  device with a serial before framing. `ei_text` requires libei >=1.6,
+  while this host has 1.5; use keyboard/pointer capability paths instead.
+  No real handshake or input event was sent. Step 2 stays open pending
+  fake-tested seat/device negotiation and keyboard/pointer dispatch.

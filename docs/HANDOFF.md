@@ -19,8 +19,8 @@
 
 ## Checks
 
-- Phase 6: CONTROL lease, signed input gate and synthetic FD ownership tests
-  green; no EIS handshake/input. Workspace/security sweep pending.
+- Phase 6: signed input gate, fake-sink and synthetic EI Sender handshake
+  green; no GNOME handshake/input. Workspace/security sweep pending.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
