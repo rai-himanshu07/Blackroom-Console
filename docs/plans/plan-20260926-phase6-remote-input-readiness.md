@@ -196,3 +196,14 @@ live FEAS-D proof requires a separate supervised approval.
   consecutive runs. No seat was bound, no device was resumed, and no key or
   pointer event was sent. Step 2 remains open for bounded device readiness
   and authorized event dispatch; no live EIS permission or FEAS-D claim.
+- 2026-09-27 (fake keyboard device and one framed key request): the
+  synthetic EIS peer now observes a keyboard-capability seat bind,
+  advertises a virtual keyboard device and resumes it. The bounded EI
+  reader receives `DeviceAdded` and `DeviceResumed`; a test-only Sender
+  starts emulating with the resumed serial, sends keycode 30 in a frame
+  timestamped with CLOCK_MONOTONIC, and the fake server observes its
+  pressed-key request. The focused test, formatting and GNOME Clippy pass.
+  This is not yet a production EI input method: a safe press/release and
+  stop-emulation sequence must invoke `InputAuthorization::dispatch` at
+  each event boundary and be fake-tested under revocation/state changes.
+  No real Mutter handshake or live key was sent; Step 2 remains open.

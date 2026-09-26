@@ -239,7 +239,7 @@ mod tests {
                         context
                             .flush()
                             .map_err(|error| std::io::Error::other(error.to_string()))?;
-                        let converter =
+                        let mut converter =
                             reis::request::EisRequestConverter::new(&context, response, 1);
                         let _seat = converter.handle().add_seat(
                             Some("synthetic-keyboard"),
@@ -248,10 +248,53 @@ mod tests {
                         context
                             .flush()
                             .map_err(|error| std::io::Error::other(error.to_string()))?;
-                        done_rx
-                            .recv_timeout(Duration::from_secs(2))
-                            .map_err(std::io::Error::other)?;
-                        return Ok(());
+                        let deadline = Instant::now() + Duration::from_secs(2);
+                        while Instant::now() < deadline {
+                            match context.read() {
+                                Ok(_) => {}
+                                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                    thread::yield_now();
+                                    continue;
+                                }
+                                Err(error) => return Err(error),
+                            }
+                            while let Some(request) = context.pending_request() {
+                                let reis::PendingRequestResult::Request(request) = request else {
+                                    return Err(std::io::Error::other("invalid seat-bind request"));
+                                };
+                                converter
+                                    .handle_request(request)
+                                    .map_err(|error| std::io::Error::other(error.to_string()))?;
+                            }
+                            while let Some(request) = converter.next_request() {
+                                if let reis::request::EisRequest::Bind(binding) = request {
+                                    let device = binding.seat.add_device(
+                                        Some("synthetic-keyboard-device"),
+                                        reis::eis::device::DeviceType::Virtual,
+                                        reis::request::DeviceCapability::Keyboard.into(),
+                                        |_| {},
+                                    );
+                                    device.resumed();
+                                    context.flush().map_err(|error| {
+                                        std::io::Error::other(error.to_string())
+                                    })?;
+                                } else if let reis::request::EisRequest::KeyboardKey(key) = request
+                                {
+                                    if key.key != 30
+                                        || key.state != reis::eis::keyboard::KeyState::Press
+                                    {
+                                        return Err(std::io::Error::other(
+                                            "unexpected synthetic key",
+                                        ));
+                                    }
+                                    done_rx
+                                        .recv_timeout(Duration::from_secs(2))
+                                        .map_err(std::io::Error::other)?;
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        return Err(std::io::Error::other("synthetic keyboard bind timed out"));
                     }
                 }
             }
@@ -263,7 +306,29 @@ mod tests {
         sender.handshake_sender(Duration::from_secs(2))?;
         assert!(sender.is_ready());
         let event = sender.next_event_until(Duration::from_secs(2))?;
-        assert!(matches!(event, Some(reis::event::EiEvent::SeatAdded(_))));
+        let Some(reis::event::EiEvent::SeatAdded(added)) = event else {
+            return Err(std::io::Error::other("synthetic keyboard seat not advertised").into());
+        };
+        added
+            .seat
+            .bind_capabilities(reis::event::DeviceCapability::Keyboard.into());
+        sender.context.flush()?;
+        let event = sender.next_event_until(Duration::from_secs(2))?;
+        assert!(matches!(event, Some(reis::event::EiEvent::DeviceAdded(_))));
+        let event = sender.next_event_until(Duration::from_secs(2))?;
+        let Some(reis::event::EiEvent::DeviceResumed(resumed)) = event else {
+            return Err(std::io::Error::other("synthetic device not resumed").into());
+        };
+        let keyboard = resumed
+            .device
+            .interface::<reis::ei::Keyboard>()
+            .ok_or_else(|| std::io::Error::other("synthetic device lacks keyboard capability"))?;
+        resumed.device.device().start_emulating(resumed.serial, 1);
+        keyboard.key(30, reis::ei::keyboard::KeyState::Press);
+        let now = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
+        let micros = u64::try_from(now.tv_sec)? * 1_000_000 + u64::try_from(now.tv_nsec)? / 1_000;
+        resumed.device.device().frame(resumed.serial, micros);
+        sender.context.flush()?;
         assert!(
             sender
                 .next_event_until(Duration::from_millis(30))?

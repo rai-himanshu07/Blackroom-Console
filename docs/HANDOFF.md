@@ -19,8 +19,8 @@
 
 ## Checks
 
-- Phase 6: signed input gate, bounded fake Sender/seat event tests green;
-  no GNOME handshake/input. Workspace/security sweep at checkpoint.
+- Phase 6: signed input gate; bounded fake Sender/seat/device and framed
+  keycode tests green. No live GNOME input. Workspace sweep at checkpoint.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
@@ -35,6 +35,6 @@
 
 ## Next Actions
 
-1. Fake-test bounded seat binding, device resume and one authorized key
-  event; do not start an input session or promote FEAS-D.
+1. Add fake-tested authorized EI key press/release with safe teardown;
+  do not start a live input session or promote FEAS-D.
 2. Separate review/approval required before live GNOME EIS or input.
