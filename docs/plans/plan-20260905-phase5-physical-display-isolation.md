@@ -925,3 +925,38 @@ read-only run. See Risks.
   for future general use. It does not test abrupt owner loss under
   zero-physical topology or resolve the earlier crash. No live exp06 run,
   SIGKILL, or Phase 5 gate promotion is approved by this review.
+- 2026-09-26 (bounded routine-isolation approval): operator reconfirmed
+  HDMI is the only visible desktop, is physically present, and a fresh
+  second-device SSH login works. Explicit approval covers **one**
+  `exp06_isolate_outputs --pause-after-isolate` run with the 45-second
+  watchdog left to restore the HDMI-only topology. No Enter or process
+  termination while isolated; SSH and operator independently verify
+  restoration before Enter cleans up the original ScreenCast session.
+  The operator accepts possible Shell crash/logout and reviewed the §7
+  recovery procedure. This approval excludes SIGKILL, owner-loss under
+  zero-physical topology, repeat runs, and any Gate FEAS-C promotion.
+- 2026-09-26 (one supervised HDMI-only routine run completed): exp06
+  `--pause-after-isolate` armed the 45-second timer, persisted its backup,
+  and isolated the sole active HDMI-1 output. Operator saw HDMI cleanly
+  black/blank with no desktop; the already-disabled built-in panel lit up
+  but stayed blank. Operator switched VT with Ctrl+Alt+F2 and later saw the
+  GUI again on HDMI; the watchdog journal independently shows exp07 started
+  at 22:51:47 local and reported PASS at 22:51:48, so the VT switch alone
+  is **not** credited with restoring Mutter's topology. Exp07 found the
+  backed-up HDMI-only topology matching with no retry or apply error;
+  its `unexpected_connectors_after_restore` still included eDP-1 (disabled)
+  and Meta-0 (exp06 still paused), as expected. After SSH verification,
+  Enter let exp06 redundantly re-apply its backup and stop ScreenCast;
+  its pause-mode PARTIAL report records `stop_error=None` and
+  `virtual_connector_fully_gone=true`. The expired timer was no longer
+  loaded when exp06 tried to stop it, producing a harmless unit-not-loaded
+  warning. Independent checks: Shell PID 34735 throughout, PowerSaveMode 0,
+  no Meta connector/timer remained, `gnome-remote-desktop` restored to its
+  prior disabled/inactive state, and operator confirmed HDMI desktop
+  responsive with built-in off. Fresh read-only exp02 evidence at
+  `docs/experiments/evidence/exp02/2026-09-26-2/` exactly matches the
+  preflight HDMI-only logical topology (connector, x/y, scale, transform,
+  primary). The earlier exp02 snapshot was preserved. No SIGKILL or abrupt
+  owner loss was tested in zero-physical state. Step 5's crash-recovery
+  criterion, the earlier compositor-crash uncertainty, and Gate FEAS-C stop
+  remain unresolved; this single routine PASS does not promote a gate.

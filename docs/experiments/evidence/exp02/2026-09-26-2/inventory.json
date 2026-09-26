@@ -1,0 +1,2715 @@
+{
+  "targets": [
+    {
+      "label": "Mutter.DisplayConfig",
+      "bus": "session",
+      "destination": "org.gnome.Mutter.DisplayConfig",
+      "object_path": "/org/gnome/Mutter/DisplayConfig",
+      "xml_file": "docs/gnome/introspection/mutter-displayconfig.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.Mutter.DisplayConfig",
+          "methods": [
+            {
+              "name": "GetResources",
+              "in_args": [],
+              "out_args": [
+                "u",
+                "a(uxiiiiiuaua{sv})",
+                "a(uxiausauaua{sv})",
+                "a(uxuudu)",
+                "i",
+                "i"
+              ]
+            },
+            {
+              "name": "ApplyConfiguration",
+              "in_args": [
+                "u",
+                "b",
+                "a(uiiiuaua{sv})",
+                "a(ua{sv})"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "ChangeBacklight",
+              "in_args": [
+                "u",
+                "u",
+                "i"
+              ],
+              "out_args": [
+                "i"
+              ]
+            },
+            {
+              "name": "SetBacklight",
+              "in_args": [
+                "u",
+                "s",
+                "i"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "GetCrtcGamma",
+              "in_args": [
+                "u",
+                "u"
+              ],
+              "out_args": [
+                "aq",
+                "aq",
+                "aq"
+              ]
+            },
+            {
+              "name": "SetCrtcGamma",
+              "in_args": [
+                "u",
+                "u",
+                "aq",
+                "aq",
+                "aq"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "GetCurrentState",
+              "in_args": [],
+              "out_args": [
+                "u",
+                "a((ssss)a(siiddada{sv})a{sv})",
+                "a(iiduba(ssss)a{sv})",
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "ApplyMonitorsConfig",
+              "in_args": [
+                "u",
+                "u",
+                "a(iiduba(ssa{sv}))",
+                "a{sv}"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SetOutputCTM",
+              "in_args": [
+                "u",
+                "u",
+                "(ttttttttt)"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [
+            {
+              "name": "Backlight",
+              "type": "(uaa{sv})",
+              "access": "read"
+            },
+            {
+              "name": "PowerSaveMode",
+              "type": "i",
+              "access": "readwrite"
+            },
+            {
+              "name": "PanelOrientationManaged",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "ApplyMonitorsConfigAllowed",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "NightLightSupported",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "HasExternalMonitor",
+              "type": "b",
+              "access": "read"
+            }
+          ],
+          "signals": [
+            {
+              "name": "MonitorsChanged",
+              "args": []
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "Mutter.RemoteDesktop",
+      "bus": "session",
+      "destination": "org.gnome.Mutter.RemoteDesktop",
+      "object_path": "/org/gnome/Mutter/RemoteDesktop",
+      "xml_file": "docs/gnome/introspection/mutter-remotedesktop.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.Mutter.RemoteDesktop",
+          "methods": [
+            {
+              "name": "CreateSession",
+              "in_args": [],
+              "out_args": [
+                "o"
+              ]
+            }
+          ],
+          "properties": [
+            {
+              "name": "SupportedDeviceTypes",
+              "type": "u",
+              "access": "read"
+            },
+            {
+              "name": "Version",
+              "type": "i",
+              "access": "read"
+            }
+          ],
+          "signals": []
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "Mutter.ScreenCast",
+      "bus": "session",
+      "destination": "org.gnome.Mutter.ScreenCast",
+      "object_path": "/org/gnome/Mutter/ScreenCast",
+      "xml_file": "docs/gnome/introspection/mutter-screencast.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.Mutter.ScreenCast",
+          "methods": [
+            {
+              "name": "CreateSession",
+              "in_args": [
+                "a{sv}"
+              ],
+              "out_args": [
+                "o"
+              ]
+            }
+          ],
+          "properties": [
+            {
+              "name": "Version",
+              "type": "i",
+              "access": "read"
+            }
+          ],
+          "signals": []
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "Mutter.InputCapture",
+      "bus": "session",
+      "destination": "org.gnome.Mutter.InputCapture",
+      "object_path": "/org/gnome/Mutter/InputCapture",
+      "xml_file": "docs/gnome/introspection/mutter-inputcapture.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.Mutter.InputCapture",
+          "methods": [
+            {
+              "name": "CreateSession",
+              "in_args": [
+                "u"
+              ],
+              "out_args": [
+                "o"
+              ]
+            }
+          ],
+          "properties": [
+            {
+              "name": "SupportedCapabilities",
+              "type": "u",
+              "access": "read"
+            }
+          ],
+          "signals": []
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "Mutter.InputMapping",
+      "bus": "session",
+      "destination": "org.gnome.Mutter.InputMapping",
+      "object_path": "/org/gnome/Mutter/InputMapping",
+      "xml_file": "docs/gnome/introspection/mutter-inputmapping.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.Mutter.InputMapping",
+          "methods": [
+            {
+              "name": "GetDeviceMapping",
+              "in_args": [
+                "o"
+              ],
+              "out_args": [
+                "(iiii)"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "Mutter.ServiceChannel",
+      "bus": "session",
+      "destination": "org.gnome.Mutter.ServiceChannel",
+      "object_path": "/org/gnome/Mutter/ServiceChannel",
+      "xml_file": "docs/gnome/introspection/mutter-servicechannel.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.Mutter.ServiceChannel",
+          "methods": [
+            {
+              "name": "OpenWaylandServiceConnection",
+              "in_args": [
+                "u"
+              ],
+              "out_args": [
+                "h"
+              ]
+            },
+            {
+              "name": "OpenWaylandConnection",
+              "in_args": [
+                "a{sv}"
+              ],
+              "out_args": [
+                "h"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "Mutter.IdleMonitor",
+      "bus": "session",
+      "destination": "org.gnome.Mutter.IdleMonitor",
+      "object_path": "/org/gnome/Mutter/IdleMonitor",
+      "xml_file": "docs/gnome/introspection/mutter-idlemonitor.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.ObjectManager",
+          "methods": [
+            {
+              "name": "GetManagedObjects",
+              "in_args": [],
+              "out_args": [
+                "a{oa{sa{sv}}}"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "InterfacesAdded",
+              "args": [
+                "o",
+                "a{sa{sv}}"
+              ]
+            },
+            {
+              "name": "InterfacesRemoved",
+              "args": [
+                "o",
+                "as"
+              ]
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "Mutter.IdleMonitor.Core",
+      "bus": "session",
+      "destination": "org.gnome.Mutter.IdleMonitor",
+      "object_path": "/org/gnome/Mutter/IdleMonitor/Core",
+      "xml_file": "docs/gnome/introspection/mutter-idlemonitor-core.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.Mutter.IdleMonitor",
+          "methods": [
+            {
+              "name": "GetIdletime",
+              "in_args": [],
+              "out_args": [
+                "t"
+              ]
+            },
+            {
+              "name": "AddIdleWatch",
+              "in_args": [
+                "t"
+              ],
+              "out_args": [
+                "u"
+              ]
+            },
+            {
+              "name": "AddUserActiveWatch",
+              "in_args": [],
+              "out_args": [
+                "u"
+              ]
+            },
+            {
+              "name": "RemoveWatch",
+              "in_args": [
+                "u"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "ResetIdletime",
+              "in_args": [],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "WatchFired",
+              "args": [
+                "u"
+              ]
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "Shell.ScreenShield-at-declared-path",
+      "bus": "session",
+      "destination": "org.gnome.Shell.ScreenShield",
+      "object_path": "/org/gnome/Shell/ScreenShield",
+      "xml_file": "docs/gnome/introspection/shell-screenshield-at-declared-path.xml",
+      "interfaces": [],
+      "error": null
+    },
+    {
+      "label": "Shell.ScreenShield-at-legacy-path",
+      "bus": "session",
+      "destination": "org.gnome.Shell.ScreenShield",
+      "object_path": "/org/gnome/ScreenSaver",
+      "xml_file": "docs/gnome/introspection/shell-screenshield-at-legacy-path.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.ScreenSaver",
+          "methods": [
+            {
+              "name": "Lock",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetActive",
+              "in_args": [],
+              "out_args": [
+                "b"
+              ]
+            },
+            {
+              "name": "SetActive",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "GetActiveTime",
+              "in_args": [],
+              "out_args": [
+                "u"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "ActiveChanged",
+              "args": [
+                "b"
+              ]
+            },
+            {
+              "name": "WakeUpScreen",
+              "args": []
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "ScreenSaver",
+      "bus": "session",
+      "destination": "org.gnome.ScreenSaver",
+      "object_path": "/org/gnome/ScreenSaver",
+      "xml_file": "docs/gnome/introspection/screensaver.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.gnome.ScreenSaver",
+          "methods": [
+            {
+              "name": "Lock",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetActive",
+              "in_args": [],
+              "out_args": [
+                "b"
+              ]
+            },
+            {
+              "name": "SetActive",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "GetActiveTime",
+              "in_args": [],
+              "out_args": [
+                "u"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "ActiveChanged",
+              "args": [
+                "b"
+              ]
+            },
+            {
+              "name": "WakeUpScreen",
+              "args": []
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "login1.Manager",
+      "bus": "system",
+      "destination": "org.freedesktop.login1",
+      "object_path": "/org/freedesktop/login1",
+      "xml_file": "docs/gnome/introspection/login1-manager.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.login1.Manager",
+          "methods": [
+            {
+              "name": "GetSession",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "o"
+              ]
+            },
+            {
+              "name": "GetSessionByPID",
+              "in_args": [
+                "u"
+              ],
+              "out_args": [
+                "o"
+              ]
+            },
+            {
+              "name": "GetUser",
+              "in_args": [
+                "u"
+              ],
+              "out_args": [
+                "o"
+              ]
+            },
+            {
+              "name": "GetUserByPID",
+              "in_args": [
+                "u"
+              ],
+              "out_args": [
+                "o"
+              ]
+            },
+            {
+              "name": "GetSeat",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "o"
+              ]
+            },
+            {
+              "name": "ListSessions",
+              "in_args": [],
+              "out_args": [
+                "a(susso)"
+              ]
+            },
+            {
+              "name": "ListSessionsEx",
+              "in_args": [],
+              "out_args": [
+                "a(sussussbto)"
+              ]
+            },
+            {
+              "name": "ListUsers",
+              "in_args": [],
+              "out_args": [
+                "a(uso)"
+              ]
+            },
+            {
+              "name": "ListSeats",
+              "in_args": [],
+              "out_args": [
+                "a(so)"
+              ]
+            },
+            {
+              "name": "ListInhibitors",
+              "in_args": [],
+              "out_args": [
+                "a(ssssuu)"
+              ]
+            },
+            {
+              "name": "CreateSession",
+              "in_args": [
+                "u",
+                "u",
+                "s",
+                "s",
+                "s",
+                "s",
+                "s",
+                "u",
+                "s",
+                "s",
+                "b",
+                "s",
+                "s",
+                "a(sv)"
+              ],
+              "out_args": [
+                "s",
+                "o",
+                "s",
+                "h",
+                "u",
+                "s",
+                "u",
+                "b"
+              ]
+            },
+            {
+              "name": "CreateSessionWithPIDFD",
+              "in_args": [
+                "u",
+                "h",
+                "s",
+                "s",
+                "s",
+                "s",
+                "s",
+                "u",
+                "s",
+                "s",
+                "b",
+                "s",
+                "s",
+                "t",
+                "a(sv)"
+              ],
+              "out_args": [
+                "s",
+                "o",
+                "s",
+                "h",
+                "u",
+                "s",
+                "u",
+                "b"
+              ]
+            },
+            {
+              "name": "ReleaseSession",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "ActivateSession",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "ActivateSessionOnSeat",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "LockSession",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "UnlockSession",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "LockSessions",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "UnlockSessions",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "KillSession",
+              "in_args": [
+                "s",
+                "s",
+                "i"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "KillUser",
+              "in_args": [
+                "u",
+                "i"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "TerminateSession",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "TerminateUser",
+              "in_args": [
+                "u"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "TerminateSeat",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SetUserLinger",
+              "in_args": [
+                "u",
+                "b",
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "AttachDevice",
+              "in_args": [
+                "s",
+                "s",
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "FlushDevices",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "PowerOff",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "PowerOffWithFlags",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "Reboot",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "RebootWithFlags",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "Halt",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "HaltWithFlags",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "Suspend",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SuspendWithFlags",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "Hibernate",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "HibernateWithFlags",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "HybridSleep",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "HybridSleepWithFlags",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SuspendThenHibernate",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SuspendThenHibernateWithFlags",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "Sleep",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "CanPowerOff",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "CanReboot",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "CanHalt",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "CanSuspend",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "CanHibernate",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "CanHybridSleep",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "CanSuspendThenHibernate",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "CanSleep",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "ScheduleShutdown",
+              "in_args": [
+                "s",
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "CancelScheduledShutdown",
+              "in_args": [],
+              "out_args": [
+                "b"
+              ]
+            },
+            {
+              "name": "Inhibit",
+              "in_args": [
+                "s",
+                "s",
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "h"
+              ]
+            },
+            {
+              "name": "CanRebootParameter",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "SetRebootParameter",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "CanRebootToFirmwareSetup",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "SetRebootToFirmwareSetup",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "CanRebootToBootLoaderMenu",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "SetRebootToBootLoaderMenu",
+              "in_args": [
+                "t"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "CanRebootToBootLoaderEntry",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            },
+            {
+              "name": "SetRebootToBootLoaderEntry",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SetWallMessage",
+              "in_args": [
+                "s",
+                "b"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [
+            {
+              "name": "EnableWallMessages",
+              "type": "b",
+              "access": "readwrite"
+            },
+            {
+              "name": "WallMessage",
+              "type": "s",
+              "access": "readwrite"
+            },
+            {
+              "name": "NAutoVTs",
+              "type": "u",
+              "access": "read"
+            },
+            {
+              "name": "KillOnlyUsers",
+              "type": "as",
+              "access": "read"
+            },
+            {
+              "name": "KillExcludeUsers",
+              "type": "as",
+              "access": "read"
+            },
+            {
+              "name": "KillUserProcesses",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "RebootParameter",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "RebootToFirmwareSetup",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "RebootToBootLoaderMenu",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "RebootToBootLoaderEntry",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "BootLoaderEntries",
+              "type": "as",
+              "access": "read"
+            },
+            {
+              "name": "IdleHint",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "IdleSinceHint",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "IdleSinceHintMonotonic",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "BlockInhibited",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "BlockWeakInhibited",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "DelayInhibited",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "InhibitDelayMaxUSec",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "UserStopDelayUSec",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "SleepOperation",
+              "type": "as",
+              "access": "read"
+            },
+            {
+              "name": "HandlePowerKey",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandlePowerKeyLongPress",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleRebootKey",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleRebootKeyLongPress",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleSuspendKey",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleSuspendKeyLongPress",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleHibernateKey",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleHibernateKeyLongPress",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleLidSwitch",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleLidSwitchExternalPower",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleLidSwitchDocked",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HandleSecureAttentionKey",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "HoldoffTimeoutUSec",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "IdleAction",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "IdleActionUSec",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "PreparingForShutdown",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "PreparingForShutdownWithMetadata",
+              "type": "a{sv}",
+              "access": "read"
+            },
+            {
+              "name": "PreparingForSleep",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "ScheduledShutdown",
+              "type": "(st)",
+              "access": "read"
+            },
+            {
+              "name": "DesignatedMaintenanceTime",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Docked",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "LidClosed",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "OnExternalPower",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "RemoveIPC",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "RuntimeDirectorySize",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "RuntimeDirectoryInodesMax",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "InhibitorsMax",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "NCurrentInhibitors",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "SessionsMax",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "NCurrentSessions",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "StopIdleSessionUSec",
+              "type": "t",
+              "access": "read"
+            }
+          ],
+          "signals": [
+            {
+              "name": "SecureAttentionKey",
+              "args": [
+                "s",
+                "o"
+              ]
+            },
+            {
+              "name": "SessionNew",
+              "args": [
+                "s",
+                "o"
+              ]
+            },
+            {
+              "name": "SessionRemoved",
+              "args": [
+                "s",
+                "o"
+              ]
+            },
+            {
+              "name": "UserNew",
+              "args": [
+                "u",
+                "o"
+              ]
+            },
+            {
+              "name": "UserRemoved",
+              "args": [
+                "u",
+                "o"
+              ]
+            },
+            {
+              "name": "SeatNew",
+              "args": [
+                "s",
+                "o"
+              ]
+            },
+            {
+              "name": "SeatRemoved",
+              "args": [
+                "s",
+                "o"
+              ]
+            },
+            {
+              "name": "PrepareForShutdown",
+              "args": [
+                "b"
+              ]
+            },
+            {
+              "name": "PrepareForShutdownWithMetadata",
+              "args": [
+                "b",
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "PrepareForSleep",
+              "args": [
+                "b"
+              ]
+            }
+          ]
+        }
+      ],
+      "error": null
+    },
+    {
+      "label": "login1.Session-selected",
+      "bus": "system",
+      "destination": "org.freedesktop.login1",
+      "object_path": "/org/freedesktop/login1/session/_33",
+      "xml_file": "docs/gnome/introspection/login1-session-selected.xml",
+      "interfaces": [
+        {
+          "name": "org.freedesktop.DBus.Peer",
+          "methods": [
+            {
+              "name": "Ping",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "GetMachineId",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Introspectable",
+          "methods": [
+            {
+              "name": "Introspect",
+              "in_args": [],
+              "out_args": [
+                "s"
+              ]
+            }
+          ],
+          "properties": [],
+          "signals": []
+        },
+        {
+          "name": "org.freedesktop.DBus.Properties",
+          "methods": [
+            {
+              "name": "Get",
+              "in_args": [
+                "s",
+                "s"
+              ],
+              "out_args": [
+                "v"
+              ]
+            },
+            {
+              "name": "GetAll",
+              "in_args": [
+                "s"
+              ],
+              "out_args": [
+                "a{sv}"
+              ]
+            },
+            {
+              "name": "Set",
+              "in_args": [
+                "s",
+                "s",
+                "v"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [],
+          "signals": [
+            {
+              "name": "PropertiesChanged",
+              "args": [
+                "s",
+                "a{sv}",
+                "as"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "org.freedesktop.login1.Session",
+          "methods": [
+            {
+              "name": "Terminate",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "Activate",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "Lock",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "Unlock",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "SetIdleHint",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SetLockedHint",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "Kill",
+              "in_args": [
+                "s",
+                "i"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "TakeControl",
+              "in_args": [
+                "b"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "ReleaseControl",
+              "in_args": [],
+              "out_args": []
+            },
+            {
+              "name": "SetType",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SetClass",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SetDisplay",
+              "in_args": [
+                "s"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SetTTY",
+              "in_args": [
+                "h"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "TakeDevice",
+              "in_args": [
+                "u",
+                "u"
+              ],
+              "out_args": [
+                "h",
+                "b"
+              ]
+            },
+            {
+              "name": "ReleaseDevice",
+              "in_args": [
+                "u",
+                "u"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "PauseDeviceComplete",
+              "in_args": [
+                "u",
+                "u"
+              ],
+              "out_args": []
+            },
+            {
+              "name": "SetBrightness",
+              "in_args": [
+                "s",
+                "s",
+                "u"
+              ],
+              "out_args": []
+            }
+          ],
+          "properties": [
+            {
+              "name": "Id",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "User",
+              "type": "(uo)",
+              "access": "read"
+            },
+            {
+              "name": "Name",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Timestamp",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "TimestampMonotonic",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "VTNr",
+              "type": "u",
+              "access": "read"
+            },
+            {
+              "name": "Seat",
+              "type": "(so)",
+              "access": "read"
+            },
+            {
+              "name": "TTY",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Display",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Remote",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "RemoteHost",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "RemoteUser",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "ExtraDeviceAccess",
+              "type": "as",
+              "access": "read"
+            },
+            {
+              "name": "Service",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Desktop",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Scope",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Leader",
+              "type": "u",
+              "access": "read"
+            },
+            {
+              "name": "LeaderPIDFDId",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "Audit",
+              "type": "u",
+              "access": "read"
+            },
+            {
+              "name": "Type",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Class",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "Active",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "State",
+              "type": "s",
+              "access": "read"
+            },
+            {
+              "name": "IdleHint",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "IdleSinceHint",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "IdleSinceHintMonotonic",
+              "type": "t",
+              "access": "read"
+            },
+            {
+              "name": "CanIdle",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "CanLock",
+              "type": "b",
+              "access": "read"
+            },
+            {
+              "name": "LockedHint",
+              "type": "b",
+              "access": "read"
+            }
+          ],
+          "signals": [
+            {
+              "name": "PauseDevice",
+              "args": [
+                "u",
+                "u",
+                "s"
+              ]
+            },
+            {
+              "name": "ResumeDevice",
+              "args": [
+                "u",
+                "u",
+                "h"
+              ]
+            },
+            {
+              "name": "Lock",
+              "args": []
+            },
+            {
+              "name": "Unlock",
+              "args": []
+            }
+          ]
+        }
+      ],
+      "error": null
+    }
+  ],
+  "remote_desktop_version": 1,
+  "screencast_version": 4,
+  "display_config_summary": {
+    "serial": 16,
+    "connectors": [
+      {
+        "connector": "eDP-1",
+        "vendor": "AUO",
+        "product": "0xed8f",
+        "serial_hash": "cfb3d220f3780aae",
+        "current_mode": null,
+        "mode_count": 98
+      },
+      {
+        "connector": "HDMI-1",
+        "vendor": "SAM",
+        "product": "Smart M80C",
+        "serial_hash": "7fddfc2eecca3d01",
+        "current_mode": "3840x2160@29.97Hz (3840x2160@29.970)",
+        "mode_count": 31
+      }
+    ],
+    "logical_monitors": [
+      {
+        "x": 0,
+        "y": 0,
+        "scale": 1.25,
+        "transform": 0,
+        "primary": true,
+        "connectors": [
+          "HDMI-1"
+        ]
+      }
+    ]
+  },
+  "capability_flags": [
+    {
+      "constant": "OS_SUPPORTED",
+      "status": "N/A",
+      "evidence": "See Experiment 0 (environment discovery)."
+    },
+    {
+      "constant": "GNOME_SUPPORTED",
+      "status": "N/A",
+      "evidence": "See Experiment 0 (environment discovery)."
+    },
+    {
+      "constant": "WAYLAND_SUPPORTED",
+      "status": "N/A",
+      "evidence": "See Experiment 0/1 (XDG_SESSION_TYPE)."
+    },
+    {
+      "constant": "SYSTEMD_SUPPORTED",
+      "status": "N/A",
+      "evidence": "See Experiment 0 (dpkg version)."
+    },
+    {
+      "constant": "SESSION_FOUND",
+      "status": "N/A",
+      "evidence": "See Experiment 1 (login1 session selection)."
+    },
+    {
+      "constant": "MUTTER_CAPABLE",
+      "status": "AVAILABLE",
+      "evidence": "org.gnome.Mutter.* Introspect() succeeded on the session bus."
+    },
+    {
+      "constant": "REMOTE_DESKTOP_CAPABLE",
+      "status": "AVAILABLE",
+      "evidence": "org.gnome.Mutter.RemoteDesktop.CreateSession present (presence only; not invoked)."
+    },
+    {
+      "constant": "SCREENCAST_CAPABLE",
+      "status": "AVAILABLE",
+      "evidence": "org.gnome.Mutter.ScreenCast.CreateSession present (presence only; not invoked)."
+    },
+    {
+      "constant": "PIPEWIRE_CAPABLE",
+      "status": "N/A",
+      "evidence": "See Experiment 0 (dpkg version); PipeWire node creation is session-scoped, out of scope for read-only Phase 0-1."
+    },
+    {
+      "constant": "VIRTUAL_DISPLAY_CAPABLE",
+      "status": "UNKNOWN",
+      "evidence": "RecordVirtual lives on ScreenCast.Session, only reachable after CreateSession (forbidden this phase); see docs/gnome/feasibility-research.md for source-level confirmation."
+    },
+    {
+      "constant": "DISPLAY_CONFIG_CAPABLE",
+      "status": "AVAILABLE",
+      "evidence": "GetCurrentState succeeded; ApplyMonitorsConfig present (presence only; not invoked)."
+    },
+    {
+      "constant": "REMOTE_INPUT_CAPABLE",
+      "status": "UNKNOWN",
+      "evidence": "ConnectToEIS lives on RemoteDesktop.Session, only reachable after CreateSession (forbidden this phase); see docs/gnome/feasibility-research.md."
+    },
+    {
+      "constant": "PHYSICAL_INPUT_ISOLATION_CAPABLE",
+      "status": "AVAILABLE",
+      "evidence": "org.gnome.Mutter.InputCapture.CreateSession present (presence only); isolation efficacy is Experiment 9 (Phase 7), not this experiment."
+    },
+    {
+      "constant": "SESSION_LOCK_CAPABLE",
+      "status": "AVAILABLE",
+      "evidence": "org.gnome.ScreenSaver.Lock present. Finding: org.gnome.Shell.ScreenShield (bus name) resolves to the same org.gnome.ScreenSaver interface at /org/gnome/ScreenSaver — no distinct ScreenShield interface was found at any path tried on GNOME Shell 50.1 (see api-inventory.md)."
+    },
+    {
+      "constant": "EMERGENCY_CAPABLE",
+      "status": "N/A",
+      "evidence": "remote-emergencyd does not exist yet (Phase 10)."
+    },
+    {
+      "constant": "GPU_CAPABLE",
+      "status": "N/A",
+      "evidence": "See Experiment 0 (GPU/driver enumeration)."
+    }
+  ]
+}
