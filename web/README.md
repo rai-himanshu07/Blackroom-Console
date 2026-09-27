@@ -14,9 +14,13 @@ npm --prefix web ci
 npm --prefix web run dev
 ```
 
-Open `http://127.0.0.1:5173/`. Start simulation, send key/pointer/click/scroll
-commands, then revoke and lock. Input is refused while locked; revocation
-advances the synthetic epoch. The gateway only binds `127.0.0.1:8787` and
+Open `http://127.0.0.1:5173/`. Enter the public offline demo code `SIMULATE`,
+start the simulation, send key/pointer/click/scroll commands, then revoke and
+lock. This fixed test code is **not** a password, PAM login, or product user
+authentication. Five invalid demo codes block further Starts for that gateway
+process and revoke any active fake control; restart the gateway to reset the
+demo-code counter. Input is refused while locked; revocation advances the
+synthetic epoch. The gateway only binds `127.0.0.1:8787` and
 requires the exact `--offline-sim` flag. It does not launch the GNOME agent.
 Closing the gateway discards the simulated session and log.
 
@@ -42,8 +46,11 @@ processes; the agent acknowledges signed host updates before simulated input
 is recorded. The host key and epoch persist, but the fake event log does not.
 Hostd gives the gateway a random synthetic Start proof through a private
 bootstrap pipe. Each acknowledged Start rotates the proof in the private
-control reply; an earlier proof cannot restart after revoke. This is **not**
-user authentication, PAM, or an installed service identity. The
+control reply; an earlier proof cannot restart after revoke. Five invalid
+or replayed proofs block further Starts until hostd restarts and revoke an
+active fake grant. An unverified revoke leaves a protected stop marker that
+blocks restart. This is **not** user authentication, PAM, or an installed
+service identity. The
 agent's fake lock, display, input-isolation and capture
 effects must be observed before it acknowledges a signed grant.
 
@@ -51,7 +58,8 @@ The offline authority records a protected `recovery-pending` marker before
 issuing a grant. Verified fake restoration clears it on revoke or hostd EOF;
 agent death leaves the browser at `FAILED_SAFE` and blocks restart. Never
 delete a pending marker by hand: real recovery verification and clearance are
-not implemented.
+not implemented. The browser also blocks controls when demo access is paused
+or the local gateway becomes unreachable; no stale active preview is retained.
 
 For an offline-only emergency stop of this explicit persisted simulation,
 run in another terminal using the **same private state path** (never a live

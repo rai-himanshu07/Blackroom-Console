@@ -208,6 +208,7 @@ impl SeparatedHost {
             authority_store: "SEPARATE",
             state: self.state.as_str(),
             epoch: self.epoch,
+            auth_blocked: false,
             events: self.events.clone(),
             pointer: self.pointer,
         }

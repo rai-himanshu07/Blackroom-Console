@@ -13,6 +13,7 @@ interface Snapshot {
   authority_store: 'EPHEMERAL' | 'PERSISTED' | 'SEPARATE';
   state: string;
   epoch: number;
+  auth_blocked: boolean;
   events: InputEvent[];
   pointer: { x: number; y: number };
 }
@@ -54,6 +55,8 @@ app.innerHTML = `
             <div class="status-row"><span>Host state</span><strong id="state">LOCAL_LOCKED</strong></div>
             <div class="status-row"><span>Security epoch</span><strong id="epoch">0</strong></div>
             <div class="status-row"><span>Authority store</span><strong id="storage">EPHEMERAL</strong></div>
+            <label class="control-label demo-label" for="demo-code">Offline demo code</label>
+            <input id="demo-code" class="demo-code" type="password" maxlength="64" autocomplete="off" spellcheck="false" />
             <div class="session-buttons"><button id="start" class="primary"><i data-lucide="circle-play"></i><span>Start simulation</span></button><button id="revoke" class="secondary" disabled><i data-lucide="shield-off"></i><span>Revoke & lock</span></button></div>
           </section>
           <section class="control-group input-control">
@@ -94,21 +97,23 @@ function render(value: Snapshot): void {
   snapshot = value;
   const active = value.state === 'REMOTE_ACTIVE';
   const failedSafe = value.state === 'FAILED_SAFE';
+  const blocked = value.auth_blocked;
   $('#state').textContent = value.state;
   $('#epoch').textContent = String(value.epoch);
   $('#storage').textContent = value.authority_store;
-  $('#stage-status').textContent = failedSafe ? 'RECOVERY REQUIRED' : active ? 'SIMULATING' : 'LOCKED';
+  $('#stage-status').textContent = failedSafe ? 'RECOVERY REQUIRED' : blocked ? 'ACCESS BLOCKED' : active ? 'SIMULATING' : 'LOCKED';
   $('#screen-state').textContent = value.state;
-  $('#screen-title').textContent = failedSafe ? 'Offline recovery required' : active ? 'Synthetic session active' : 'Simulation locked';
-  $('#screen-subtitle').textContent = failedSafe ? 'Emergency stop persisted. Control is disabled.' : active ? 'Input is recorded to a fake transport only.' : 'No desktop video or real input is connected.';
-  $('#connection').textContent = failedSafe ? 'Offline authority stopped' : active ? 'Synthetic control granted' : 'Local simulation ready';
-  $('#connection').classList.toggle('error', failedSafe);
+  $('#screen-title').textContent = failedSafe ? 'Offline recovery required' : blocked ? 'Demo access blocked' : active ? 'Synthetic session active' : 'Simulation locked';
+  $('#screen-subtitle').textContent = failedSafe ? 'Offline recovery could not be verified. Control is disabled.' : blocked ? 'Demo access is paused for this local run.' : active ? 'Input is recorded to a fake transport only.' : 'No desktop video or real input is connected.';
+  $('#connection').textContent = failedSafe ? 'Offline authority stopped' : blocked ? 'Demo access blocked' : active ? 'Synthetic control granted' : 'Local simulation ready';
+  $('#connection').classList.toggle('error', failedSafe || blocked);
   $('#screen').classList.toggle('active', active);
   $('#sim-workspace').setAttribute('aria-hidden', String(!active));
   $('#sim-event').textContent = value.events.length ? describe(value.events[value.events.length - 1]) : 'No events recorded';
   $('#sim-count').textContent = String(value.events.length).padStart(2, '0');
-  $('#start').toggleAttribute('disabled', active || failedSafe || pending);
+  $('#start').toggleAttribute('disabled', active || failedSafe || blocked || pending);
   $('#revoke').toggleAttribute('disabled', !active || pending);
+  $('#demo-code').toggleAttribute('disabled', active || failedSafe || blocked || pending);
   document.querySelectorAll<HTMLButtonElement>('.input-button').forEach((button) => { button.disabled = !active || pending; });
   const events = $('#events');
   events.replaceChildren();
@@ -130,6 +135,28 @@ function render(value: Snapshot): void {
   pointer.style.top = `${value.pointer.y}%`;
 }
 
+function renderUnavailable(): void {
+  snapshot = null;
+  $('#state').textContent = 'UNAVAILABLE';
+  $('#epoch').textContent = '--';
+  $('#storage').textContent = '--';
+  $('#stage-status').textContent = 'OFFLINE';
+  $('#screen-state').textContent = 'UNAVAILABLE';
+  $('#screen-title').textContent = 'Local gateway unavailable';
+  $('#screen-subtitle').textContent = 'Simulation authority cannot be verified.';
+  $('#screen').classList.remove('active');
+  $('#sim-workspace').setAttribute('aria-hidden', 'true');
+  $('#connection').textContent = 'Local gateway unavailable';
+  $('#connection').classList.add('error');
+  $('#feedback').textContent = 'Offline gateway unavailable. No simulated control is active.';
+  $('#feedback').classList.add('error');
+  $('#start').setAttribute('disabled', '');
+  $('#revoke').setAttribute('disabled', '');
+  $('#demo-code').setAttribute('disabled', '');
+  document.querySelectorAll<HTMLButtonElement>('.input-button').forEach((button) => { button.disabled = true; });
+  $('#events').replaceChildren();
+}
+
 async function request(path: string, event?: InputEvent): Promise<void> {
   if (pending) return;
   pending = true;
@@ -140,7 +167,7 @@ async function request(path: string, event?: InputEvent): Promise<void> {
     const response = await fetch(`/api/simulation${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(event ?? {}),
+      body: JSON.stringify(path === '/start' ? { demo_code: $<HTMLInputElement>('#demo-code').value } : (event ?? {})),
     });
     const result: Snapshot | { code: string; message: string } = response.headers.get('content-type')?.includes('application/json')
       ? await response.json() as Snapshot | { code: string; message: string }
@@ -151,7 +178,7 @@ async function request(path: string, event?: InputEvent): Promise<void> {
     $('#feedback').textContent = `Simulation only. ${path === '/input' ? 'Event recorded in fake transport.' : path === '/revoke' ? 'Authority revoked; input refused.' : 'Synthetic control granted.'}`;
   } catch (error) {
     failure = error instanceof Error ? error.message : 'unavailable';
-    try { await refresh(); } catch { /* Offline gateway may be stopped. */ }
+    await refresh().catch(() => {});
   } finally {
     pending = false;
     if (snapshot) render(snapshot);
@@ -165,32 +192,32 @@ async function request(path: string, event?: InputEvent): Promise<void> {
 }
 
 async function refresh(): Promise<void> {
-  const response = await fetch('/api/simulation', { cache: 'no-store' });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  render(await response.json() as Snapshot);
+  try {
+    const response = await fetch('/api/simulation', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const wasUnavailable = snapshot === null;
+    render(await response.json() as Snapshot);
+    if (wasUnavailable) {
+      $('#feedback').classList.remove('error');
+      $('#feedback').textContent = 'Simulation only. Commands never reach the desktop.';
+    }
+  } catch (error) {
+    renderUnavailable();
+    throw error;
+  }
 }
 
 $('#start').addEventListener('click', () => { void request('/start'); });
 $('#revoke').addEventListener('click', () => { void request('/revoke'); });
+$<HTMLInputElement>('#demo-code').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !$('#start').hasAttribute('disabled')) void request('/start');
+});
 document.querySelectorAll<HTMLButtonElement>('[data-event]').forEach((button) => {
   button.addEventListener('click', () => { void request('/input', JSON.parse(button.dataset.event!) as InputEvent); });
 });
 
-refresh().catch(() => {
-  $('#connection').textContent = 'Local gateway unavailable';
-  $('#connection').classList.add('error');
-  $('#stage-status').textContent = 'OFFLINE';
-  $('#feedback').textContent = 'Start the offline gateway to use the simulation. No real connection is available.';
-  $('#feedback').classList.add('error');
-  $('#start').setAttribute('disabled', '');
-});
+void refresh().catch(() => {});
 
 window.setInterval(() => {
-  if (!pending) void refresh().catch(() => {
-    $('#connection').textContent = 'Local gateway unavailable';
-    $('#connection').classList.add('error');
-    $('#start').setAttribute('disabled', '');
-    $('#revoke').setAttribute('disabled', '');
-    document.querySelectorAll<HTMLButtonElement>('.input-button').forEach((button) => { button.disabled = true; });
-  });
+  if (!pending) void refresh().catch(() => {});
 }, 1500);

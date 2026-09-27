@@ -30,6 +30,12 @@ grab devices, inject input, or promote any feasibility/security gate.
   acknowledged grant, signed time-bounded lease and persisted revocation;
   wrong and previously used proofs and stale epochs are refused. This is not
   user authentication or a distinct-UID service boundary.
+- [x] Offline authority abuse slice: five wrong/replayed hostd Start proofs
+  block further Starts for that process; an active fake grant is revoked,
+  with a durable stop on unverified agent acknowledgement. The loopback
+  gateway separately requires a public fake demo code, caps bad codes per
+  gateway process, and exposes blocked, recovery-required and disconnected
+  browser states. Neither check is production authentication.
 
 ## Open Work And Gates
 
@@ -37,14 +43,21 @@ grab devices, inject input, or promote any feasibility/security gate.
   and FEAS-G unproven; no installed observer or distinct UID.
 - [ ] Real GNOME lock, unlock, session continuity and topology restore:
   FEAS-A/C/F/H unproven. Connected-HDMI restoration remains stopped.
-- [ ] Hostd-backed product identity, PAM/MFA, credential management, rate
-  limits, service provisioning, explicit recovery-marker clearance and full
-  durable real safety-state reconciliation; Phase 11 certification awaits
-  Phase 10 Go. An agent-death marker needs independent recovery evidence;
-  there is no safe automatic or manual clearance command yet.
+- [ ] Hostd-owned authentication/session binding, PAM/MFA, credential
+  management, durable per-identity abuse policy, service provisioning,
+  explicit recovery-marker clearance and full real safety-state
+  reconciliation; Phase 11 certification awaits Phase 10 Go. The demo-code
+  counter resets on gateway restart, and the proof counter on hostd restart;
+  neither constitutes a production rate limit. An agent-death marker needs
+  independent recovery evidence; no safe clearance command exists yet.
 
 ## Validation
 
 Focused fake, signed host/agent IPC, independent emergency, repeated grants,
 EOF and cross-process death/restart tests. One broad workspace checkpoint and
 one independent security/recovery review at the integration boundary.
+2026-09-27 offline abuse increment: focused hostd replay/failure tests,
+separated-process gateway test, one workspace cargo test checkpoint, web
+typecheck/build and a synthetic browser Start/input/revoke/disconnect check
+passed. Touched-crate Clippy passed with three verified baseline warnings
+suppressed; plain `-D warnings` still fails on those existing warnings.

@@ -14,6 +14,8 @@ use crate::{
     write_update,
 };
 
+const MAX_INVALID_START_ATTEMPTS: u8 = 5;
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OfflineBootstrap {
@@ -156,6 +158,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
     let mut gateway = accept_gateway(&listener)?;
     let mut agent = Some(connect_agent(agent_socket)?);
     let mut current_grant: Option<AuthorityUpdate> = None;
+    let mut invalid_start_attempts = 0_u8;
     loop {
         if host.emergency_required() {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied));
@@ -198,8 +201,33 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
             )?;
         }
         let response = match command {
+            OfflineCommand::Start { .. }
+                if invalid_start_attempts >= MAX_INVALID_START_ATTEMPTS =>
+            {
+                reply(&host, false, Some("AUTH_RATE_LIMITED"))
+            }
             OfflineCommand::Start { ref proof } if proof != &simulation_proof => {
-                reply(&host, false, Some("AUTH_INVALID"))
+                invalid_start_attempts += 1;
+                if invalid_start_attempts == MAX_INVALID_START_ATTEMPTS {
+                    if host.state() == State::RemoteActive {
+                        current_grant = None;
+                        let granted_epoch = host.epoch();
+                        let update = host.revoke_update()?;
+                        let stream = agent
+                            .as_mut()
+                            .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
+                        if acknowledged(stream, &update, directory)? {
+                            return Err(io::Error::new(
+                                io::ErrorKind::PermissionDenied,
+                                "agent did not revoke after invalid Start attempts",
+                            ));
+                        }
+                        host.complete_recovery(granted_epoch)?;
+                    }
+                    reply(&host, false, Some("AUTH_RATE_LIMITED"))
+                } else {
+                    reply(&host, false, Some("AUTH_INVALID"))
+                }
             }
             OfflineCommand::Start { .. } if host.state() == State::RemoteActive => {
                 reply(&host, false, Some("LEASE_INVALID"))
@@ -214,6 +242,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 if acknowledged(stream, &update, directory)? {
                     current_grant = Some(update);
                     simulation_proof = next_proof.clone();
+                    invalid_start_attempts = 0;
                     let mut response = reply(&host, true, None);
                     response.next_proof = Some(next_proof);
                     response

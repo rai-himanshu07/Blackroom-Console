@@ -120,6 +120,91 @@ fn failed_safe_agent_ack_persists_stop_before_host_restart() {
 }
 
 #[test]
+fn unverified_abuse_revocation_blocks_host_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let runtime = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(runtime.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let agent_socket = runtime.path().join("agent.sock");
+    let control_socket = runtime.path().join("control.sock");
+    let listener = UnixListener::bind(&agent_socket).unwrap();
+    let peer = std::thread::spawn(move || {
+        let (mut agent, _) = listener.accept().unwrap();
+        agent
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        for (grant, ack) in [(true, 1_u8), (false, 2)] {
+            let mut header = [0_u8; 4];
+            agent.read_exact(&mut header).unwrap();
+            let mut bytes = vec![0; u32::from_be_bytes(header) as usize];
+            agent.read_exact(&mut bytes).unwrap();
+            let update: AuthorityUpdate = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(matches!(update, AuthorityUpdate::Grant { .. }), grant);
+            agent.write_all(&[ack]).unwrap();
+        }
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-hostd"))
+        .args(["--offline-sim-service", "--state-dir"])
+        .arg(directory.path())
+        .arg("--runtime-dir")
+        .arg(runtime.path())
+        .arg("--agent-socket")
+        .arg(&agent_socket)
+        .arg("--control-socket")
+        .arg(&control_socket)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut bootstrap = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut bootstrap)
+        .unwrap();
+    let bootstrap: OfflineBootstrap = serde_json::from_str(&bootstrap).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut gateway = loop {
+        match UnixStream::connect(&control_socket) {
+            Ok(stream) => break stream,
+            Err(_) if Instant::now() < deadline => std::thread::yield_now(),
+            Err(error) => panic!("offline host did not listen: {error}"),
+        }
+    };
+    write_frame(
+        &mut gateway,
+        &OfflineCommand::Start {
+            proof: bootstrap.simulation_proof.clone(),
+        },
+    )
+    .unwrap();
+    assert!(read_frame::<OfflineReply>(&mut gateway).unwrap().accepted);
+    for attempt in 1..=5 {
+        write_frame(
+            &mut gateway,
+            &OfflineCommand::Start {
+                proof: bootstrap.simulation_proof.clone(),
+            },
+        )
+        .unwrap();
+        if attempt < 5 {
+            let reply: OfflineReply = read_frame(&mut gateway).unwrap();
+            assert_eq!(reply.code.as_deref(), Some("AUTH_INVALID"));
+        } else {
+            assert!(read_frame::<OfflineReply>(&mut gateway).is_err());
+        }
+    }
+    assert!(!child.wait().unwrap().success());
+    peer.join().unwrap();
+    let dirfd = File::open(directory.path()).unwrap();
+    assert!(PersistentHostAuthority::emergency_pending(&dirfd).unwrap());
+    assert!(
+        PersistentHostAuthority::open(&dirfd)
+            .unwrap()
+            .start()
+            .is_err()
+    );
+}
+
+#[test]
 fn offline_hostd_process_sends_a_signed_grant_and_persisted_revoke() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -351,8 +436,54 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
             assert_eq!(replay.code.as_deref(), Some("AUTH_INVALID"));
             assert!(replay.next_proof.is_none());
         }
+        if index == 3 {
+            for attempt in 1..=5 {
+                write_frame(
+                    &mut gateway,
+                    &OfflineCommand::Start {
+                        proof: bootstrap.simulation_proof.clone(),
+                    },
+                )
+                .unwrap();
+                let refused: OfflineReply = read_frame(&mut gateway).unwrap();
+                assert!(!refused.accepted);
+                assert_eq!(
+                    refused.code.as_deref(),
+                    Some(if attempt == 5 {
+                        "AUTH_RATE_LIMITED"
+                    } else {
+                        "AUTH_INVALID"
+                    })
+                );
+                assert_eq!(
+                    refused.state,
+                    if attempt == 5 {
+                        "LOCAL_LOCKED"
+                    } else {
+                        "REMOTE_ACTIVE"
+                    }
+                );
+            }
+            write_frame(
+                &mut gateway,
+                &OfflineCommand::Start {
+                    proof: current_proof.clone(),
+                },
+            )
+            .unwrap();
+            let locked: OfflineReply = read_frame(&mut gateway).unwrap();
+            assert!(!locked.accepted);
+            assert_eq!(locked.code.as_deref(), Some("AUTH_RATE_LIMITED"));
+            write_frame(&mut gateway, &OfflineCommand::Input {}).unwrap();
+            let blocked: OfflineReply = read_frame(&mut gateway).unwrap();
+            assert!(!blocked.accepted);
+            assert_eq!(blocked.state, "LOCAL_LOCKED");
+        }
     }
     drop(gateway);
     assert!(child.wait().unwrap().success());
     peer.join().unwrap();
+    let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
+    assert_eq!(restarted.epoch().value(), 4);
+    assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
 }

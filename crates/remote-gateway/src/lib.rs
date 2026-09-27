@@ -26,8 +26,10 @@ use serde::{Deserialize, Serialize};
 
 use separated::SeparatedHost;
 
-type SharedHost = Arc<Mutex<SimulationBackend>>;
+type SharedHost = Arc<Mutex<OfflineConsole>>;
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ApiError>)>;
+const DEMO_CODE: &str = "SIMULATE";
+const MAX_INVALID_DEMO_CODES: u8 = 5;
 
 enum SimulationBackend {
     InProcess(Box<SimulatedHost>),
@@ -64,6 +66,45 @@ impl SimulationBackend {
     }
 }
 
+struct OfflineConsole {
+    backend: SimulationBackend,
+    invalid_demo_codes: u8,
+}
+
+impl OfflineConsole {
+    fn snapshot(&mut self) -> Snapshot {
+        let mut snapshot = self.backend.snapshot();
+        snapshot.auth_blocked = self.invalid_demo_codes >= MAX_INVALID_DEMO_CODES;
+        snapshot
+    }
+
+    fn start(&mut self, demo_code: &str) -> Result<(), BlackroomError> {
+        if self.invalid_demo_codes >= MAX_INVALID_DEMO_CODES {
+            return Err(BlackroomError::new(
+                ErrorCode::AuthRateLimited,
+                "offline demo access is blocked",
+            ));
+        }
+        if demo_code != DEMO_CODE {
+            self.invalid_demo_codes += 1;
+            if self.invalid_demo_codes == MAX_INVALID_DEMO_CODES {
+                self.backend.revoke()?;
+                return Err(BlackroomError::new(
+                    ErrorCode::AuthRateLimited,
+                    "offline demo access is blocked",
+                ));
+            }
+            return Err(BlackroomError::new(
+                ErrorCode::AuthInvalid,
+                "invalid offline demo code",
+            ));
+        }
+        self.backend.start()?;
+        self.invalid_demo_codes = 0;
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InputEvent {
@@ -93,6 +134,7 @@ pub struct Snapshot {
     pub authority_store: &'static str,
     pub state: &'static str,
     pub epoch: u64,
+    pub auth_blocked: bool,
     pub events: Vec<InputEvent>,
     pub pointer: PointerPosition,
 }
@@ -112,6 +154,12 @@ pub struct ApiError {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EmptyCommand {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StartCommand {
+    demo_code: String,
+}
 
 enum HostMode {
     Ephemeral(OfflineHostAuthority),
@@ -234,6 +282,7 @@ impl SimulatedHost {
             },
             state: self.host.state().as_str(),
             epoch: self.host.epoch().value(),
+            auth_blocked: false,
             events: self.events.clone(),
             pointer: self.pointer,
         }
@@ -348,6 +397,16 @@ fn error_response(error: BlackroomError) -> (StatusCode, Json<ApiError>) {
     )
 }
 
+fn start_error_response(error: BlackroomError) -> (StatusCode, Json<ApiError>) {
+    let status = match error.code {
+        ErrorCode::AuthInvalid => StatusCode::UNAUTHORIZED,
+        ErrorCode::AuthRateLimited => StatusCode::TOO_MANY_REQUESTS,
+        _ => return error_response(error),
+    };
+    let (_, body) = error_response(error);
+    (status, body)
+}
+
 async fn local_host(request: Request, next: Next) -> Result<Response, StatusCode> {
     if request.headers().get(header::HOST) != Some(&HeaderValue::from_static("127.0.0.1:8787")) {
         return Err(StatusCode::FORBIDDEN);
@@ -381,11 +440,12 @@ async fn status(ExtractState(host): ExtractState<SharedHost>) -> Json<Snapshot> 
 async fn start(
     ExtractState(host): ExtractState<SharedHost>,
     headers: HeaderMap,
-    Json(_command): Json<EmptyCommand>,
+    Json(command): Json<StartCommand>,
 ) -> ApiResult<Snapshot> {
     check_origin(&headers)?;
     let mut host = host.lock().expect("simulation lock poisoned");
-    host.start().map_err(error_response)?;
+    host.start(&command.demo_code)
+        .map_err(start_error_response)?;
     Ok(Json(host.snapshot()))
 }
 
@@ -396,7 +456,7 @@ async fn revoke(
 ) -> ApiResult<Snapshot> {
     check_origin(&headers)?;
     let mut host = host.lock().expect("simulation lock poisoned");
-    host.revoke().map_err(error_response)?;
+    host.backend.revoke().map_err(error_response)?;
     Ok(Json(host.snapshot()))
 }
 
@@ -407,7 +467,7 @@ async fn input(
 ) -> ApiResult<Snapshot> {
     check_origin(&headers)?;
     let mut host = host.lock().expect("simulation lock poisoned");
-    host.input(event).map_err(error_response)?;
+    host.backend.input(event).map_err(error_response)?;
     Ok(Json(host.snapshot()))
 }
 
@@ -432,7 +492,10 @@ pub fn separated_router(
 }
 
 fn with_backend(host: SimulationBackend) -> Router {
-    let host = Arc::new(Mutex::new(host));
+    let host = Arc::new(Mutex::new(OfflineConsole {
+        backend: host,
+        invalid_demo_codes: 0,
+    }));
     Router::new()
         .route("/api/simulation", get(status))
         .route("/api/simulation/start", post(start))
@@ -480,6 +543,67 @@ mod tests {
         )
     }
 
+    async fn call_start(router: &Router) -> (StatusCode, serde_json::Value) {
+        call(
+            router,
+            "/api/simulation/start",
+            Some(r#"{"demo_code":"SIMULATE"}"#),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn demo_code_refusal_is_bounded_and_revokes_active_fake_control() {
+        let router = router();
+        assert_eq!(
+            call(&router, "/api/simulation/start", Some("{}")).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        let valid = r#"{"demo_code":"SIMULATE"}"#;
+        let invalid = r#"{"demo_code":"incorrect"}"#;
+        assert_eq!(
+            call(&router, "/api/simulation/start", Some(valid)).await.0,
+            StatusCode::OK
+        );
+        for attempt in 1..=5 {
+            let (status, error) = call(&router, "/api/simulation/start", Some(invalid)).await;
+            assert_eq!(
+                status,
+                if attempt == 5 {
+                    StatusCode::TOO_MANY_REQUESTS
+                } else {
+                    StatusCode::UNAUTHORIZED
+                }
+            );
+            assert_eq!(
+                error["code"],
+                if attempt == 5 {
+                    "AUTH_RATE_LIMITED"
+                } else {
+                    "AUTH_INVALID"
+                }
+            );
+        }
+        let (_, snapshot) = call(&router, "/api/simulation", None).await;
+        assert_eq!(snapshot["state"], "LOCAL_LOCKED");
+        assert_eq!(snapshot["auth_blocked"], true);
+        assert_eq!(snapshot["epoch"], 1);
+        assert_eq!(
+            call(&router, "/api/simulation/start", Some(valid)).await.0,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            call(
+                &router,
+                "/api/simulation/input",
+                Some(r#"{"kind":"key","code":30}"#)
+            )
+            .await
+            .0,
+            StatusCode::CONFLICT
+        );
+    }
+
     #[tokio::test]
     async fn simulated_commands_are_agent_gated_and_revoke_advances_epoch() {
         let router = router();
@@ -499,10 +623,7 @@ mod tests {
             .0,
             StatusCode::CONFLICT
         );
-        assert_eq!(
-            call(&router, "/api/simulation/start", Some("{}")).await.0,
-            StatusCode::OK
-        );
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
         assert_eq!(
             call(
                 &router,
@@ -537,10 +658,7 @@ mod tests {
             .0,
             StatusCode::CONFLICT
         );
-        assert_eq!(
-            call(&router, "/api/simulation/start", Some("{}")).await.0,
-            StatusCode::OK
-        );
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
         assert_eq!(
             call(
                 &router,
@@ -561,22 +679,14 @@ mod tests {
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let dirfd = File::open(directory.path()).unwrap();
         let active = persisted_router(&dirfd).unwrap();
-        assert_eq!(
-            call(&active, "/api/simulation/start", Some("{}")).await.0,
-            StatusCode::OK
-        );
+        assert_eq!(call_start(&active).await.0, StatusCode::OK);
         drop(active);
 
         let restarted = persisted_router(&dirfd).unwrap();
         let (_, snapshot) = call(&restarted, "/api/simulation", None).await;
         assert_eq!(snapshot["state"], "FAILED_SAFE");
         assert_eq!(snapshot["live_control"], false);
-        assert_eq!(
-            call(&restarted, "/api/simulation/start", Some("{}"))
-                .await
-                .0,
-            StatusCode::CONFLICT
-        );
+        assert_eq!(call_start(&restarted).await.0, StatusCode::CONFLICT);
     }
 
     #[test]
@@ -625,7 +735,7 @@ mod tests {
                     .header("host", "127.0.0.1:8787")
                     .header("origin", "https://untrusted.example")
                     .header("content-type", "application/json")
-                    .body(Body::from("{}"))?,
+                    .body(Body::from(r#"{"demo_code":"SIMULATE"}"#))?,
             )
             .await?;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -638,7 +748,7 @@ mod tests {
                     .header("host", "127.0.0.1:8787")
                     .header("origin", "http://localhost:5173")
                     .header("content-type", "application/json")
-                    .body(Body::from("{}"))?,
+                    .body(Body::from(r#"{"demo_code":"SIMULATE"}"#))?,
             )
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
@@ -657,7 +767,7 @@ mod tests {
     #[tokio::test]
     async fn pointer_position_survives_event_log_rollover() {
         let router = router();
-        call(&router, "/api/simulation/start", Some("{}")).await;
+        call_start(&router).await;
         for _ in 0..13 {
             assert_eq!(
                 call(
@@ -696,10 +806,7 @@ mod tests {
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let directory_fd = File::open(directory.path()).unwrap();
         let router = persisted_router(&directory_fd).unwrap();
-        assert_eq!(
-            call(&router, "/api/simulation/start", Some("{}")).await.0,
-            StatusCode::OK
-        );
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
         assert_eq!(
             call(
                 &router,
@@ -732,12 +839,7 @@ mod tests {
             .0,
             StatusCode::CONFLICT
         );
-        assert_eq!(
-            call(&restarted, "/api/simulation/start", Some("{}"))
-                .await
-                .0,
-            StatusCode::OK
-        );
+        assert_eq!(call_start(&restarted).await.0, StatusCode::OK);
     }
 
     #[tokio::test]
@@ -752,10 +854,7 @@ mod tests {
         )
         .unwrap();
         let router = persisted_router(&directory_fd).unwrap();
-        assert_eq!(
-            call(&router, "/api/simulation/start", Some("{}")).await.0,
-            StatusCode::OK
-        );
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
         let (status, error) = call(&router, "/api/simulation/revoke", Some("{}")).await;
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(error["code"], "RECOVERY_FAILED");
@@ -771,10 +870,7 @@ mod tests {
             .0,
             StatusCode::CONFLICT
         );
-        assert_eq!(
-            call(&router, "/api/simulation/start", Some("{}")).await.0,
-            StatusCode::CONFLICT
-        );
+        assert_eq!(call_start(&router).await.0, StatusCode::CONFLICT);
         drop(router);
         assert!(persisted_router(&directory_fd).is_err());
     }
@@ -793,14 +889,8 @@ mod tests {
         assert_eq!(initial["live_control"], false);
         assert_eq!(initial["state"], "LOCAL_LOCKED");
         std::thread::sleep(std::time::Duration::from_millis(3200));
-        assert_eq!(
-            call(&router, "/api/simulation/start", Some("{}")).await.0,
-            StatusCode::OK
-        );
-        assert_eq!(
-            call(&router, "/api/simulation/start", Some("{}")).await.0,
-            StatusCode::CONFLICT
-        );
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
+        assert_eq!(call_start(&router).await.0, StatusCode::CONFLICT);
         let (_, after_duplicate) = call(&router, "/api/simulation", None).await;
         assert_eq!(after_duplicate["state"], "REMOTE_ACTIVE");
         let (_, sent) = call(
@@ -831,12 +921,7 @@ mod tests {
         assert_eq!(state["state"], "LOCAL_LOCKED");
         assert_eq!(state["epoch"], 2);
         assert!(state["events"].as_array().unwrap().is_empty());
-        assert_eq!(
-            call(&restarted, "/api/simulation/start", Some("{}"))
-                .await
-                .0,
-            StatusCode::OK
-        );
+        assert_eq!(call_start(&restarted).await.0, StatusCode::OK);
         drop(restarted);
         let after_active_shutdown =
             separated_router(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
