@@ -1,6 +1,6 @@
 # Experiment 6 eDP-only supervised preflight
 
-**Status:** Baseline recorded, not launch-ready as of 2026-09-27T07:55:12+00:00.
+**Status:** Preflight confirmed, launch pending as of 2026-09-27T09:01:53+00:00.
 **Scope:** One `--pause-after-isolate --watchdog-seconds 45` run, no kill or repeat.
 
 ## Read-only baseline
@@ -11,9 +11,12 @@
 - Active logical monitor: `eDP-1` primary at `(0, 0)`, scale `1`, transform `0`.
 - `PowerSaveMode=0` (ON); `ssh.socket` active.
 - No pending `blackroom-exp06-watchdog-*` timer at preflight.
-- `gnome-remote-desktop.service` inactive and disabled; masking is pending.
+- `gnome-remote-desktop.service` originally inactive/disabled; now masked and
+  inactive, verified at 2026-09-27T09:01:53+00:00. Restore to disabled/inactive.
 - Operator previously confirmed fresh second-device key-based SSH; reconfirm
   it remains open, with work saved and observer present, immediately before launch.
+- Operator confirmed saved work, SSH connected, eDP observation and approval of
+  the exact one-run `--pause-after-isolate --watchdog-seconds 45` command.
 
 ## Fresh binaries
 
@@ -23,7 +26,7 @@
 - Exp06 now persists session ID and Shell PID; exp07 refuses a missing or
   mismatched origin before any restore write (including watchdog invocation).
 - Exp06 now refuses to start unless `gnome-remote-desktop.service` is masked
-  and inactive; masking remains pending in this preflight record.
+  and inactive; the required state is verified above.
 
 The full raw GetCurrentState response is intentionally not stored here because
 it contains monitor serials. Exp06 will persist the exact restoration backup
