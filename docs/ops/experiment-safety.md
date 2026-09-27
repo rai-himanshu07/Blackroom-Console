@@ -288,6 +288,18 @@ exp06 findings retain that initial state, but no repeat is authorized. Continue
 to check the timer result and physical desktop independently. A locally
 corrected topology is not Gate C PASS or authorization to repeat the run.
 
+**2026-09-27 connected-HDMI connector loss (no repeat):** A separately
+approved run recorded both eDP-1 and HDMI-1 logically active immediately
+after ScreenCast Stop, followed by one successful local eDP-only reapply.
+The second independent exp07 reported FAIL because raw HDMI-1 vanished while
+its cable remained plugged in; `/sys/class/drm/card0-HDMI-A-1/status` read
+`disconnected` even after one operator cable re-seat. The eDP desktop and
+second-device SSH remained usable, but original physical inventory was not
+restored. No manual exp07 retry, GPU reset or extra cable cycle is authorized
+by that run. The service reported success despite exp07 printing FAIL; a
+subsequent synthetic-tested change makes future FAIL reports exit nonzero.
+Preserve this failure and the product/Gate C stop.
+
 **2026-09-27 unplugged-HDMI outcome: no repeat.** The one approved run reached
 Meta-0-only logical topology with power OFF. The first exp07 watchdog PASS
 restored eDP-1 and power ON; after independent software and operator visual

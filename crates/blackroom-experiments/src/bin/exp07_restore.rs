@@ -435,6 +435,14 @@ struct Findings {
     unexpected_connectors_after_restore: Vec<String>,
 }
 
+fn require_verified_restore(result: ExperimentResult) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        matches!(result, ExperimentResult::Pass),
+        "display restoration did not verify"
+    );
+    Ok(())
+}
+
 fn attempt_restore(conn: &Connection, backup: &DisplayBackup) -> anyhow::Result<()> {
     verify_live_identity(conn, backup)?;
     let write_side = to_write_side(backup)?;
@@ -566,12 +574,18 @@ fn main() -> anyhow::Result<()> {
     )?;
     println!("Wrote evidence to {}", dir.display());
     println!("Result: {result}");
-    Ok(())
+    require_verified_restore(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_restore_reports_a_nonzero_process_result() {
+        assert!(require_verified_restore(ExperimentResult::Pass).is_ok());
+        assert!(require_verified_restore(ExperimentResult::Fail).is_err());
+    }
 
     #[test]
     fn legacy_backup_without_metadata_remains_readable() {

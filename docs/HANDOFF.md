@@ -9,10 +9,10 @@
 ## Current State
 - Steps 1–4 complete. Watchdog path/cwd and pause-restore bugs fixed; unattended
   restore verified. PowerSaveMode blanking observed on `eDP-1` and both outputs.
-- Connected-HDMI no-kill diagnostic: exp06 FAIL, one post-Stop reapply worked
-  (trigger state not saved); first/second exp07 watchdogs PASS, final eDP-only.
-  Shell/session/power stable, no timers, service disabled/inactive; operator
-  confirms normal desktop. Gate C STOP; no repeat approved.
+- Connected-HDMI run: exp06 FAIL (pre-repair eDP+HDMI active); local reapply
+  corrected logical topology; first exp07 PASS, second exp07 FAIL after raw
+  HDMI vanished despite plugged cable and one re-seat. eDP/SSH usable;
+  Shell/session/power stable, no timers, service disabled/inactive. Gate C STOP.
 - Earlier GNOME Shell SIGSEGV/logout unexplained; old logs absent.
 
 - Separated HTTP idle/start/input/revoke; verified hostd EOF cleanup permits
@@ -33,8 +33,8 @@
   disabled; doctor is manual only. Live gates still block activation, not code.
 
 ## Blockers
-- Doc 00/10 §49: unstable final display restoration blocks Gate C and product
-  activation; diagnostics require §7 preflight. FEAS-A/D/E/F/G/H unproven.
+- Connected HDMI lost from kernel inventory during cleanup; Gate C and product
+  activation stopped. FEAS-A/D/E/F/G/H remain unproven.
 
 ## Next Actions
-1. Diagnose HDMI Stop behavior; continue distinct UID and real auth design.
+1. Diagnose kernel HDMI loss; exp07 FAIL exit fixed but not live-retested.

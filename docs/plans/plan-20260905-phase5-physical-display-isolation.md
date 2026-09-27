@@ -1364,3 +1364,19 @@ read-only run. See Risks.
   test passes. The earlier `2026-09-27-4` generated report remains unchanged
   and its missing initial state cannot be reconstructed. No live repeat is
   authorized by this instrumentation.
+- 2026-09-27 (one approved pre-repair-state diagnostic; STOP): exp06's new
+  finding captured eDP-1 **and HDMI-1** active immediately after Stop with
+  hash mismatch; one local reapply returned eDP-only/hash match but exp06
+  correctly reported FAIL and left its second timer armed. The first exp07
+  watchdog PASS; the second exp07 watchdog FAIL after raw HDMI vanished while
+  the cable remained plugged in. Its topology check matched but output hash
+  failed because HDMI was absent from GetCurrentState and the kernel reported
+  card0-HDMI-A-1 disconnected. One operator cable re-seat did not restore
+  detection; external monitor showed no signal. eDP desktop and SSH remained
+  usable, Shell PID 34735/session 3 and power ON stable, timers zero and
+  remote desktop disabled/inactive. See
+  `docs/experiments/evidence/exp06/2026-09-27-5/observation.md`. Exp07's
+  service returned success despite reporting FAIL: a subsequent focused
+  synthetic fix makes future FAIL results exit nonzero after writing evidence.
+  No further live run is authorized; Gate C remains stopped with incomplete
+  physical inventory restoration.
