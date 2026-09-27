@@ -21,10 +21,13 @@ it. Do not implement the task.
 3. Read `AGENTS.md`. Use codebase-memory for structure and impact, checking
    freshness and coverage, then read only nearby live implementation and tests
    needed to plan. Declare `CODE GRAPH DEGRADED` when the graph is unavailable.
-4. Create `docs/plans/plan-YYYYMMDD-TASK-SLUG.md` from
-   `docs/PLAN.template.md`.
-5. Include goal, acceptance criteria, non-goals, evidence, decisions, risks,
-   ordered steps, dependencies, touched files, and verification per step.
+4. Only when a written plan is warranted, create
+   `docs/plans/plan-YYYYMMDD-TASK-SLUG.md` from `docs/PLAN.template.md`.
+   Select mini/compact for bounded or coupled offline work; governed for
+   security, migrations, release, or live display/input changes. Do not use
+   the installed surface as a reason to promote every task to governed.
+5. Include goal, acceptance criteria, non-goals, relevant evidence and risks,
+   ordered steps, dependencies, touched files, and focused verification.
 6. Set the new plan's status to `draft`.
 7. Replace the Active plan value in `docs/HANDOFF.md` with the exact new path.
 8. Return the path and ask the user to approve or amend it.

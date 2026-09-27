@@ -588,6 +588,19 @@ mod tests {
     }
 
     #[test]
+    fn committed_pre_hash_backup_keeps_its_e_dp_restore_path() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/experiments/evidence/exp06/2026-09-27-3/backup.json");
+        let backup: DisplayBackup =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(validated_hash(&backup).unwrap(), None);
+        let write_side = to_write_side(&backup).unwrap();
+        assert_eq!(write_side.len(), 1);
+        assert_eq!(write_side[0].monitors.len(), 1);
+        assert_eq!(write_side[0].monitors[0].connector, "eDP-1");
+    }
+
+    #[test]
     fn incomplete_or_corrupt_new_backup_metadata_is_refused() {
         let mut backup: DisplayBackup = serde_json::from_str(
             r#"{"session_id":"3","shell_pid":34735,"outputs":[{"connector":"eDP-1","vendor":"vendor","product":"panel","serial":"internal","mode_id":"mode-1","width":1920,"height":1080,"refresh_rate":60.0}],"topology":[{"x":0,"y":0,"scale":1.0,"transform":0,"primary":true,"monitors":[["eDP-1","internal"]]}]}"#,

@@ -21,15 +21,12 @@ disable-model-invocation: true
    history for the last relevant session before broad source exploration.
 5. Check current workspace state. If this is a Git repository, inspect status and
    recent commits without changing them.
-6. Run the configured fast test command when it is available:
-
-   ```text
-   pytest -x -q
-   ```
-
-7. Under `required`, use exposed codebase-memory tools for
-   project `Blackroom_Console`, then compare graph evidence with live code.
-8. Summarize memory health, current status, check results, blockers, and the next
-   approved plan step in at most six bullets.
-
-Do not implement until the user confirms continuation.
+6. Do not run a baseline test just for resuming. After a code edit, run the
+   smallest affected check; broad checks only at the risk-based checkpoint in
+   `AGENTS.md`. Docs-only resumption needs no code tests.
+7. Use exposed codebase-memory tools for project `Blackroom_Console` when
+   structural impact is unknown; compare graph evidence with live code.
+8. Summarize current status and blockers briefly, then continue already
+   approved independent offline steps. Ask only for a genuinely new decision,
+   a destructive action, or the live operator participation required by §7 of
+   `docs/ops/experiment-safety.md`.

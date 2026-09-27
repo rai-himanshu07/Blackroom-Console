@@ -1,0 +1,49 @@
+{
+  "session_id": "3",
+  "shell_pid": 34735,
+  "outputs": [
+    {
+      "connector": "eDP-1",
+      "vendor": "AUO",
+      "product": "0xed8f",
+      "serial": "0x00000000",
+      "mode_id": "1920x1080@120.213",
+      "width": 1920,
+      "height": 1080,
+      "refresh_rate": 120.2129898071289,
+      "enabled": true
+    },
+    {
+      "connector": "HDMI-1",
+      "vendor": "SAM",
+      "product": "Smart M80C",
+      "serial": "H1AK500000",
+      "mode_id": "",
+      "width": 0,
+      "height": 0,
+      "refresh_rate": 0.0,
+      "enabled": false
+    }
+  ],
+  "topology": [
+    {
+      "x": 0,
+      "y": 0,
+      "scale": 1.0,
+      "transform": 0,
+      "primary": true,
+      "monitors": [
+        [
+          "eDP-1",
+          "0x00000000"
+        ]
+      ]
+    }
+  ],
+  "primary_output": [
+    "eDP-1",
+    "0x00000000"
+  ],
+  "hash_version": 1,
+  "configuration_hash": 8358983250760990069
+}

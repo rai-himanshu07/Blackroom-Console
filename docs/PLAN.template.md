@@ -3,7 +3,7 @@
 **Created:** YYYY-MM-DD
 **Status:** draft
 **Approved by:** not yet approved
-**Task tier:** governed
+**Task tier:** compact
 
 ## Goal
 
@@ -40,7 +40,9 @@ State the observable outcome.
 
 ## Final Verification
 
-- Run the configured project checks from `AGENTS.md`.
+- Run focused checks for changed behavior. Run relevant broad checks once only
+  for cross-crate integration, release, or a named cross-cutting risk; request
+  an independent review at a high-risk boundary or release.
 - Confirm every acceptance criterion with current evidence.
 
 ## Blockers

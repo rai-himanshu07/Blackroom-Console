@@ -13,7 +13,7 @@ Reserve `wing_copilot` for genuinely cross-project lessons.
 
 1. Call `mempalace_status` before project work.
 2. Inspect relevant built-in repo memory under `/memories/repo/`.
-3. Read `docs/HANDOFF.md` and its exact active plan.
+3. When resuming planned work, read `docs/HANDOFF.md` and its exact active plan.
 4. When resuming prior work or recovering after compaction, call
    `mempalace_diary_read` for agent `copilot` with wing `blackroom_console`, then
    search that wing for relevant durable
@@ -59,7 +59,7 @@ tree.
 
 ## Session End
 
-After every substantial session:
+After substantial work that changes durable decisions or multi-session state:
 
 1. Update the active plan and `docs/HANDOFF.md`.
 2. Prefer one atomic `mempalace_checkpoint` as agent `copilot`, with every item
@@ -73,7 +73,7 @@ After every substantial session:
 
 ## Degraded Mode
 
-If MemPalace is unavailable:
+If a required or task-relevant MemPalace operation is unavailable:
 
 1. State `MEMORY DEGRADED` and the failed operation.
 2. Continue only from the handoff, plan, repo memory, Git, and live code.

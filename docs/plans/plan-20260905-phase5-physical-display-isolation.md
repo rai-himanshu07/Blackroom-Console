@@ -1327,3 +1327,40 @@ read-only run. See Risks.
   control or a full topology hash. Cross-build fixture, disabled-HDMI and
   old-backup tests pass, but the new path has not been observed live. Old
   generated evidence is unchanged and Gate FEAS-C stays stopped.
+- 2026-09-27 (synthetic post-Stop local repair, no run): after ScreenCast Stop
+  and virtual connector removal, exp06 makes at most one exact-backup reapply
+  when final topology/hash is wrong, the original Shell/session is unchanged,
+  the second watchdog timer is active and its service is inactive. It skips
+  local reapply if that service is already starting/running, reobserves the
+  final state and records the attempt/error, and still reports FAIL even if
+  local reapply succeeds.
+  The second timer remains armed for independent restoration on any such
+  attempt; on failed verification the identity-checked Drop guard also remains
+  armed and restores both topology and power. Focused synthetic checks cover
+  refusal on stale identity, missing timer or active watchdog service,
+  timer, failed Stop, unreadable final state and false-PASS prevention. This
+  changed recovery envelope needs its own safety review and exact-command
+  operator approval before any live diagnostic; Gate FEAS-C remains STOP.
+- 2026-09-27 (one approved guarded post-Stop diagnostic; STOP, no repeat):
+  connected HDMI-1 was raw but inactive, eDP-1 the sole active output. The
+  new version-one backup captured disabled HDMI without a current mode.
+  First watchdog exp07 PASS restored eDP-only. After operator confirmation,
+  Enter armed the second 45-second cleanup timer before ScreenCast Stop.
+  Exp06 reported FAIL and `post_stop_restore_attempted=true`; the local
+  identity-checked reapply returned no error and its final eDP-only topology,
+  output hash, power and original Shell/session verified. The timer remained
+  armed and independently invoked exp07 PASS. Final physical desktop/SSH,
+  original session, exact eDP-only active topology, zero timers and disabled/
+  inactive service were independently confirmed. The *initial post-Stop*
+  mismatch before local reapply was not persisted, so this run alone cannot
+  identify its changed field. See
+  `docs/experiments/evidence/exp06/2026-09-27-4/observation.md`. This is
+  observed assisted recovery, not reliable unassisted restoration, physical
+  privacy proof, or Gate C PASS. No more runs are authorized.
+- 2026-09-27 (synthetic evidence-gap repair, no run): future exp06 findings
+  retain `post_stop_pre_repair_state` before any local reapply so a recovered
+  final state cannot erase the triggering raw/logical outputs, hash result,
+  identity, power or watchdog observation. A focused synthetic serialization
+  test passes. The earlier `2026-09-27-4` generated report remains unchanged
+  and its missing initial state cannot be reconstructed. No live repeat is
+  authorized by this instrumentation.

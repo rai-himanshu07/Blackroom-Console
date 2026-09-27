@@ -15,7 +15,9 @@ from typing import Any
 TOKEN_PATTERN = re.compile(r"\{\{[A-Z0-9_]+\}\}")
 FIELD_PATTERN = re.compile(r"^-\s+([^:]+):\s+`?([^`\n]+)`?\s*$", re.MULTILINE)
 ACTIVE_PLAN_PATTERN = re.compile(r"^\*\*Active plan:\*\*\s*(.+?)\s*$", re.MULTILINE)
-TASK_TIER_PATTERN = re.compile(r"^\*\*Task tier:\*\*\s*([0-3])\s*$", re.MULTILINE)
+TASK_TIER_PATTERN = re.compile(
+    r"^\*\*Task tier:\*\*\s*(none|mini|compact|governed|[0-3])\s*$", re.MULTILINE
+)
 CONTRACT_PATTERN = re.compile(r"^## Installed file contract\s*$([\s\S]*?)(?=^## |\Z)", re.MULTILINE)
 PLAN_BUDGETS = {"none": 0, "mini": 25, "compact": 80, "governed": 0}
 VALID_SURFACES = {"minimal", "standard", "governed"}
@@ -184,7 +186,7 @@ def _task_state(root: Path, tier: str, report: Report) -> None:
             "1": "mini",
             "2": "compact",
             "3": "governed",
-        }[task_match.group(1)]
+        }.get(task_match.group(1), task_match.group(1))
     if len(handoff.splitlines()) > 40 or len(handoff.encode("utf-8")) > 3_072:
         report.add("warning", "handoff.budget", "handoff exceeds 40 lines or 3 KB", handoff_path)
     match = ACTIVE_PLAN_PATTERN.search(handoff)

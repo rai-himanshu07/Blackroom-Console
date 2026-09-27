@@ -73,6 +73,17 @@ fn checked_reply(
             "invalid offline authority response",
         ));
     }
+    match (command, response.next_proof.as_deref()) {
+        (OfflineCommand::Start { .. }, Some(proof))
+            if proof.len() == 64 && proof.bytes().all(|digit| digit.is_ascii_hexdigit()) => {}
+        (OfflineCommand::Start { .. }, _) | (_, Some(_)) => {
+            return Err(BlackroomError::new(
+                ErrorCode::HostUnavailable,
+                "invalid offline authority proof rotation",
+            ));
+        }
+        _ => {}
+    }
     Ok(expected)
 }
 
@@ -263,7 +274,11 @@ impl SeparatedHost {
         }
         let next = checked_reply(&command, &response, self.epoch).inspect_err(|_| {
             self.state = State::LocalLocked;
+            let _ = self.control.shutdown(Shutdown::Both);
         })?;
+        if matches!(command, OfflineCommand::Start { .. }) {
+            self.simulation_proof = response.next_proof.expect("checked Start proof rotation");
+        }
         self.epoch = response.epoch;
         self.state = next;
         Ok(())
@@ -381,10 +396,12 @@ mod tests {
             state: "LOCAL_LOCKED".into(),
             epoch: 4,
             code: None,
+            next_proof: None,
         };
         assert!(checked_reply(&OfflineCommand::Input {}, &reply, 4).is_err());
         reply.state = "REMOTE_ACTIVE".into();
         reply.epoch = 3;
+        reply.next_proof = Some("ab".repeat(32));
         assert!(
             checked_reply(
                 &OfflineCommand::Start {
@@ -396,6 +413,40 @@ mod tests {
             .is_err()
         );
         reply.epoch = 4;
+        assert_eq!(
+            checked_reply(
+                &OfflineCommand::Start {
+                    proof: "test".into()
+                },
+                &reply,
+                4
+            )
+            .unwrap(),
+            State::RemoteActive
+        );
+        assert!(checked_reply(&OfflineCommand::Input {}, &reply, 4).is_err());
+        reply.next_proof = Some("invalid".into());
+        assert!(
+            checked_reply(
+                &OfflineCommand::Start {
+                    proof: "test".into()
+                },
+                &reply,
+                4
+            )
+            .is_err()
+        );
+        reply.next_proof = None;
+        assert!(
+            checked_reply(
+                &OfflineCommand::Start {
+                    proof: "test".into()
+                },
+                &reply,
+                4
+            )
+            .is_err()
+        );
         assert_eq!(
             checked_reply(&OfflineCommand::Input {}, &reply, 4).unwrap(),
             State::RemoteActive
@@ -510,7 +561,7 @@ mod tests {
         let agent = std::env::var_os("BLACKROOM_TEST_AGENT_BIN").unwrap();
         let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
         let emergency = std::env::var_os("BLACKROOM_TEST_EMERGENCY_BIN").unwrap();
-        for loss in ["none", "agent", "hostd"] {
+        for loss in ["none", "agent", "hostd", "paused-hostd"] {
             let directory = tempfile::tempdir().unwrap();
             std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
                 .unwrap();
@@ -527,6 +578,15 @@ mod tests {
                 "hostd" => {
                     demo.hostd.0.kill().unwrap();
                     demo.hostd.0.wait().unwrap();
+                }
+                "paused-hostd" => {
+                    assert!(
+                        Command::new("/usr/bin/kill")
+                            .args(["-STOP", &demo.hostd.0.id().to_string()])
+                            .status()
+                            .unwrap()
+                            .success()
+                    );
                 }
                 _ => {}
             }

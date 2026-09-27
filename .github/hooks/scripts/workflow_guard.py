@@ -14,7 +14,9 @@ from typing import Any
 
 PLAN_TIER = re.compile(r"^-\s+Plan tier:\s+`?([^`\n]+)`?\s*$", re.MULTILINE)
 ACTIVE_PLAN = re.compile(r"^\*\*Active plan:\*\*\s*(.+?)\s*$", re.MULTILINE)
-TASK_TIER = re.compile(r"^\*\*Task tier:\*\*\s*([0-3])\s*$", re.MULTILINE)
+TASK_TIER = re.compile(
+    r"^\*\*Task tier:\*\*\s*(none|mini|compact|governed|[0-3])\s*$", re.MULTILINE
+)
 BUDGETS = {"none": 0, "mini": 25, "compact": 80, "governed": 0}
 
 
@@ -81,7 +83,7 @@ def _reason(root: Path) -> str | None:
             "1": "mini",
             "2": "compact",
             "3": "governed",
-        }[task.group(1)]
+        }.get(task.group(1), task.group(1))
     pointer = ACTIVE_PLAN.search(handoff)
     if pointer is None:
         return "handoff active-plan field is missing or ambiguous"
@@ -117,8 +119,6 @@ def _workflow_changes(root: Path) -> bool:
                 "AGENTS.md",
                 ".github",
                 "docs/WORKFLOW_CONFIG.md",
-                "docs/HANDOFF.md",
-                "docs/plans",
             ],
             cwd=root,
             capture_output=True,
@@ -138,7 +138,7 @@ def evaluate(payload: dict[str, Any]) -> dict[str, Any]:
     reason = _reason(_root(payload))
     if reason is None and _workflow_changes(_root(payload)):
         reason = (
-            "workflow-control files changed; review scope and current task state "
+            "agent policy or hook files changed; review scope and current task state "
             "before stopping"
         )
     if reason is None:

@@ -21,6 +21,8 @@ pub struct OfflineReply {
     pub state: String,
     pub epoch: u64,
     pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_proof: Option<String>,
 }
 
 pub fn write_frame<T: Serialize>(stream: &mut UnixStream, value: &T) -> io::Result<()> {

@@ -11,6 +11,12 @@ recovery. FEAS-G and the Phase 10 Go/No-Go decision remain open.
 | Gateway/browser | Gateway refuses Start/input and reports `FAILED_SAFE` plus epoch; browser polls status. | Same. | Same. |
 | Real lock/display/input | Not implemented by this process. | Not implemented. | Not implemented. |
 
+An offline process test SIGSTOPs the test-owned hostd child before the
+independent emergency command. The marker and epoch advance without hostd,
+the surviving agent observes the marker with its socket open, and the gateway
+refuses input/Start and restart. This does not exercise a deployed daemon or
+physical emergency chord.
+
 The marker is intentionally not automatically cleared. Agent-reported
 unverified recovery also writes it before hostd exits. This is an offline
 stop fence, **not** a certified independent emergency recovery service:

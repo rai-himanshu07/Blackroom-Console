@@ -298,7 +298,9 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
     assert!(!refused.accepted);
     assert_eq!(refused.code.as_deref(), Some("AUTH_INVALID"));
     assert_eq!(refused.state, "LOCAL_LOCKED");
-    for (command, state) in [
+    assert!(refused.next_proof.is_none());
+    let mut current_proof = bootstrap.simulation_proof.clone();
+    for (index, (command, state)) in [
         (
             OfflineCommand::Start {
                 proof: bootstrap.simulation_proof.clone(),
@@ -314,11 +316,41 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
             "REMOTE_ACTIVE",
         ),
         (OfflineCommand::Revoke {}, "LOCAL_LOCKED"),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let command = match command {
+            OfflineCommand::Start { .. } => OfflineCommand::Start {
+                proof: current_proof.clone(),
+            },
+            other => other,
+        };
         write_frame(&mut gateway, &command).unwrap();
         let response: OfflineReply = read_frame(&mut gateway).unwrap();
         assert!(response.accepted);
         assert_eq!(response.state, state);
+        if matches!(command, OfflineCommand::Start { .. }) {
+            let replacement = response.next_proof.expect("accepted Start rotates proof");
+            assert_ne!(replacement, current_proof);
+            assert_eq!(replacement.len(), 64);
+            current_proof = replacement;
+        } else {
+            assert!(response.next_proof.is_none());
+        }
+        if index == 2 {
+            write_frame(
+                &mut gateway,
+                &OfflineCommand::Start {
+                    proof: bootstrap.simulation_proof.clone(),
+                },
+            )
+            .unwrap();
+            let replay: OfflineReply = read_frame(&mut gateway).unwrap();
+            assert!(!replay.accepted);
+            assert_eq!(replay.code.as_deref(), Some("AUTH_INVALID"));
+            assert!(replay.next_proof.is_none());
+        }
     }
     drop(gateway);
     assert!(child.wait().unwrap().success());

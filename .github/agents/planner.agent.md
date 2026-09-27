@@ -29,8 +29,9 @@ configuration, dependencies, or generated artifacts.
    code before relying on graph evidence and never invent a freshness result.
 4. Read only the live code or tests needed to resolve the controlling behavior.
 5. Ask concise questions only when an unresolved choice changes the design.
-6. Follow the `governed` plan budget. Use the installed template when
-   present; otherwise create only the fields named by the resolved policy.
+6. Use a mini or compact plan for bounded/coupled offline work; promote to
+   governed for security, migrations, release, or live display/input changes.
+   Use the installed template when present; trim it to the resolved tier.
 7. Give every step a bounded file scope, dependencies, and an executable or
    observable verification.
 8. Record risks, non-goals, and decisions with their evidence.

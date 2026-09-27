@@ -26,7 +26,7 @@ Rewrite `docs/HANDOFF.md` as current state, not accumulated history.
 6. If any required memory call fails, set the handoff Memory field to
    `DEGRADED`, list every pending read/write under Pending memory operations, and
    report the failure. Never silently discard synthesis.
-7. Keep the handoff below 50 lines and remove stale items. Keep current code
+7. Keep the handoff within 40 lines / 3 KB and remove stale items. Keep current code
    state in the handoff and live working tree, not in MemPalace.
 
 Do not make implementation changes while producing the handoff.

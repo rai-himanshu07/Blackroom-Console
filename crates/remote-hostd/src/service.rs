@@ -100,7 +100,14 @@ fn reply(host: &PersistentHostAuthority, accepted: bool, code: Option<&str>) -> 
         state: host.state().as_str().into(),
         epoch: host.epoch().value(),
         code: code.map(str::to_owned),
+        next_proof: None,
     }
+}
+
+fn new_proof() -> io::Result<String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(|error| io::Error::other(error.to_string()))?;
+    Ok(hex::encode(bytes))
 }
 
 fn expire_grant(
@@ -134,9 +141,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
         return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
     let listener = UnixListener::bind(control_socket)?;
-    let mut proof_bytes = [0_u8; 32];
-    getrandom::fill(&mut proof_bytes).map_err(|error| io::Error::other(error.to_string()))?;
-    let simulation_proof = hex::encode(proof_bytes);
+    let mut simulation_proof = new_proof()?;
     let bootstrap = OfflineBootstrap {
         verifier_hex: hex::encode(host.verifying_key().to_bytes()),
         epoch: host.epoch().value(),
@@ -200,6 +205,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 reply(&host, false, Some("LEASE_INVALID"))
             }
             OfflineCommand::Start { .. } => {
+                let next_proof = new_proof()?;
                 let update = host.grant_update().map_err(io::Error::other)?;
                 if agent.is_none() {
                     agent = Some(connect_agent(agent_socket)?);
@@ -207,7 +213,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 let stream = agent.as_mut().expect("agent connected");
                 if acknowledged(stream, &update, directory)? {
                     current_grant = Some(update);
-                    reply(&host, true, None)
+                    simulation_proof = next_proof.clone();
+                    let mut response = reply(&host, true, None);
+                    response.next_proof = Some(next_proof);
+                    response
                 } else {
                     host.revoke_update()?;
                     return Err(io::Error::from(io::ErrorKind::PermissionDenied));

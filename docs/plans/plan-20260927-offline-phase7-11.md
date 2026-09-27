@@ -23,11 +23,13 @@ grab devices, inject input, or promote any feasibility/security gate.
   cleanup clears it after revoke or hostd EOF. Agent loss leaves `FAILED_SAFE`.
 - [x] Phase 10: separate offline emergency executable persists a stop marker
   and epoch without hostd cooperation; atomic marker publication handles
-  concurrent requests. Agent observes it; gateway denies stale control.
+  concurrent requests. Agent observes it even with synthetic hostd SIGSTOPped;
+  gateway denies stale control.
 - [x] Phase 11 preparation: protected host identity and atomic epoch store,
-  private-bootstrap-delivered, reusable process-lifetime synthetic Start proof,
-  signed time-bounded control lease and persisted revocation; wrong proof and
-  stale epochs refused. The proof is not one-time or user authentication.
+  private-bootstrap-delivered synthetic Start proof rotated only after an
+  acknowledged grant, signed time-bounded lease and persisted revocation;
+  wrong and previously used proofs and stale epochs are refused. This is not
+  user authentication or a distinct-UID service boundary.
 
 ## Open Work And Gates
 

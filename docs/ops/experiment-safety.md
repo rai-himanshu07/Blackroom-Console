@@ -278,6 +278,16 @@ replacement Shell/session. No automatic repeat is authorized. Even a clean
 run on this different physical layout does not prove the prior connected-HDMI
 case or Gate C.
 
+Exp06 may make one identity-checked local reapply after a post-Stop mismatch
+while the cleanup timer is active and its restore service is inactive. One
+separately approved 2026-09-27 connected-HDMI run observed this local reapply:
+exp06 still reported FAIL, the final eDP-only topology verified, and the
+second watchdog independently reported PASS. The pre-repair mismatching
+state was not saved in that run; see its `2026-09-27-4` observation. Future
+exp06 findings retain that initial state, but no repeat is authorized. Continue
+to check the timer result and physical desktop independently. A locally
+corrected topology is not Gate C PASS or authorization to repeat the run.
+
 **2026-09-27 unplugged-HDMI outcome: no repeat.** The one approved run reached
 Meta-0-only logical topology with power OFF. The first exp07 watchdog PASS
 restored eDP-1 and power ON; after independent software and operator visual

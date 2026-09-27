@@ -41,8 +41,9 @@ The console labels this mode `SEPARATE`. The gateway supervises the two local
 processes; the agent acknowledges signed host updates before simulated input
 is recorded. The host key and epoch persist, but the fake event log does not.
 Hostd gives the gateway a random synthetic Start proof through a private
-bootstrap pipe. The proof is reusable until hostd exits; this is **not**
-one-time user authentication, PAM, or an installed service identity. The
+bootstrap pipe. Each acknowledged Start rotates the proof in the private
+control reply; an earlier proof cannot restart after revoke. This is **not**
+user authentication, PAM, or an installed service identity. The
 agent's fake lock, display, input-isolation and capture
 effects must be observed before it acknowledges a signed grant.
 

@@ -13,14 +13,14 @@ It describes policy; live source files and project commands remain authoritative
 - Optional integration guidance: none
 - Engineering rigor: `strong`
 - Installation surface: `governed`
-- Plan tier: `governed`
-- Validation tier: `broad`
-- Memory policy: `required`
-- Code-intelligence policy: `required`
+- Plan tier: `compact`
+- Validation tier: `focused`
+- Memory policy: `on-demand`
+- Code-intelligence policy: `on-demand`
 - Memory wing: `blackroom_console`
 - codebase-memory project: `Blackroom_Console`
 - Session profile: `auto`
-- Policy overrides: none
+- Policy overrides: implementation-first; necessary core experiments only (2026-09-27)
 
 ## Command overrides
 
@@ -29,30 +29,40 @@ It describes policy; live source files and project commands remain authoritative
 - `test`: cargo test --workspace
 - `typecheck`: cargo check --workspace --all-targets
 
+`test`, `lint`, and `typecheck` above are workspace checkpoint commands, not
+per-edit requirements. For changed Rust behavior use `cargo test -p <crate>
+[test-filter]` first; run a workspace command only at the checkpoint specified
+below. For documentation-only changes, run no code tests.
+
 (Updated 2026-09-04 with user approval to match the Rust/TypeScript stack decision recorded in
 `docs/plans/assessment-20260904-detailed-project-plan.md` §6.1; the original generated values
 were `ruff check .` / `pytest -x -q` / `pyright`.)
 
 ## Concrete policy
 
-- Planning gate: governed specification and risk record before implementation; promotes the Governed surface, while Spec Kit can own the plan artifacts
-- Validation: run focused checks plus broad relevant tests or diagnostics at a logical checkpoint
-- Documentation and handoff: maintain governed handoff, recovery, and operator evidence without copied command output; promotes the Governed surface
-- Memory lifecycle: use project-scoped retrieval and an explicit-wing checkpoint for substantial work; promotes the Governed surface
-- Code intelligence: verify the available graph surface and use it for architecture and impact before editing; promotes the Governed surface
-- Change isolation: strict approved-scope review with transactional failure recovery
+- Planning gate: inline intent for bounded work, compact plan for coupled work; governed risk record only for security, migrations, live host mutation, or release
+- Validation: one smallest affected check per coherent change; broad relevant checks once at an integration or release boundary, or for a named cross-cutting risk
+- Documentation and handoff: update at meaningful multi-session checkpoints; keep operator evidence for live experiments
+- Memory lifecycle: retrieve project-scoped decisions when needed; checkpoint durable decisions once per substantial session
+- Code intelligence: use the graph for unknown structure or impact, not known-file or literal work; verify live files
+- Change isolation: inspect the approved scope and preserve transactional failure recovery; no extra reviewer for routine progress
 - Safety and approvals: hard path, secret, sandbox, destructive-operation, preview, collision, and transactional safeguards remain active
-- Review: independent read-only review is required before completion or release; promotes the Governed surface
-- Test path: broad
-- Reviewed local protocol guard: enabled
+- Review: one independent read-only review for a new high-risk mechanism, changed recovery contract, or release; not per offline slice or same-mechanism supervised diagnostic
+- Test path: focused
+- Reviewed local protocol guard: disabled (no Stop/agentStop registrations)
 
 ## Deterministic workflow
 
 1. Inspect the live project and reuse existing patterns before editing.
-2. governed specification and risk record before implementation; promotes the Governed surface, while Spec Kit can own the plan artifacts
-3. run focused checks plus broad relevant tests or diagnostics at a logical checkpoint
-4. maintain governed handoff, recovery, and operator evidence without copied command output; promotes the Governed surface
-5. independent read-only review is required before completion or release; promotes the Governed surface
+2. Choose inline, compact, or governed routing by actual task risk, not by installation surface.
+3. Run the affected check after a coherent edit; run broad checks once when integration or release requires them.
+4. Continue independent offline host, gateway, and browser work even while a live
+	feasibility gate is open. Keep the live capability disabled and record the gap.
+5. Run only a bounded experiment that answers a named unknown essential to the
+	supported core workflow; defer broad matrices, repetitions, and optional
+	variants. Apply `docs/ops/experiment-safety.md` for every live mutation.
+6. Keep a short handoff and accurate live evidence. Request one independent
+	review for a new high-risk mechanism, changed recovery contract, or release.
 
 ## Installed file contract
 

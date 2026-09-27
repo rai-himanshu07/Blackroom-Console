@@ -406,6 +406,82 @@ mod tests {
     }
 
     #[test]
+    fn post_stop_repair_requires_original_identity_and_watchdog() {
+        let backup = DisplayBackup {
+            session_id: "3".into(),
+            shell_pid: 34735,
+            outputs: Vec::new(),
+            topology: Vec::new(),
+            primary_output: None,
+            hash_version: display_config::CONFIGURATION_HASH_VERSION,
+            configuration_hash: output_hash(&[]),
+        };
+        let mut observed = FinalState {
+            shell_pid: Some(34735),
+            session_id: Some("3".into()),
+            watchdog_timer_active: Some(true),
+            watchdog_service_state: Some("inactive".into()),
+            ..FinalState::default()
+        };
+        assert!(should_repair_post_stop(&observed, &backup, true, true));
+        assert!(!should_repair_post_stop(&observed, &backup, false, true));
+        assert!(!should_repair_post_stop(&observed, &backup, true, false));
+        observed.watchdog_timer_active = Some(false);
+        assert!(!should_repair_post_stop(&observed, &backup, true, true));
+        observed.watchdog_timer_active = Some(true);
+        for state in ["activating", "active", "failed"] {
+            observed.watchdog_service_state = Some(state.into());
+            assert!(!should_repair_post_stop(&observed, &backup, true, true));
+        }
+        observed.watchdog_service_state = None;
+        assert!(!should_repair_post_stop(&observed, &backup, true, true));
+        observed.watchdog_service_state = Some("inactive".into());
+        observed.shell_pid = Some(34736);
+        assert!(!should_repair_post_stop(&observed, &backup, true, true));
+        observed.shell_pid = Some(34735);
+        observed.session_id = Some("4".into());
+        assert!(!should_repair_post_stop(&observed, &backup, true, true));
+        observed.session_id = Some("3".into());
+        observed.topology_matches_original = true;
+        assert!(!should_repair_post_stop(&observed, &backup, true, true));
+        observed.topology_matches_original = false;
+        observed.read_error = Some("unreadable".into());
+        assert!(!should_repair_post_stop(&observed, &backup, true, true));
+    }
+
+    #[test]
+    fn post_stop_repair_still_reports_failure_after_a_verified_restore() {
+        assert!(matches!(
+            diagnostic_result(true, true, true, true),
+            ExperimentResult::Fail
+        ));
+        assert!(matches!(
+            diagnostic_result(true, false, true, true),
+            ExperimentResult::Partial
+        ));
+        assert!(matches!(
+            diagnostic_result(false, false, true, true),
+            ExperimentResult::Pass
+        ));
+    }
+
+    #[test]
+    fn post_stop_repair_preserves_the_observed_mismatch() {
+        let observed = FinalState {
+            raw_connectors: vec!["eDP-1".into(), "HDMI-1".into()],
+            logical_connectors: vec!["eDP-1".into(), "HDMI-1".into()],
+            configuration_hash_matches: Some(false),
+            ..FinalState::default()
+        };
+        let captured = pre_repair_state(&observed, true).unwrap();
+        let fields = serde_json::to_value(captured).unwrap();
+        assert_eq!(fields["logical_connectors"][1], "HDMI-1");
+        assert_eq!(fields["configuration_hash_matches"], false);
+        assert!(pre_repair_state(&observed, false).is_none());
+        assert_eq!(observed.logical_connectors.len(), 2);
+    }
+
+    #[test]
     fn local_restore_refuses_changed_session_or_shell() {
         assert!(verify_restore_identity("3", 34735, "3", 34735).is_ok());
         assert!(verify_restore_identity("3", 34735, "4", 34735).is_err());
@@ -834,30 +910,9 @@ impl Drop for RestoreGuard<'_> {
             return;
         }
         if let Err(error) =
-            verify_live_restore_identity(self.conn, &self.session_id, self.shell_pid)
+            restore_original(self.conn, &self.session_id, self.shell_pid, &self.original)
         {
-            eprintln!("CRITICAL: RestoreGuard refused stale display backup: {error}");
-            return;
-        }
-        match read_state(self.conn) {
-            Ok((serial, ..)) => {
-                if let Err(error) =
-                    verify_live_restore_identity(self.conn, &self.session_id, self.shell_pid)
-                {
-                    eprintln!("CRITICAL: RestoreGuard refused stale display backup: {error}");
-                    return;
-                }
-                if let Err(error) = apply_monitors_config(self.conn, serial, &self.original) {
-                    eprintln!(
-                        "CRITICAL: RestoreGuard failed to restore original display topology: {error}"
-                    );
-                }
-            }
-            Err(error) => {
-                eprintln!(
-                    "CRITICAL: RestoreGuard failed to read current state before restoring: {error}"
-                );
-            }
+            eprintln!("CRITICAL: RestoreGuard failed to restore original display state: {error}");
         }
     }
 }
@@ -1237,6 +1292,20 @@ fn verify_live_restore_identity(
     )
 }
 
+fn restore_original(
+    conn: &Connection,
+    session_id: &str,
+    shell_pid: u32,
+    original: &[LogicalMonitorConfig],
+) -> anyhow::Result<()> {
+    verify_live_restore_identity(conn, session_id, shell_pid)?;
+    let (serial, ..) = read_state(conn)?;
+    verify_live_restore_identity(conn, session_id, shell_pid)?;
+    apply_monitors_config(conn, serial, original)?;
+    verify_live_restore_identity(conn, session_id, shell_pid)?;
+    set_power_save_mode(conn, POWER_SAVE_ON)
+}
+
 fn auto_kill_preflight(
     conn: &Connection,
     original_write_side: &[LogicalMonitorConfig],
@@ -1330,11 +1399,15 @@ struct Findings {
     cycles: Vec<CycleFindings>,
     stop_error: Option<String>,
     virtual_connector_fully_gone: bool,
+    post_stop_restore_attempted: bool,
+    post_stop_restore_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    post_stop_pre_repair_state: Option<FinalState>,
     paused_for_manual_kill_test: bool,
     final_state: Option<FinalState>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 struct FinalState {
     raw_connectors: Vec<String>,
     logical_connectors: Vec<String>,
@@ -1348,6 +1421,26 @@ struct FinalState {
     configuration_hash_matches: Option<bool>,
     read_error: Option<String>,
     probe_errors: Vec<&'static str>,
+}
+
+fn pre_repair_state(observed: &FinalState, attempted: bool) -> Option<FinalState> {
+    attempted.then(|| observed.clone())
+}
+
+fn should_repair_post_stop(
+    observed: &FinalState,
+    backup: &DisplayBackup,
+    stop_succeeded: bool,
+    virtual_gone: bool,
+) -> bool {
+    stop_succeeded
+        && virtual_gone
+        && !observed.topology_matches_original
+        && observed.read_error.is_none()
+        && observed.watchdog_timer_active == Some(true)
+        && observed.watchdog_service_state.as_deref() == Some("inactive")
+        && observed.shell_pid == Some(backup.shell_pid)
+        && observed.session_id.as_deref() == Some(backup.session_id.as_str())
 }
 
 fn capture_final_state(
@@ -1519,6 +1612,27 @@ fn cleanup_verified(
     prestop_restored && final_topology_restored && stop_succeeded && virtual_gone
 }
 
+fn diagnostic_result(
+    paused: bool,
+    post_stop_restore_attempted: bool,
+    verified_cleanup: bool,
+    cycles_clean: bool,
+) -> ExperimentResult {
+    if post_stop_restore_attempted {
+        ExperimentResult::Fail
+    } else if paused {
+        if verified_cleanup {
+            ExperimentResult::Partial
+        } else {
+            ExperimentResult::Fail
+        }
+    } else if verified_cleanup && cycles_clean {
+        ExperimentResult::Pass
+    } else {
+        ExperimentResult::Fail
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::try_init().ok();
     let args = Args::parse();
@@ -1588,6 +1702,9 @@ fn main() -> anyhow::Result<()> {
             cycles: vec![],
             stop_error: None,
             virtual_connector_fully_gone: false,
+            post_stop_restore_attempted: false,
+            post_stop_restore_error: None,
+            post_stop_pre_repair_state: None,
             paused_for_manual_kill_test: false,
             final_state: None,
         };
@@ -1729,14 +1846,12 @@ fn main() -> anyhow::Result<()> {
         // previously fell through without restoring at all, and
         // `all_restored`'s unmutated `true` default wrongly disarmed
         // RestoreGuard — the operator had to restore manually over SSH).
-        let restore_error = (|| -> anyhow::Result<()> {
-            verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
-            let (serial, ..) = read_state(&conn)?;
-            verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
-            apply_monitors_config(&conn, serial, &original_write_side)?;
-            verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
-            set_power_save_mode(&conn, POWER_SAVE_ON)
-        })()
+        let restore_error = restore_original(
+            &conn,
+            &backup.session_id,
+            backup.shell_pid,
+            &original_write_side,
+        )
         .err();
         if let Some(error) = restore_error {
             eprintln!("Restore after pause failed: {error}");
@@ -1784,7 +1899,31 @@ fn main() -> anyhow::Result<()> {
     let remaining = poll_for_connector_gone(&conn, &virtual_connector)?;
     let virtual_connector_fully_gone = !remaining.contains(&virtual_connector);
     let monitored_unit = cleanup_watchdog_unit.as_deref().unwrap_or(&watchdog_unit);
-    let final_state = capture_final_state(&conn, &backup, monitored_unit);
+    let observed = capture_final_state(&conn, &backup, monitored_unit);
+    let post_stop_restore_attempted = should_repair_post_stop(
+        &observed,
+        &backup,
+        stop_error.is_none(),
+        virtual_connector_fully_gone,
+    );
+    let post_stop_pre_repair_state = pre_repair_state(&observed, post_stop_restore_attempted);
+    let post_stop_restore_error = if post_stop_restore_attempted {
+        restore_original(
+            &conn,
+            &backup.session_id,
+            backup.shell_pid,
+            &original_write_side,
+        )
+        .err()
+        .map(|error| error.to_string())
+    } else {
+        None
+    };
+    let final_state = if post_stop_restore_attempted {
+        capture_final_state(&conn, &backup, monitored_unit)
+    } else {
+        observed
+    };
     let final_topology_restored = final_state.topology_matches_original;
 
     let findings = Findings {
@@ -1798,6 +1937,9 @@ fn main() -> anyhow::Result<()> {
         cycles,
         stop_error,
         virtual_connector_fully_gone,
+        post_stop_restore_attempted,
+        post_stop_restore_error,
+        post_stop_pre_repair_state,
         paused_for_manual_kill_test: paused,
         final_state: Some(final_state),
     };
@@ -1807,31 +1949,27 @@ fn main() -> anyhow::Result<()> {
         final_topology_restored,
         findings.stop_error.is_none(),
         findings.virtual_connector_fully_gone,
-    );
+    ) && findings.post_stop_restore_error.is_none();
 
-    let result = if paused {
-        if verified_cleanup {
-            ExperimentResult::Partial // isolate proven; restore path exercised separately (exp07)
-        } else {
-            ExperimentResult::Fail
-        }
-    } else if verified_cleanup
-        && findings
-            .cycles
-            .iter()
-            .all(|c| c.apply_error.is_none() && c.physical_connectors_absent_from_logical_monitors)
-    {
-        ExperimentResult::Pass
-    } else {
-        ExperimentResult::Fail
-    };
+    let cycles_clean = findings
+        .cycles
+        .iter()
+        .all(|c| c.apply_error.is_none() && c.physical_connectors_absent_from_logical_monitors);
+    let result = diagnostic_result(
+        paused,
+        post_stop_restore_attempted,
+        verified_cleanup,
+        cycles_clean,
+    );
 
     if verified_cleanup {
         restore_guard.disarm();
-        if let Some(unit) = &cleanup_watchdog_unit {
-            disarm_watchdog(unit);
-        } else {
-            disarm_watchdog(&watchdog_unit);
+        if !post_stop_restore_attempted {
+            if let Some(unit) = &cleanup_watchdog_unit {
+                disarm_watchdog(unit);
+            } else {
+                disarm_watchdog(&watchdog_unit);
+            }
         }
     }
 
