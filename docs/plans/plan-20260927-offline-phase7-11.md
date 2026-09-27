@@ -33,9 +33,10 @@ grab devices, inject input, or promote any feasibility/security gate.
 - [x] Offline authority abuse slice: five wrong/replayed hostd Start proofs
   block further Starts for that process; an active fake grant is revoked,
   with a durable stop on unverified agent acknowledgement. The loopback
-  gateway separately requires a public fake demo code, caps bad codes per
-  gateway process, and exposes blocked, recovery-required and disconnected
-  browser states. Neither check is production authentication.
+  gateway requires a public fake demo code and caps bad codes per process;
+  separated hostd independently requires the code alongside its private
+  proof before signing a grant. The browser exposes blocked, recovery-required
+  and disconnected states. Neither check is production authentication.
 
 ## Open Work And Gates
 
@@ -43,7 +44,7 @@ grab devices, inject input, or promote any feasibility/security gate.
   and FEAS-G unproven; no installed observer or distinct UID.
 - [ ] Real GNOME lock, unlock, session continuity and topology restore:
   FEAS-A/C/F/H unproven. Connected-HDMI restoration remains stopped.
-- [ ] Hostd-owned authentication/session binding, PAM/MFA, credential
+- [ ] Hostd-owned product authentication/session binding, PAM/MFA, credential
   management, durable per-identity abuse policy, service provisioning,
   explicit recovery-marker clearance and full real safety-state
   reconciliation; Phase 11 certification awaits Phase 10 Go. The demo-code

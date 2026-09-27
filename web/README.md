@@ -45,12 +45,13 @@ The console labels this mode `SEPARATE`. The gateway supervises the two local
 processes; the agent acknowledges signed host updates before simulated input
 is recorded. The host key and epoch persist, but the fake event log does not.
 Hostd gives the gateway a random synthetic Start proof through a private
-bootstrap pipe. Each acknowledged Start rotates the proof in the private
-control reply; an earlier proof cannot restart after revoke. Five invalid
-or replayed proofs block further Starts until hostd restarts and revoke an
-active fake grant. An unverified revoke leaves a protected stop marker that
-blocks restart. This is **not** user authentication, PAM, or an installed
-service identity. The
+bootstrap pipe. In separate-process mode hostd requires both that proof and
+the public fake demo code before issuing a signed grant. Each acknowledged
+Start rotates the proof in the private control reply; an earlier proof cannot
+restart after revoke. Five invalid or replayed Starts block further Starts
+until hostd restarts and revoke an active fake grant. An unverified revoke
+leaves a protected stop marker that blocks restart. This is **not** user
+authentication, PAM, or an installed service identity. The
 agent's fake lock, display, input-isolation and capture
 effects must be observed before it acknowledges a signed grant.
 

@@ -9,7 +9,7 @@ use blackroom_core::state::State;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    offline_control::{OfflineCommand, OfflineReply, read_frame, write_frame},
+    offline_control::{DEMO_CODE, OfflineCommand, OfflineReply, read_frame, write_frame},
     store::PersistentHostAuthority,
     write_update,
 };
@@ -206,7 +206,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
             {
                 reply(&host, false, Some("AUTH_RATE_LIMITED"))
             }
-            OfflineCommand::Start { ref proof } if proof != &simulation_proof => {
+            OfflineCommand::Start {
+                ref proof,
+                ref demo_code,
+            } if proof != &simulation_proof || demo_code != DEMO_CODE => {
                 invalid_start_attempts += 1;
                 if invalid_start_attempts == MAX_INVALID_START_ATTEMPTS {
                     if host.state() == State::RemoteActive {

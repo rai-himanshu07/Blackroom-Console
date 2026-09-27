@@ -5,10 +5,12 @@ use std::time::{Duration, Instant};
 use blackroom_core::limits::MAX_MESSAGE_SIZE_BYTES;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
+pub const DEMO_CODE: &str = "SIMULATE";
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OfflineCommand {
-    Start { proof: String },
+    Start { proof: String, demo_code: String },
     Revoke {},
     Input {},
     Status {},
@@ -91,6 +93,17 @@ mod tests {
         ));
         let invalid = serde_json::json!({"command": "start", "authenticated": true});
         write_frame(&mut sender, &invalid).unwrap();
+        assert_eq!(
+            read_frame::<OfflineCommand>(&mut receiver)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        write_frame(
+            &mut sender,
+            &serde_json::json!({"command": "start", "proof": "test"}),
+        )
+        .unwrap();
         assert_eq!(
             read_frame::<OfflineCommand>(&mut receiver)
                 .unwrap_err()

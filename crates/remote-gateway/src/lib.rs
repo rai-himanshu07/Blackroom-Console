@@ -20,7 +20,8 @@ use blackroom_core::state::State;
 use ed25519_dalek::VerifyingKey;
 use gnome_session_agent::{authority::InputAuthority, ipc};
 use remote_hostd::{
-    OfflineHostAuthority, SIMULATED_SESSION_ID, store::PersistentHostAuthority, write_update,
+    OfflineHostAuthority, SIMULATED_SESSION_ID, offline_control::DEMO_CODE,
+    store::PersistentHostAuthority, write_update,
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +29,6 @@ use separated::SeparatedHost;
 
 type SharedHost = Arc<Mutex<OfflineConsole>>;
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ApiError>)>;
-const DEMO_CODE: &str = "SIMULATE";
 const MAX_INVALID_DEMO_CODES: u8 = 5;
 
 enum SimulationBackend {
@@ -44,10 +44,10 @@ impl SimulationBackend {
         }
     }
 
-    fn start(&mut self) -> Result<(), BlackroomError> {
+    fn start(&mut self, demo_code: &str) -> Result<(), BlackroomError> {
         match self {
             Self::InProcess(host) => host.start(),
-            Self::Separated(host) => host.start(),
+            Self::Separated(host) => host.start(demo_code),
         }
     }
 
@@ -99,7 +99,7 @@ impl OfflineConsole {
                 "invalid offline demo code",
             ));
         }
-        self.backend.start()?;
+        self.backend.start(demo_code)?;
         self.invalid_demo_codes = 0;
         Ok(())
     }

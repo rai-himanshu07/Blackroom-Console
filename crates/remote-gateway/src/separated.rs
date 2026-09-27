@@ -307,7 +307,7 @@ impl SeparatedHost {
         Ok(())
     }
 
-    pub fn start(&mut self) -> Result<(), BlackroomError> {
+    pub fn start(&mut self, demo_code: &str) -> Result<(), BlackroomError> {
         if self.emergency_pending() {
             self.state = State::FailedSafe;
             return Err(BlackroomError::new(
@@ -329,6 +329,7 @@ impl SeparatedHost {
         }
         self.request(OfflineCommand::Start {
             proof: self.simulation_proof.clone(),
+            demo_code: demo_code.to_owned(),
         })
     }
 
@@ -388,6 +389,7 @@ impl Drop for SeparatedHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use remote_hostd::offline_control::DEMO_CODE;
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -406,7 +408,8 @@ mod tests {
         assert!(
             checked_reply(
                 &OfflineCommand::Start {
-                    proof: "test".into()
+                    proof: "test".into(),
+                    demo_code: DEMO_CODE.into(),
                 },
                 &reply,
                 4
@@ -417,7 +420,8 @@ mod tests {
         assert_eq!(
             checked_reply(
                 &OfflineCommand::Start {
-                    proof: "test".into()
+                    proof: "test".into(),
+                    demo_code: DEMO_CODE.into(),
                 },
                 &reply,
                 4
@@ -430,7 +434,8 @@ mod tests {
         assert!(
             checked_reply(
                 &OfflineCommand::Start {
-                    proof: "test".into()
+                    proof: "test".into(),
+                    demo_code: DEMO_CODE.into(),
                 },
                 &reply,
                 4
@@ -441,7 +446,8 @@ mod tests {
         assert!(
             checked_reply(
                 &OfflineCommand::Start {
-                    proof: "test".into()
+                    proof: "test".into(),
+                    demo_code: DEMO_CODE.into(),
                 },
                 &reply,
                 4
@@ -478,7 +484,7 @@ mod tests {
         let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
         let mut demo =
             SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
-        demo.start().unwrap();
+        demo.start(DEMO_CODE).unwrap();
         let active_epoch = demo.snapshot().epoch;
         write_frame(&mut demo.control, &OfflineCommand::Revoke {}).unwrap();
         let response: OfflineReply = read_frame(&mut demo.control).unwrap();
@@ -487,7 +493,7 @@ mod tests {
         let snapshot = demo.snapshot();
         assert_eq!(snapshot.state, State::LocalLocked.as_str());
         assert!(snapshot.epoch > active_epoch);
-        demo.start().unwrap();
+        demo.start(DEMO_CODE).unwrap();
         assert_eq!(demo.snapshot().state, State::RemoteActive.as_str());
     }
 
@@ -500,7 +506,7 @@ mod tests {
         let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
         let mut demo =
             SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
-        demo.start().unwrap();
+        demo.start(DEMO_CODE).unwrap();
         let prior_epoch = demo.snapshot().epoch;
         demo.hostd.0.kill().unwrap();
         demo.hostd.0.wait().unwrap();
@@ -513,7 +519,7 @@ mod tests {
         assert!(demo.agent.0.try_wait().unwrap().is_some());
         assert_eq!(demo.snapshot().state, State::LocalLocked.as_str());
         assert!(demo.snapshot().events.is_empty());
-        demo.start().unwrap();
+        demo.start(DEMO_CODE).unwrap();
         assert!(demo.snapshot().epoch > prior_epoch);
         demo.input(InputEvent::Key { code: 30 }).unwrap();
         assert_eq!(demo.snapshot().events.len(), 1);
@@ -533,7 +539,7 @@ mod tests {
         let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
         let mut demo =
             SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
-        demo.start().unwrap();
+        demo.start(DEMO_CODE).unwrap();
         let prior_epoch = demo.snapshot().epoch;
         demo.agent.0.kill().unwrap();
         demo.agent.0.wait().unwrap();
@@ -541,7 +547,10 @@ mod tests {
         assert!(demo.input(InputEvent::Key { code: 30 }).is_err());
         assert_eq!(demo.snapshot().state, State::FailedSafe.as_str());
         assert!(demo.snapshot().events.is_empty());
-        assert_eq!(demo.start().unwrap_err().code, ErrorCode::RecoveryFailed);
+        assert_eq!(
+            demo.start(DEMO_CODE).unwrap_err().code,
+            ErrorCode::RecoveryFailed
+        );
         let dirfd = File::open(directory.path()).unwrap();
         assert_eq!(
             PersistentHostAuthority::recovery_epoch(&dirfd)
@@ -569,7 +578,7 @@ mod tests {
             let mut demo =
                 SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent))
                     .unwrap();
-            demo.start().unwrap();
+            demo.start(DEMO_CODE).unwrap();
             let before = demo.snapshot().epoch;
             match loss {
                 "agent" => {
@@ -603,7 +612,7 @@ mod tests {
             assert!(demo.input(InputEvent::Key { code: 30 }).is_err(), "{loss}");
             assert!(demo.snapshot().events.is_empty(), "{loss}");
             assert_eq!(
-                demo.start().unwrap_err().code,
+                demo.start(DEMO_CODE).unwrap_err().code,
                 ErrorCode::EmergencyTriggered
             );
             let persisted_epoch = u64::from_be_bytes(
@@ -631,7 +640,7 @@ mod tests {
         let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
         let mut demo =
             SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
-        demo.start().unwrap();
+        demo.start(DEMO_CODE).unwrap();
         let previous_epoch = demo.snapshot().epoch;
         demo.hostd.0.kill().unwrap();
         demo.hostd.0.wait().unwrap();
@@ -647,7 +656,10 @@ mod tests {
                 .is_none()
         );
         demo.hostd_binary = directory.path().join("missing-offline-hostd");
-        assert_eq!(demo.start().unwrap_err().code, ErrorCode::HostUnavailable);
+        assert_eq!(
+            demo.start(DEMO_CODE).unwrap_err().code,
+            ErrorCode::HostUnavailable
+        );
         assert_eq!(demo.snapshot().state, State::LocalLocked.as_str());
         assert!(demo.input(InputEvent::Key { code: 30 }).is_err());
         assert!(demo.snapshot().events.is_empty());

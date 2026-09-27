@@ -9,7 +9,7 @@ use blackroom_core::epoch::SecurityEpoch;
 use blackroom_core::protocol::AuthorityUpdate;
 use ed25519_dalek::Signature;
 use remote_hostd::{
-    offline_control::{OfflineCommand, OfflineReply, read_frame, write_frame},
+    offline_control::{DEMO_CODE, OfflineCommand, OfflineReply, read_frame, write_frame},
     service::OfflineBootstrap,
     store::PersistentHostAuthority,
 };
@@ -103,6 +103,7 @@ fn failed_safe_agent_ack_persists_stop_before_host_restart() {
         &mut gateway,
         &OfflineCommand::Start {
             proof: bootstrap.simulation_proof,
+            demo_code: DEMO_CODE.into(),
         },
     )
     .unwrap();
@@ -173,6 +174,7 @@ fn unverified_abuse_revocation_blocks_host_restart() {
         &mut gateway,
         &OfflineCommand::Start {
             proof: bootstrap.simulation_proof.clone(),
+            demo_code: DEMO_CODE.into(),
         },
     )
     .unwrap();
@@ -182,6 +184,7 @@ fn unverified_abuse_revocation_blocks_host_restart() {
             &mut gateway,
             &OfflineCommand::Start {
                 proof: bootstrap.simulation_proof.clone(),
+                demo_code: DEMO_CODE.into(),
             },
         )
         .unwrap();
@@ -376,6 +379,20 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
         &mut gateway,
         &OfflineCommand::Start {
             proof: "wrong".into(),
+            demo_code: DEMO_CODE.into(),
+        },
+    )
+    .unwrap();
+    let refused: OfflineReply = read_frame(&mut gateway).unwrap();
+    assert!(!refused.accepted);
+    assert_eq!(refused.code.as_deref(), Some("AUTH_INVALID"));
+    assert_eq!(refused.state, "LOCAL_LOCKED");
+    assert!(refused.next_proof.is_none());
+    write_frame(
+        &mut gateway,
+        &OfflineCommand::Start {
+            proof: bootstrap.simulation_proof.clone(),
+            demo_code: "wrong".into(),
         },
     )
     .unwrap();
@@ -389,6 +406,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
         (
             OfflineCommand::Start {
                 proof: bootstrap.simulation_proof.clone(),
+                demo_code: DEMO_CODE.into(),
             },
             "REMOTE_ACTIVE",
         ),
@@ -397,6 +415,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
         (
             OfflineCommand::Start {
                 proof: bootstrap.simulation_proof.clone(),
+                demo_code: DEMO_CODE.into(),
             },
             "REMOTE_ACTIVE",
         ),
@@ -408,6 +427,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
         let command = match command {
             OfflineCommand::Start { .. } => OfflineCommand::Start {
                 proof: current_proof.clone(),
+                demo_code: DEMO_CODE.into(),
             },
             other => other,
         };
@@ -428,6 +448,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
                 &mut gateway,
                 &OfflineCommand::Start {
                     proof: bootstrap.simulation_proof.clone(),
+                    demo_code: DEMO_CODE.into(),
                 },
             )
             .unwrap();
@@ -441,7 +462,16 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
                 write_frame(
                     &mut gateway,
                     &OfflineCommand::Start {
-                        proof: bootstrap.simulation_proof.clone(),
+                        proof: if attempt % 2 == 0 {
+                            current_proof.clone()
+                        } else {
+                            bootstrap.simulation_proof.clone()
+                        },
+                        demo_code: if attempt % 2 == 0 {
+                            "wrong".into()
+                        } else {
+                            DEMO_CODE.into()
+                        },
                     },
                 )
                 .unwrap();
@@ -468,6 +498,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
                 &mut gateway,
                 &OfflineCommand::Start {
                     proof: current_proof.clone(),
+                    demo_code: DEMO_CODE.into(),
                 },
             )
             .unwrap();
