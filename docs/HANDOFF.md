@@ -19,14 +19,13 @@
 
 ## Checks
 
-- Phase 6: signed fake key/pointer/scroll; pause/removal/revocation and
-  invalid sends refused. Workspace gates passed; no live GNOME input.
+- Phase 6: fake key/pointer/scroll/click/chord passed; no live GNOME input.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
 
-- Phase 6 offline PoC only: no live EIS/input, startup wiring, or product
-  activation. Phase 5 stop and Gate FEAS-C remain unchanged.
+- Phase 6 offline PoC only: authority facts are caller-supplied (no hostd);
+  no live EIS/input, startup wiring or product activation. Gate C unchanged.
 
 ## Blockers
 

@@ -249,3 +249,14 @@ live FEAS-D proof requires a separate supervised approval.
   live input was sent; trusted agent-sourced verification and state remain
   unimplemented. Absolute positioning, clicks, modifier/special-key
   behavior, FEAS-D and Gate C remain unproven; no live test is authorized.
+- 2026-09-27 (offline click and one-modifier chord, Step 2 still partial):
+  `EiConnection` now sends a signed button press/release and a bounded
+  modifier-down/key-down/key-up/modifier-up chord, each with framed,
+  increasing timestamps and stop-emulation. The synthetic EIS peer checks
+  button capability, exact event order, frame/serial/sequence matching,
+  and release; revoked, stale-device, and malformed chord requests are
+  refused without advancing the sequence. Focused EIS tests and GNOME
+  Clippy pass. Keycodes are synthetic; actual GNOME keymap, cursor/button
+  behavior and input safety remain unverified. No remote-hostd authority
+  owner exists yet, so the verifying key and current state are still
+  caller-supplied snapshots; Step 2, FEAS-D and Gate C remain open.

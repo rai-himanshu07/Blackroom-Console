@@ -158,6 +158,152 @@ impl EiConnection {
         })
     }
 
+    pub fn send_button_click(
+        &mut self,
+        authorization: &InputAuthorization<'_>,
+        resumed: &reis::event::DeviceResumed,
+        button_code: u32,
+    ) -> Result<(), BlackroomError> {
+        authorization.validate()?;
+        let deadline = Instant::now() + Duration::from_millis(10);
+        while Instant::now() < deadline {
+            if self
+                .next_event_until(deadline.saturating_duration_since(Instant::now()))?
+                .is_none()
+            {
+                break;
+            }
+        }
+        authorization.dispatch(button_code, |button_code| {
+            if !self.is_ready()
+                || !self
+                    .active_devices
+                    .iter()
+                    .any(|(device, serial)| device == &resumed.device && *serial == resumed.serial)
+            {
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    "EIS button device is not active",
+                ));
+            }
+            let button = resumed
+                .device
+                .interface::<reis::ei::Button>()
+                .ok_or_else(|| {
+                    BlackroomError::new(ErrorCode::MutterUnavailable, "EIS button unavailable")
+                })?;
+            let sequence = self.sequence.checked_add(1).ok_or_else(|| {
+                BlackroomError::new(ErrorCode::MutterUnavailable, "EIS sequence exhausted")
+            })?;
+            let pressed_at = monotonic_micros()?;
+            let released_at = monotonic_micros()?.max(pressed_at.saturating_add(1));
+            self.sequence = sequence;
+            resumed
+                .device
+                .device()
+                .start_emulating(resumed.serial, sequence);
+            button.button(button_code, reis::ei::button::ButtonState::Press);
+            resumed.device.device().frame(resumed.serial, pressed_at);
+            button.button(button_code, reis::ei::button::ButtonState::Released);
+            resumed.device.device().frame(resumed.serial, released_at);
+            resumed.device.device().stop_emulating(resumed.serial);
+            if self.context.flush().is_err() {
+                self.connection = None;
+                self.converter = None;
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    "EIS button delivery failed",
+                ));
+            }
+            Ok(())
+        })
+    }
+
+    pub fn send_key_chord(
+        &mut self,
+        authorization: &InputAuthorization<'_>,
+        resumed: &reis::event::DeviceResumed,
+        modifier_keycode: u32,
+        keycode: u32,
+    ) -> Result<(), BlackroomError> {
+        if modifier_keycode == keycode {
+            return Err(BlackroomError::new(
+                ErrorCode::IpcInvalidMessage,
+                "EIS modifier and key must be different",
+            ));
+        }
+        authorization.validate()?;
+        let deadline = Instant::now() + Duration::from_millis(10);
+        while Instant::now() < deadline {
+            if self
+                .next_event_until(deadline.saturating_duration_since(Instant::now()))?
+                .is_none()
+            {
+                break;
+            }
+        }
+        authorization.dispatch(
+            (modifier_keycode, keycode),
+            |(modifier_keycode, keycode)| {
+                if !self.is_ready()
+                    || !self.active_devices.iter().any(|(device, serial)| {
+                        device == &resumed.device && *serial == resumed.serial
+                    })
+                {
+                    return Err(BlackroomError::new(
+                        ErrorCode::MutterUnavailable,
+                        "EIS keyboard device is not active",
+                    ));
+                }
+                let keyboard = resumed
+                    .device
+                    .interface::<reis::ei::Keyboard>()
+                    .ok_or_else(|| {
+                        BlackroomError::new(
+                            ErrorCode::MutterUnavailable,
+                            "EIS keyboard unavailable",
+                        )
+                    })?;
+                let sequence = self.sequence.checked_add(1).ok_or_else(|| {
+                    BlackroomError::new(ErrorCode::MutterUnavailable, "EIS sequence exhausted")
+                })?;
+                let started_at = monotonic_micros()?;
+                self.sequence = sequence;
+                resumed
+                    .device
+                    .device()
+                    .start_emulating(resumed.serial, sequence);
+                keyboard.key(modifier_keycode, reis::ei::keyboard::KeyState::Press);
+                resumed.device.device().frame(resumed.serial, started_at);
+                keyboard.key(keycode, reis::ei::keyboard::KeyState::Press);
+                resumed
+                    .device
+                    .device()
+                    .frame(resumed.serial, started_at.saturating_add(1));
+                keyboard.key(keycode, reis::ei::keyboard::KeyState::Released);
+                resumed
+                    .device
+                    .device()
+                    .frame(resumed.serial, started_at.saturating_add(2));
+                keyboard.key(modifier_keycode, reis::ei::keyboard::KeyState::Released);
+                resumed
+                    .device
+                    .device()
+                    .frame(resumed.serial, started_at.saturating_add(3));
+                resumed.device.device().stop_emulating(resumed.serial);
+                if self.context.flush().is_err() {
+                    self.connection = None;
+                    self.converter = None;
+                    return Err(BlackroomError::new(
+                        ErrorCode::MutterUnavailable,
+                        "EIS key chord delivery failed",
+                    ));
+                }
+                Ok(())
+            },
+        )
+    }
+
     pub fn send_pointer_motion(
         &mut self,
         authorization: &InputAuthorization<'_>,
@@ -488,7 +634,8 @@ mod tests {
                             Some("synthetic-keyboard"),
                             reis::request::DeviceCapability::Keyboard
                                 | reis::request::DeviceCapability::Pointer
-                                | reis::request::DeviceCapability::Scroll,
+                                | reis::request::DeviceCapability::Scroll
+                                | reis::request::DeviceCapability::Button,
                         );
                         context
                             .flush()
@@ -501,6 +648,9 @@ mod tests {
                         let mut active_serial = None;
                         let mut motion_time = None;
                         let mut scroll_time = None;
+                        let mut button_pressed_at = None;
+                        let mut button_released_at = None;
+                        let mut chord_times = Vec::new();
                         let deadline = Instant::now() + Duration::from_secs(2);
                         while Instant::now() < deadline {
                             match context.read() {
@@ -526,7 +676,8 @@ mod tests {
                                         reis::eis::device::DeviceType::Virtual,
                                         reis::request::DeviceCapability::Keyboard
                                             | reis::request::DeviceCapability::Pointer
-                                            | reis::request::DeviceCapability::Scroll,
+                                            | reis::request::DeviceCapability::Scroll
+                                            | reis::request::DeviceCapability::Button,
                                         |_| {},
                                     );
                                     device.resumed();
@@ -542,6 +693,8 @@ mod tests {
                                         let sequence = match motion_phase {
                                             0 => 2,
                                             4 => 3,
+                                            8 => 4,
+                                            14 => 5,
                                             _ => {
                                                 return Err(std::io::Error::other(
                                                     "unexpected emulation start",
@@ -558,13 +711,28 @@ mod tests {
                                     }
                                 } else if let reis::request::EisRequest::KeyboardKey(key) = request
                                 {
-                                    if key.key != 30 {
-                                        return Err(std::io::Error::other(
-                                            "unexpected synthetic key",
-                                        ));
+                                    if !keyboard_complete {
+                                        if key.key != 30 {
+                                            return Err(std::io::Error::other(
+                                                "unexpected synthetic key",
+                                            ));
+                                        }
+                                        key_states.push(key.state);
+                                        key_times.push(key.time);
+                                    } else {
+                                        motion_phase = match (motion_phase, key.key, key.state) {
+                                            (15, 29, reis::eis::keyboard::KeyState::Press) => 16,
+                                            (17, 30, reis::eis::keyboard::KeyState::Press) => 18,
+                                            (19, 30, reis::eis::keyboard::KeyState::Released) => 20,
+                                            (21, 29, reis::eis::keyboard::KeyState::Released) => 22,
+                                            _ => {
+                                                return Err(std::io::Error::other(
+                                                    "unexpected chord key",
+                                                ));
+                                            }
+                                        };
+                                        chord_times.push(key.time);
                                     }
-                                    key_states.push(key.state);
-                                    key_times.push(key.time);
                                 } else if let reis::request::EisRequest::PointerMotion(motion) =
                                     request
                                 {
@@ -585,11 +753,35 @@ mod tests {
                                     }
                                     scroll_time = Some(delta.time);
                                     motion_phase = 6;
+                                } else if let reis::request::EisRequest::Button(button) = request {
+                                    if button.button != 272 {
+                                        return Err(std::io::Error::other(
+                                            "unexpected button code",
+                                        ));
+                                    }
+                                    match (motion_phase, button.state) {
+                                        (9, reis::eis::button::ButtonState::Press) => {
+                                            button_pressed_at = Some(button.time);
+                                            motion_phase = 10;
+                                        }
+                                        (11, reis::eis::button::ButtonState::Released) => {
+                                            button_released_at = Some(button.time);
+                                            motion_phase = 12;
+                                        }
+                                        _ => {
+                                            return Err(std::io::Error::other(
+                                                "unexpected button state",
+                                            ));
+                                        }
+                                    }
                                 } else if let reis::request::EisRequest::Frame(frame) = request {
                                     if keyboard_complete {
                                         let event_time = match motion_phase {
                                             2 => motion_time,
                                             6 => scroll_time,
+                                            10 => button_pressed_at,
+                                            12 => button_released_at,
+                                            16 | 18 | 20 | 22 => chord_times.last().copied(),
                                             _ => {
                                                 return Err(std::io::Error::other(
                                                     "unexpected motion frame",
@@ -602,6 +794,23 @@ mod tests {
                                         {
                                             return Err(std::io::Error::other(
                                                 "invalid motion frame",
+                                            ));
+                                        }
+                                        if motion_phase == 12
+                                            && button_released_at <= button_pressed_at
+                                        {
+                                            return Err(std::io::Error::other(
+                                                "button release must follow press",
+                                            ));
+                                        }
+                                        if motion_phase == 22
+                                            && (chord_times.len() != 4
+                                                || chord_times
+                                                    .windows(2)
+                                                    .any(|times| times[0] >= times[1]))
+                                        {
+                                            return Err(std::io::Error::other(
+                                                "chord key frames must increase",
                                             ));
                                         }
                                         motion_phase += 1;
@@ -641,7 +850,9 @@ mod tests {
                                         }
                                         match motion_phase {
                                             3 => motion_phase = 4,
-                                            7 => {
+                                            7 => motion_phase = 8,
+                                            13 => motion_phase = 14,
+                                            23 => {
                                                 done_rx
                                                     .recv_timeout(Duration::from_secs(2))
                                                     .map_err(std::io::Error::other)?;
@@ -654,6 +865,10 @@ mod tests {
                                             }
                                         }
                                     }
+                                } else if keyboard_complete {
+                                    return Err(std::io::Error::other(
+                                        "unexpected synthetic EIS request",
+                                    ));
                                 }
                             }
                         }
@@ -675,7 +890,8 @@ mod tests {
         added.seat.bind_capabilities(
             reis::event::DeviceCapability::Keyboard
                 | reis::event::DeviceCapability::Pointer
-                | reis::event::DeviceCapability::Scroll,
+                | reis::event::DeviceCapability::Scroll
+                | reis::event::DeviceCapability::Button,
         );
         sender.context.flush()?;
         let event = sender.next_event_until(Duration::from_secs(2))?;
@@ -856,6 +1072,51 @@ mod tests {
         );
         sender.send_scroll_delta(&authorization, &resumed_again, 0.0, 5.0)?;
         assert_eq!(sender.sequence, 3);
+        authorization.revoked = true;
+        assert_eq!(
+            sender
+                .send_button_click(&authorization, &resumed_again, 272)
+                .unwrap_err()
+                .code,
+            ErrorCode::LeaseRevoked
+        );
+        authorization.revoked = false;
+        assert_eq!(
+            sender
+                .send_button_click(&authorization, &resumed, 272)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        assert_eq!(sender.sequence, 3);
+        sender.send_button_click(&authorization, &resumed_again, 272)?;
+        assert_eq!(sender.sequence, 4);
+        authorization.revoked = true;
+        assert_eq!(
+            sender
+                .send_key_chord(&authorization, &resumed_again, 29, 30)
+                .unwrap_err()
+                .code,
+            ErrorCode::LeaseRevoked
+        );
+        authorization.revoked = false;
+        assert_eq!(
+            sender
+                .send_key_chord(&authorization, &resumed_again, 29, 29)
+                .unwrap_err()
+                .code,
+            ErrorCode::IpcInvalidMessage
+        );
+        assert_eq!(
+            sender
+                .send_key_chord(&authorization, &resumed, 29, 30)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        assert_eq!(sender.sequence, 4);
+        sender.send_key_chord(&authorization, &resumed_again, 29, 30)?;
+        assert_eq!(sender.sequence, 5);
         assert!(
             sender
                 .next_event_until(Duration::from_millis(30))?
