@@ -1247,3 +1247,24 @@ read-only run. See Risks.
   DPMS, Shell/session, timer/service state and probe errors. Focused offline
   tests pass; this still needs independent review and operator preflight
   before any second diagnostic.
+- 2026-09-27 (one unplugged-HDMI diagnostic; no repeat): operator confirmed
+  saved work, second-device SSH, physical observation and the exact command;
+  raw inventory contained only eDP-1. One 45-second no-kill exp06 run reached
+  Meta-0-only logical topology with DPMS OFF. First watchdog exp07 PASS
+  restored eDP-only/DPMS ON. After operator-visible confirmation, one Enter
+  armed a separate 45-second cleanup timer before restore/ScreenCast Stop.
+  Exp06's generated pause-mode PARTIAL includes a final-state match: raw and
+  logical eDP-1 only, DPMS ON, Shell PID 34735/session 3 unchanged, Meta-0
+  gone, no probe errors. The cleanup timer was disarmed; service returned
+  disabled/inactive; operator confirmed normal desktop. Evidence:
+  `docs/experiments/evidence/exp06/2026-09-27-2/observation.md`. This did
+  not reproduce the earlier HDMI reactivation because HDMI was physically
+  absent; the connected-HDMI restoration failure, prior Shell crash and
+  unfinished matrix still block Gate FEAS-C. No further run authorized.
+- 2026-09-27 (evidence contract gap, no run): independent review confirmed
+  exp06's local `backup.json` contains session ID, Shell PID, outputs and
+  logical topology but not the full `blackroom-gnome::DisplayBackup` fields
+  (`primary_output`, `configuration_hash`). Exp07 checks logical fields, not
+  the plan's required topology hash. The generated artifacts are preserved
+  unchanged; the hash-plus-field acceptance criterion remains **unmet** and
+  must be reconciled before any Gate FEAS-C determination.

@@ -1,0 +1,31 @@
+{
+  "session_id": "3",
+  "shell_pid": 34735,
+  "outputs": [
+    {
+      "connector": "eDP-1",
+      "vendor": "AUO",
+      "product": "0xed8f",
+      "serial": "0x00000000",
+      "mode_id": "1920x1080@120.213",
+      "width": 1920,
+      "height": 1080,
+      "refresh_rate": 120.2129898071289
+    }
+  ],
+  "topology": [
+    {
+      "x": 0,
+      "y": 0,
+      "scale": 1.0,
+      "transform": 0,
+      "primary": true,
+      "monitors": [
+        [
+          "eDP-1",
+          "0x00000000"
+        ]
+      ]
+    }
+  ]
+}

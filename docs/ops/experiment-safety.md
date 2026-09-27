@@ -246,7 +246,7 @@ the original eDP-only topology. Shell PID 34735 survived; final restoration
 was not stable through owner cleanup. See the saved exp06 observation. Do not
 run another isolation row or treat the earlier watchdog PASS as Gate C proof.
 
-**New hardware condition, separately requested diagnostic (not yet run):**
+**New hardware condition, separately approved diagnostic (completed once):**
 the operator physically disconnected HDMI-1, and a fresh read-only
 GetCurrentState confirms raw and active logical connectors contain only
 eDP-1. This removes the prior run's disabled-but-connected HDMI condition,
@@ -265,6 +265,18 @@ session and topology before any manual recovery. Never apply the backup to a
 replacement Shell/session. No automatic repeat is authorized. Even a clean
 run on this different physical layout does not prove the prior connected-HDMI
 case or Gate C.
+
+**2026-09-27 unplugged-HDMI outcome: no repeat.** The one approved run reached
+Meta-0-only logical topology with power OFF. The first exp07 watchdog PASS
+restored eDP-1 and power ON; after independent software and operator visual
+confirmation, exp06 armed a second cleanup watchdog before Enter-triggered
+restore and ScreenCast Stop. Its persisted post-Stop findings show only eDP-1
+in raw/logical topology, matching the original session/PID, power ON, no
+probe errors and Meta-0 gone. The cleanup timer was disarmed; remote desktop
+returned to disabled/inactive; the operator confirmed a normal desktop.
+This narrows the earlier failure to the connected-HDMI setup without proving
+Mutter's cause or a safe connected-HDMI restore. Do not promote Gate C or
+repeat either test based on this observation.
 
 The deliberate **HDMI-only SIGKILL** scenario is a different, higher-risk
 test and requires its own explicit approval; earlier GNOME Shell SIGSEGV under

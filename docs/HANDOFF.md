@@ -1,6 +1,6 @@
 # Handoff: Blackroom Console
 
-**Updated:** 2026-09-27 (eDP-only cleanup reactivated HDMI; Gate FEAS-C stopped)
+**Updated:** 2026-09-27 (unplugged-HDMI diagnostic clean; Gate FEAS-C stopped)
 **Workspace or branch:** Git repo, branch `main`
 **Active plan:** docs/plans/plan-20260926-phase6-remote-input-readiness.md
 **Task tier:** governed
@@ -10,12 +10,11 @@
 
 - Steps 1–4 complete. Watchdog path/cwd and pause-restore bugs fixed; unattended
   restore verified. PowerSaveMode blanking observed on `eDP-1` and both outputs.
-- eDP-only no-kill run: watchdog exp07 PASS; exp06 Stop then reactivated
-  HDMI-1. Second guarded exp07 restored eDP-only; Shell survived, service
-  disabled/inactive, timer gone; operator confirms normal desktop. Gate C STOP.
-- Earlier GNOME Shell SIGSEGV/logout remains unexplained; old logs absent.
-  One later non-isolating owner-loss run removed Meta-0 without a crash
-  (Shell PID stable; operator confirmed desktop usable). Gate C unproven.
+- Connected-HDMI eDP-only run: Stop reactivated HDMI, second exp07 restored.
+  With HDMI unplugged, separate no-kill run reached Meta-0-only then final
+  eDP-only after Stop; two timers resolved, Shell stable, service restored.
+  Operator confirms normal desktop. Gate C STOP for connected-HDMI failure.
+- Earlier GNOME Shell SIGSEGV/logout unexplained; old logs absent.
 
 ## Checks
 
@@ -25,8 +24,8 @@
 ## Decisions
 
 - Phase 6 offline only: authority is caller-supplied (no hostd), no live EIS.
-  Prior eDP diagnostic consumed; one unplugged-HDMI diagnostic awaits fresh
-  preflight and exact approval. Product stop and Gate C remain in force.
+  Both eDP diagnostics consumed; no further live run authorized. Product
+  stop and Gate C remain in force for the connected-HDMI restoration gap.
 
 ## Blockers
 
@@ -35,6 +34,6 @@
 
 ## Next Actions
 
-1. HDMI unplugged; exp06 records post-Stop topology and arms a second cleanup
-  watchdog. Review, re-preflight and re-approve before any live run.
+1. Investigate connected-HDMI post-Stop restoration and the missing matrix
+  without treating unplugged-HDMI success as Gate C proof.
 2. Keep Phase 6 input offline until trusted host authority exists.
