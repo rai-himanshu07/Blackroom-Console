@@ -132,7 +132,7 @@ and can crash GNOME; it requires separate approval. A passing run would not clea
 Phase 5 stop or prove the hybrid-GPU crash path safe.
 
 An optional `exp04_virtual_monitor --probe-owner-loss` mode had one separately
-approved live run on 2026-09-26; **no repeat or exp06 run is approved**. It retains a Stop-on-error guard until it
+approved live run on 2026-09-26; **that approval does not authorize a repeat or exp06 run**. It retains a Stop-on-error guard until it
 has persisted a PARTIAL pre-close report for one confirmed 1280x720 virtual
 monitor, then closes that client's D-Bus connection without Stop. This tests
 owner disappearance with physical outputs active, not display isolation;
@@ -174,6 +174,62 @@ graceful path currently disarms the timer after its own topology check, before
 an independently verified SSH/visual confirmation; waiting for the watchdog
 avoids relying on that weaker path for this supervised observation. No new
 isolate run is authorized solely by this procedure.
+
+### Proposed eDP-1 diagnostic deviation (requested 2026-09-27; NO-GO)
+
+The operator accepts the risk of a GNOME Shell crash on the daily-driver laptop
+and requests one supervised eDP-1-only isolation observation despite the
+unexplained earlier SIGSEGV. Independent safety review found **no live go path
+on this host** under Doc 00/10 §49: operator risk acceptance and exact-command
+approval alone do not clear Mutter instability or the unresolved built-in-panel
+privacy observation. This is a proposed diagnostic design, **not authorization
+to run it** or to activate the product, other matrix rows, SIGKILL, self-kill,
+repeated cycles, or remote-input testing. A force restart
+could lose unsaved work and cannot restore the original GNOME session. If the
+operator cannot accept that outcome or cannot observe the entire run, do not
+start. The following command is **not authorized to run**; it is for separate reassessment,
+from the repository root after building both experiment binaries fresh:
+
+```sh
+./target/debug/exp06_isolate_outputs --pause-after-isolate --watchdog-seconds 45
+```
+
+Before any future reconsideration, require an independent visual capture path
+(such as a separate camera recording the panel through the entire transition)
+that can resolve the previously unclassified brief flicker; an operator's
+real-time impression alone cannot prove no content appeared. Persist a unique,
+non-overwriting preflight record of the original GetCurrentState, Shell PID and
+session, `PowerSaveMode`, pending watchdog timers and service state, then persist
+the corresponding postflight state, timer result and bounded journal around
+the test. Keep raw logs and images local until reviewed for private content.
+Without capture and durable evidence, the test cannot resolve Gate C and must
+not be attempted merely to repeat the earlier observation.
+
+If a new safety review establishes a credible go path under the governing stop
+conditions, save all work; enable and verify the built-in panel before
+disconnecting HDMI; confirm `eDP-1` is the
+sole active physical output by a fresh read-only GetCurrentState; keep a newly
+verified key-based SSH login open from a second device; confirm the original
+Shell PID, session, `ssh.socket`, and no pending exp06 timer; mask
+`gnome-remote-desktop.service` per §5 and preserve its prior state for restore.
+The operator must be present and independently watch the built-in screen
+through restoration, recording whether any desktop content appears. Do not
+start if any check fails. Only then seek fresh approval of the exact command;
+the request to amend this procedure alone is not launch approval.
+
+During the run, do not press Enter, switch VTs, unplug another output, or kill
+the process while isolated. Record the printed absolute backup path, PID and
+watchdog unit; allow the 45-second watchdog to restore without intervention.
+Check the timer result from the second-device SSH channel and independently
+confirm the original topology, `PowerSaveMode=0`, Shell PID/session and visible
+desktop before sending Enter for the still-paused owner's ScreenCast cleanup.
+If the original session survives but the watchdog fails, use the exact backup
+with exp07 as described above; never guess a backup path. If Shell crashes or
+a new login appears, do **not** apply the old backup: retain the journal and
+timer result locally, then recover by normal login/restart. Do not retry on
+crash, privacy uncertainty, unexpected topology, or restore failure. A clean
+run is one diagnostic observation, not Gate FEAS-C PASS; resume the stop and
+review its evidence independently before any further mutating test.
 
 The deliberate **HDMI-only SIGKILL** scenario is a different, higher-risk
 test and requires its own explicit approval; earlier GNOME Shell SIGSEGV under

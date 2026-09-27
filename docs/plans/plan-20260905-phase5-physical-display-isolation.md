@@ -1,7 +1,7 @@
 # Plan: Phase 5 — Physical Display Isolation
 
 **Created:** 2026-09-05
-**Status:** stopped for reassessment (Doc 00 §49 / Doc 10 §49; Gate FEAS-C unproven)
+**Status:** stopped for reassessment; eDP-1 diagnostic deviation proposed but NO-GO (Gate FEAS-C unproven)
 **Approved by:** user ("approved proceed", 2026-09-05)
 **Task tier:** governed
 
@@ -563,8 +563,11 @@ read-only run. See Risks.
 
 - Live Phase 5 work is stopped under Doc 00 §49 / Doc 10 §49 after the
   reported GNOME Shell crash. The trigger and abnormal-termination restore
-  outcome are unknown; do not resume isolation on this host without crash
-  investigation, a new safety review, and explicit operator approval.
+  outcome are unknown. The operator requested one diagnostic exception on
+  2026-09-27, but independent safety review found no credible go path on this
+  laptop while the instability and built-in-panel privacy gap remain. §7
+  records the proposed diagnostic and missing capture/evidence safeguards,
+  not launch authorization. Product work and Gate C remain stopped.
 
 ## Execution Log
 
@@ -1178,3 +1181,14 @@ read-only run. See Risks.
   write only PARTIAL pre-kill evidence while the independent exp07 restore
   reports PASS. Full Gate FEAS-C acceptance still needs its remaining
   matrix/privacy/reliability criteria and resolution of earlier instability.
+- 2026-09-27 (proposed diagnostic deviation, NO-GO; no run): operator explicitly
+  requested an override of the Phase 5 live-test stop on the daily-driver
+  laptop and accepted that a compositor crash may require a restart. §7 of
+  the experiment-safety procedure records a proposed single eDP-1-only,
+  45-second watchdog-backed pause observation with no kill or repeat. The
+  earlier Shell SIGSEGV and panel privacy question remain unresolved; this
+  risk acceptance is not evidence for Gate C or permission for product
+  activation. Independent review rejected a live go path: fresh approval and
+  SSH cannot substitute for a credible crash reassessment, independent capture
+  of the brief flicker, and persisted pre/postflight evidence. No isolation
+  command was launched.

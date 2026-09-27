@@ -24,8 +24,9 @@
 
 ## Decisions
 
-- Phase 6 offline PoC only: authority facts are caller-supplied (no hostd);
-  no live EIS/input, startup wiring or product activation. Gate C unchanged.
+- Phase 6 offline only: authority is caller-supplied (no hostd), no live EIS.
+  eDP-only diagnostic deviation requested; safety review says NO-GO here.
+  Product stop and Gate C remain unchanged; no new isolation run.
 
 ## Blockers
 
