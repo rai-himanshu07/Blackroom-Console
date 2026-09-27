@@ -565,9 +565,11 @@ read-only run. See Risks.
   reported GNOME Shell crash. The trigger and abnormal-termination restore
   outcome are unknown. The operator requested one diagnostic exception on
   2026-09-27, but independent safety review found no credible go path on this
-  laptop while the instability and built-in-panel privacy gap remain. §7
-  records the proposed diagnostic and missing capture/evidence safeguards,
-  not launch authorization. Product work and Gate C remain stopped.
+  laptop while the instability remains unexplained. The operator accepts the
+  prior built-in flicker as a scoped privacy risk; §7 no longer requires a
+  repeat capture for that diagnostic, but still requires durable pre/postflight
+  evidence and a new safety reassessment. It is not launch authorization.
+  Product work and Gate C remain stopped.
 
 ## Execution Log
 
@@ -1189,6 +1191,11 @@ read-only run. See Risks.
   earlier Shell SIGSEGV and panel privacy question remain unresolved; this
   risk acceptance is not evidence for Gate C or permission for product
   activation. Independent review rejected a live go path: fresh approval and
-  SSH cannot substitute for a credible crash reassessment, independent capture
-  of the brief flicker, and persisted pre/postflight evidence. No isolation
+  SSH cannot substitute for a credible crash reassessment and persisted
+  pre/postflight evidence. No isolation
   command was launched.
+- 2026-09-27 (operator clarification, no run): the operator considers the
+  brief built-in flicker privacy-acceptable and does not want a repeat capture
+  for the proposed diagnostic. Record that as explicit risk acceptance, not
+  evidence that no content appeared. The diagnostic's capture prerequisite is
+  removed; the earlier Shell instability and Gate FEAS-C stop remain open.

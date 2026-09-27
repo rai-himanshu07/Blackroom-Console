@@ -10,9 +10,9 @@
 
 - Steps 1–4 complete. Watchdog path/cwd and pause-restore bugs fixed; unattended
   restore verified. PowerSaveMode blanking observed on `eDP-1` and both outputs.
-- HDMI-only automatic SIGKILL tested once: Shell survived; Mutter restored
-  HDMI logically but left DPMS OFF until watchdog exp07 PASS/unblank.
-  Operator accepts brief built-in flicker; content still unverified. Gate C open.
+- HDMI-only SIGKILL: Shell survived; Mutter restored HDMI logically but
+  DPMS stayed OFF until watchdog exp07 unblanked. Brief built-in flicker
+  accepted without repeat capture; content unknown. Gate C open.
 - Earlier GNOME Shell SIGSEGV/logout remains unexplained; old logs absent.
   One later non-isolating owner-loss run removed Meta-0 without a crash
   (Shell PID stable; operator confirmed desktop usable). Gate C unproven.
