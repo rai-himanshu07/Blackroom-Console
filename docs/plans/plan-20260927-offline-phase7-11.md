@@ -16,6 +16,9 @@ grab devices, inject input, or promote any feasibility/security gate.
   records why no real mechanism is selected.
 - [x] Phase 8: synthetic lock observation and same fake-session check;
   false-success lock calls block activation.
+- [x] Phase 8 read-only preparation: real selected-session identity is checked
+  again before querying ScreenSaver `GetActive` and login1 `LockedHint`.
+  One observation found both false; no real lock/unlock, FEAS-A remains open.
 - [x] Phase 9: agent-owned fake activation/teardown transaction; signed grants
   are acknowledged only after observations; verified `LOCAL_LOCKED` or explicit
   `FAILED_SAFE` on failed restoration. Hostd/agent process-loss and idle lease

@@ -27,6 +27,10 @@ a feasibility, security, Go/No-Go or release gate from simulation.
 - [x] Phases 15–16 synthetic slice: a real offline hostd/agent child-process
   test refuses duplicate input and a prior grant after revoke/restart; focused
   adversarial HTTP tests cover oversized requests without authority changes.
+- [x] Phase 18 read-only preparation: an explicit one-shot agent command
+  reports current logind/GNOME capability tiers and the Phase 3 session gate
+  while always leaving product remote mode disabled. This does not measure
+  display privacy, real input, recovery or compatibility matrix support.
 
 ## Open Dependencies
 
