@@ -1,7 +1,7 @@
 # Plan: Phase 5 — Physical Display Isolation
 
 **Created:** 2026-09-05
-**Status:** product gate stopped; one operator-authorized eDP-1 diagnostic pending preflight (Gate FEAS-C unproven)
+**Status:** stopped: eDP-1 cleanup reactivated HDMI-1 after watchdog PASS; Gate FEAS-C unproven
 **Approved by:** user ("approved proceed", 2026-09-05)
 **Task tier:** governed
 
@@ -563,13 +563,12 @@ read-only run. See Risks.
 
 - Live Phase 5 work is stopped under Doc 00 §49 / Doc 10 §49 after the
   reported GNOME Shell crash. The trigger and abnormal-termination restore
-  outcome are unknown. A prior independent safety review recommended no-go
-  on this laptop; on 2026-09-27 the operator explicitly accepted that risk
-  and authorized one eDP-1-only, no-kill diagnostic under §7's bounded
-  watchdog and recovery protocol. Fresh preflight, persisted evidence,
-  exact-command confirmation and operator presence are required to launch.
-  This is not permission for other live rows or product activation; Gate C
-  and the product stop remain in force pending actual evidence.
+  outcome are unknown. The separately approved 2026-09-27 eDP-only diagnostic
+  found a new restoration failure: HDMI-1 became active after exp06 stopped
+  Meta-0, despite the watchdog's earlier exp07 PASS. A second guarded exp07
+  restored eDP-only, but this violates stable restoration; stop further
+  isolation under the same gate until cleanup/final-topology verification is
+  reassessed. No other rows or product activation are authorized.
 
 ## Execution Log
 
@@ -1215,3 +1214,16 @@ read-only run. See Risks.
   is the required durable evidence (exp07 does not produce a normal PASS report).
   The sanitized preflight remains pending service masking and immediate operator
   confirmation. No GNOME mutation occurred.
+- 2026-09-27 (one eDP-only no-kill run; STOP): operator confirmed saved work,
+  live second-device SSH, eDP observation and the exact command. Fresh binary
+  checks and masking passed. During isolation only Meta-0 was active logically
+  and power was OFF. The 45-second watchdog exp07 PASS restored eDP-only and
+  power ON with Shell PID 34735 unchanged; operator saw a responsive desktop.
+  After Enter cleaned up exp06's ScreenCast session, Meta-0 disappeared but
+  HDMI-1 became active alongside eDP-1. A second exact-backup exp07 PASS
+  restored eDP-only without retry; final Shell/session, timer, power, service
+  and physical desktop were independently confirmed normal. Evidence:
+  `docs/experiments/evidence/exp06/2026-09-27/observation.md`. Exp06 checks
+  restoration before `Session.Stop` and has no final topology check afterward.
+  The first PASS was transient, not end-to-end stable restoration. Gate FEAS-C
+  remains unproven; do not repeat or proceed to another live matrix row.

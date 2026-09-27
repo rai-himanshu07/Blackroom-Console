@@ -238,6 +238,14 @@ crash, unexpected topology, or restore failure. A clean
 run is one diagnostic observation, not Gate FEAS-C PASS; resume the stop and
 review its evidence independently before any further mutating test.
 
+**2026-09-27 outcome: stop, no repeat.** The one approved eDP-only run reached
+virtual-only topology. The 45-second watchdog exp07 restored eDP-only and the
+operator saw a responsive desktop, but after exp06 stopped the ScreenCast
+session HDMI-1 became active again. A second identity-guarded exp07 restored
+the original eDP-only topology. Shell PID 34735 survived; final restoration
+was not stable through owner cleanup. See the saved exp06 observation. Do not
+run another isolation row or treat the earlier watchdog PASS as Gate C proof.
+
 The deliberate **HDMI-only SIGKILL** scenario is a different, higher-risk
 test and requires its own explicit approval; earlier GNOME Shell SIGSEGV under
 virtual-monitor removal remains unexplained. Before launch, confirm the

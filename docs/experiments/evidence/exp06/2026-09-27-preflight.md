@@ -32,3 +32,17 @@ The full raw GetCurrentState response is intentionally not stored here because
 it contains monitor serials. Exp06 will persist the exact restoration backup
 in its own newly reserved evidence directory before changing the display.
 If GNOME Shell restarts, never apply that backup to the new session.
+
+## Isolated observation (run in progress)
+
+- Exact command launched once; exp06 PID `940537` paused after isolation.
+- Printed watchdog: `blackroom-exp06-watchdog-1790499779` (45 s).
+- Printed backup: `docs/experiments/evidence/exp06/2026-09-27/backup.json`.
+- Read-only GetCurrentState while isolated: raw `eDP-1`, `HDMI-1`, `Meta-0`;
+  only `Meta-0` active logically. `PowerSaveMode=3` (OFF).
+- Named timer was active/waiting, Shell PID remained `34735`, original login1
+  session `3` remained active Wayland. Backup has `session_id=3`,
+  `shell_pid=34735`, and eDP-1 as its saved logical output.
+- At 09:03:43 UTC the watchdog service had **no execution timestamp**;
+  `Result=success` while inactive is not restoration evidence. Await the
+  watchdog; do not send Enter until restore is independently confirmed.

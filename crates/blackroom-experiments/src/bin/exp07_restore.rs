@@ -290,10 +290,8 @@ fn topology_matches(backup: &DisplayBackup, logical: &[LogicalMonitorEntry]) -> 
     })
 }
 
-/// Any raw connector present now but absent from the backup's own
-/// `outputs[]` — a lingering virtual-monitor connector Mutter did not clean
-/// up on its own (assessment §7.3's "what does Mutter restore
-/// automatically" question).
+/// Raw connector absent from `outputs[]`. This also includes physical outputs
+/// without a current mode when the backup was taken, so it is diagnostic only.
 fn unexpected_connectors(backup: &DisplayBackup, monitors: &[MonitorEntry]) -> Vec<String> {
     monitors
         .iter()
@@ -397,8 +395,8 @@ fn main() -> anyhow::Result<()> {
                     reconstructed write-side config (retry once on failure per Doc 05 §62); \
                     poll GetCurrentState until the topology matches or the wait bound elapses."
             .to_string(),
-        expected: "Every backed-up output's position/mode/scale/transform/primary matches \
-                   exactly; no unexpected connector remains from a lingering virtual monitor."
+        expected: "Every backed-up logical output's position/mode/scale/transform/primary \
+               matches exactly; extra raw connectors are diagnostic only."
             .to_string(),
         observed,
         evidence: vec![dir.join("report.md").display().to_string()],
