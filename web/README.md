@@ -24,6 +24,15 @@ synthetic epoch. The gateway only binds `127.0.0.1:8787` and
 requires the exact `--offline-sim` flag. It does not launch the GNOME agent.
 Closing the gateway discards the simulated session and log.
 
+After each fake Start, the browser uses the current non-secret `input_grant`
+and `next_sequence` from the gateway snapshot for every input event. Old,
+repeated and out-of-order event envelopes are refused; failed events do not
+consume a sequence. The input body is limited to 512 bytes and other JSON
+requests to 64 KiB. The browser hides fake control if the grant or sequence
+is missing, and discards status replies that started before a later command.
+These guards prevent stale local requests, not unauthorized clients: no
+production authentication, WebRTC or media channel is enabled.
+
 To keep only the synthetic host identity and epoch across gateway restarts,
 prepare an **existing, owner-owned `0700` directory outside this repository**
 and run the gateway with `--offline-sim --state-dir <absolute-path>`. The path

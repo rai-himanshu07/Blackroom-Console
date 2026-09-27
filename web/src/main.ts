@@ -14,6 +14,8 @@ interface Snapshot {
   state: string;
   epoch: number;
   auth_blocked: boolean;
+  input_grant: string | null;
+  next_sequence: number | null;
   events: InputEvent[];
   pointer: { x: number; y: number };
 }
@@ -56,8 +58,8 @@ app.innerHTML = `
             <div class="status-row"><span>Security epoch</span><strong id="epoch">0</strong></div>
             <div class="status-row"><span>Authority store</span><strong id="storage">EPHEMERAL</strong></div>
             <label class="control-label demo-label" for="demo-code">Offline demo code</label>
-            <input id="demo-code" class="demo-code" type="password" maxlength="64" autocomplete="off" spellcheck="false" />
-            <div class="session-buttons"><button id="start" class="primary"><i data-lucide="circle-play"></i><span>Start simulation</span></button><button id="revoke" class="secondary" disabled><i data-lucide="shield-off"></i><span>Revoke & lock</span></button></div>
+            <input id="demo-code" class="demo-code" type="password" maxlength="64" autocomplete="off" spellcheck="false" disabled />
+            <div class="session-buttons"><button id="start" class="primary" disabled><i data-lucide="circle-play"></i><span>Start simulation</span></button><button id="revoke" class="secondary" disabled><i data-lucide="shield-off"></i><span>Revoke & lock</span></button></div>
           </section>
           <section class="control-group input-control">
             <div class="section-heading"><span>02 / INPUT LAB</span><i data-lucide="square-mouse-pointer"></i></div>
@@ -83,6 +85,7 @@ createIcons({ icons, attrs: { width: '18', height: '18', 'stroke-width': '1.8' }
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 let snapshot: Snapshot | null = null;
 let pending = false;
+let refreshGeneration = 0;
 
 function describe(event: InputEvent): string {
   switch (event.kind) {
@@ -95,25 +98,29 @@ function describe(event: InputEvent): string {
 
 function render(value: Snapshot): void {
   snapshot = value;
-  const active = value.state === 'REMOTE_ACTIVE';
+  const granted = value.state === 'REMOTE_ACTIVE';
+  const active = granted && typeof value.input_grant === 'string' && /^[0-9a-f]{32}$/.test(value.input_grant)
+    && value.next_sequence !== null
+    && Number.isSafeInteger(value.next_sequence) && value.next_sequence > 0;
+  const bindingMissing = granted && !active;
   const failedSafe = value.state === 'FAILED_SAFE';
   const blocked = value.auth_blocked;
   $('#state').textContent = value.state;
   $('#epoch').textContent = String(value.epoch);
   $('#storage').textContent = value.authority_store;
-  $('#stage-status').textContent = failedSafe ? 'RECOVERY REQUIRED' : blocked ? 'ACCESS BLOCKED' : active ? 'SIMULATING' : 'LOCKED';
+  $('#stage-status').textContent = failedSafe ? 'RECOVERY REQUIRED' : bindingMissing ? 'INPUT BLOCKED' : blocked ? 'ACCESS BLOCKED' : active ? 'SIMULATING' : 'LOCKED';
   $('#screen-state').textContent = value.state;
-  $('#screen-title').textContent = failedSafe ? 'Offline recovery required' : blocked ? 'Demo access blocked' : active ? 'Synthetic session active' : 'Simulation locked';
-  $('#screen-subtitle').textContent = failedSafe ? 'Offline recovery could not be verified. Control is disabled.' : blocked ? 'Demo access is paused for this local run.' : active ? 'Input is recorded to a fake transport only.' : 'No desktop video or real input is connected.';
-  $('#connection').textContent = failedSafe ? 'Offline authority stopped' : blocked ? 'Demo access blocked' : active ? 'Synthetic control granted' : 'Local simulation ready';
-  $('#connection').classList.toggle('error', failedSafe || blocked);
+  $('#screen-title').textContent = failedSafe ? 'Offline recovery required' : bindingMissing ? 'Input authority unavailable' : blocked ? 'Demo access blocked' : active ? 'Synthetic session active' : 'Simulation locked';
+  $('#screen-subtitle').textContent = failedSafe ? 'Offline recovery could not be verified. Control is disabled.' : bindingMissing ? 'Input is blocked. Revoke the synthetic session.' : blocked ? 'Demo access is paused for this local run.' : active ? 'Input is recorded to a fake transport only.' : 'No desktop video or real input is connected.';
+  $('#connection').textContent = failedSafe ? 'Offline authority stopped' : bindingMissing ? 'Input authority unavailable' : blocked ? 'Demo access blocked' : active ? 'Synthetic control granted' : 'Local simulation ready';
+  $('#connection').classList.toggle('error', failedSafe || blocked || bindingMissing);
   $('#screen').classList.toggle('active', active);
   $('#sim-workspace').setAttribute('aria-hidden', String(!active));
   $('#sim-event').textContent = value.events.length ? describe(value.events[value.events.length - 1]) : 'No events recorded';
   $('#sim-count').textContent = String(value.events.length).padStart(2, '0');
-  $('#start').toggleAttribute('disabled', active || failedSafe || blocked || pending);
-  $('#revoke').toggleAttribute('disabled', !active || pending);
-  $('#demo-code').toggleAttribute('disabled', active || failedSafe || blocked || pending);
+  $('#start').toggleAttribute('disabled', granted || failedSafe || blocked || pending);
+  $('#revoke').toggleAttribute('disabled', !granted || pending);
+  $('#demo-code').toggleAttribute('disabled', granted || failedSafe || blocked || pending);
   document.querySelectorAll<HTMLButtonElement>('.input-button').forEach((button) => { button.disabled = !active || pending; });
   const events = $('#events');
   events.replaceChildren();
@@ -160,6 +167,7 @@ function renderUnavailable(): void {
 async function request(path: string, event?: InputEvent): Promise<void> {
   if (pending) return;
   pending = true;
+  refreshGeneration++;
   if (snapshot) render(snapshot);
   $('#connection').textContent = 'Sending simulated command...';
   let failure: string | null = null;
@@ -167,7 +175,11 @@ async function request(path: string, event?: InputEvent): Promise<void> {
     const response = await fetch(`/api/simulation${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(path === '/start' ? { demo_code: $<HTMLInputElement>('#demo-code').value } : (event ?? {})),
+      body: JSON.stringify(path === '/start'
+        ? { demo_code: $<HTMLInputElement>('#demo-code').value }
+        : path === '/input'
+          ? { grant_id: snapshot?.input_grant ?? '', sequence: snapshot?.next_sequence ?? 0, event }
+          : {}),
     });
     const result: Snapshot | { code: string; message: string } = response.headers.get('content-type')?.includes('application/json')
       ? await response.json() as Snapshot | { code: string; message: string }
@@ -178,7 +190,7 @@ async function request(path: string, event?: InputEvent): Promise<void> {
     $('#feedback').textContent = `Simulation only. ${path === '/input' ? 'Event recorded in fake transport.' : path === '/revoke' ? 'Authority revoked; input refused.' : 'Synthetic control granted.'}`;
   } catch (error) {
     failure = error instanceof Error ? error.message : 'unavailable';
-    await refresh().catch(() => {});
+    await refresh(true).catch(() => {});
   } finally {
     pending = false;
     if (snapshot) render(snapshot);
@@ -191,17 +203,22 @@ async function request(path: string, event?: InputEvent): Promise<void> {
   }
 }
 
-async function refresh(): Promise<void> {
+async function refresh(force = false): Promise<void> {
+  if (pending && !force) return;
+  const generation = ++refreshGeneration;
   try {
     const response = await fetch('/api/simulation', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const current = await response.json() as Snapshot;
+    if (generation !== refreshGeneration || (pending && !force)) return;
     const wasUnavailable = snapshot === null;
-    render(await response.json() as Snapshot);
+    render(current);
     if (wasUnavailable) {
       $('#feedback').classList.remove('error');
       $('#feedback').textContent = 'Simulation only. Commands never reach the desktop.';
     }
   } catch (error) {
+    if (generation !== refreshGeneration || (pending && !force)) return;
     renderUnavailable();
     throw error;
   }

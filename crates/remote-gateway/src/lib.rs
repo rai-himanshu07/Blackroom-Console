@@ -8,13 +8,14 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use axum::extract::State as ExtractState;
+use axum::extract::{DefaultBodyLimit, State as ExtractState};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::routing::{get, post};
 use axum::{Json, Router, extract::Request, response::Response};
 use blackroom_core::epoch::SecurityEpoch;
 use blackroom_core::error::{BlackroomError, ErrorCode};
+use blackroom_core::limits::{MAX_INPUT_EVENT_SIZE_BYTES, MAX_MESSAGE_SIZE_BYTES};
 use blackroom_core::protocol::AuthorityUpdate;
 use blackroom_core::state::State;
 use ed25519_dalek::VerifyingKey;
@@ -69,12 +70,23 @@ impl SimulationBackend {
 struct OfflineConsole {
     backend: SimulationBackend,
     invalid_demo_codes: u8,
+    input_grant: Option<String>,
+    last_sequence: u64,
 }
 
 impl OfflineConsole {
     fn snapshot(&mut self) -> Snapshot {
         let mut snapshot = self.backend.snapshot();
+        if snapshot.state != State::RemoteActive.as_str() {
+            self.input_grant = None;
+            self.last_sequence = 0;
+        }
         snapshot.auth_blocked = self.invalid_demo_codes >= MAX_INVALID_DEMO_CODES;
+        snapshot.input_grant = self.input_grant.clone();
+        snapshot.next_sequence = self
+            .input_grant
+            .as_ref()
+            .and_then(|_| self.last_sequence.checked_add(1));
         snapshot
     }
 
@@ -99,8 +111,30 @@ impl OfflineConsole {
                 "invalid offline demo code",
             ));
         }
+        let mut grant = [0_u8; 16];
+        getrandom::fill(&mut grant).map_err(|_| {
+            BlackroomError::new(ErrorCode::RecoveryFailed, "offline input grant unavailable")
+        })?;
         self.backend.start(demo_code)?;
+        self.input_grant = Some(format!("{:032x}", u128::from_be_bytes(grant)));
+        self.last_sequence = 0;
         self.invalid_demo_codes = 0;
+        Ok(())
+    }
+
+    fn input(&mut self, command: InputCommand) -> Result<(), BlackroomError> {
+        let current = self.snapshot();
+        if current.state != State::RemoteActive.as_str()
+            || current.input_grant.as_deref() != Some(command.grant_id.as_str())
+            || current.next_sequence != Some(command.sequence)
+        {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "stale offline input grant or sequence",
+            ));
+        }
+        self.backend.input(command.event)?;
+        self.last_sequence = command.sequence;
         Ok(())
     }
 }
@@ -127,6 +161,14 @@ impl InputEvent {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InputCommand {
+    grant_id: String,
+    sequence: u64,
+    event: InputEvent,
+}
+
 #[derive(Serialize)]
 pub struct Snapshot {
     pub mode: &'static str,
@@ -135,6 +177,8 @@ pub struct Snapshot {
     pub state: &'static str,
     pub epoch: u64,
     pub auth_blocked: bool,
+    pub input_grant: Option<String>,
+    pub next_sequence: Option<u64>,
     pub events: Vec<InputEvent>,
     pub pointer: PointerPosition,
 }
@@ -283,6 +327,8 @@ impl SimulatedHost {
             state: self.host.state().as_str(),
             epoch: self.host.epoch().value(),
             auth_blocked: false,
+            input_grant: None,
+            next_sequence: None,
             events: self.events.clone(),
             pointer: self.pointer,
         }
@@ -463,11 +509,11 @@ async fn revoke(
 async fn input(
     ExtractState(host): ExtractState<SharedHost>,
     headers: HeaderMap,
-    Json(event): Json<InputEvent>,
+    Json(command): Json<InputCommand>,
 ) -> ApiResult<Snapshot> {
     check_origin(&headers)?;
     let mut host = host.lock().expect("simulation lock poisoned");
-    host.backend.input(event).map_err(error_response)?;
+    host.input(command).map_err(error_response)?;
     Ok(Json(host.snapshot()))
 }
 
@@ -495,13 +541,19 @@ fn with_backend(host: SimulationBackend) -> Router {
     let host = Arc::new(Mutex::new(OfflineConsole {
         backend: host,
         invalid_demo_codes: 0,
+        input_grant: None,
+        last_sequence: 0,
     }));
     Router::new()
         .route("/api/simulation", get(status))
         .route("/api/simulation/start", post(start))
         .route("/api/simulation/revoke", post(revoke))
-        .route("/api/simulation/input", post(input))
+        .route(
+            "/api/simulation/input",
+            post(input).layer(DefaultBodyLimit::max(MAX_INPUT_EVENT_SIZE_BYTES)),
+        )
         .with_state(host)
+        .layer(DefaultBodyLimit::max(MAX_MESSAGE_SIZE_BYTES))
         .layer(middleware::from_fn(local_host))
 }
 
@@ -552,6 +604,16 @@ mod tests {
         .await
     }
 
+    async fn call_input(router: &Router, event: &str) -> (StatusCode, serde_json::Value) {
+        let (_, snapshot) = call(router, "/api/simulation", None).await;
+        let command = serde_json::json!({
+            "grant_id": snapshot["input_grant"].as_str().unwrap_or(""),
+            "sequence": snapshot["next_sequence"].as_u64().unwrap_or(1),
+            "event": serde_json::from_str::<serde_json::Value>(event).unwrap(),
+        });
+        call(router, "/api/simulation/input", Some(&command.to_string())).await
+    }
+
     #[tokio::test]
     async fn demo_code_refusal_is_bounded_and_revokes_active_fake_control() {
         let router = router();
@@ -593,13 +655,7 @@ mod tests {
             StatusCode::TOO_MANY_REQUESTS
         );
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
             StatusCode::CONFLICT
         );
     }
@@ -614,63 +670,167 @@ mod tests {
         let (_, still_locked) = call(&router, "/api/simulation/revoke", Some("{}")).await;
         assert_eq!(still_locked["epoch"], 0);
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
             StatusCode::CONFLICT
         );
         assert_eq!(call_start(&router).await.0, StatusCode::OK);
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
             StatusCode::OK
         );
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"move","dx":999,"dy":0}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"move","dx":999,"dy":0}"#)
+                .await
+                .0,
             StatusCode::BAD_REQUEST
         );
+        let (_, after_invalid) = call(&router, "/api/simulation", None).await;
+        assert_eq!(after_invalid["next_sequence"], 2);
+        assert_eq!(after_invalid["events"].as_array().unwrap().len(), 1);
         let (_, revoked) = call(&router, "/api/simulation/revoke", Some("{}")).await;
         assert_eq!(revoked["state"], "LOCAL_LOCKED");
         assert_eq!(revoked["epoch"], 1);
         assert_eq!(revoked["events"].as_array().unwrap().len(), 1);
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
             StatusCode::CONFLICT
         );
         assert_eq!(call_start(&router).await.0, StatusCode::OK);
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"click","button":272}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"click","button":272}"#)
+                .await
+                .0,
             StatusCode::OK
         );
         let (_, current) = call(&router, "/api/simulation", None).await;
         assert_eq!(current["events"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn old_unbound_input_cannot_cross_revoke_and_new_grant() {
+        let router = router();
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
+        assert_eq!(
+            call(&router, "/api/simulation/revoke", Some("{}")).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
+        let (status, _) = call(
+            &router,
+            "/api/simulation/input",
+            Some(r#"{"kind":"key","code":30}"#),
+        )
+        .await;
+        assert_ne!(status, StatusCode::OK);
+        let (_, snapshot) = call(&router, "/api/simulation", None).await;
+        assert!(snapshot["events"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn sequenced_input_rejects_replay_skips_and_prior_grants() {
+        let router = router();
+        let (_, first) = call_start(&router).await;
+        let first_grant = first["input_grant"].as_str().unwrap().to_owned();
+        assert_eq!(first_grant.len(), 32);
+        assert_eq!(first["next_sequence"], 1);
+        let first_event = serde_json::json!({
+            "grant_id": first_grant, "sequence": 1,
+            "event": {"kind": "key", "code": 30},
+        });
+        let first_event = first_event.to_string();
+        assert_eq!(
+            call(&router, "/api/simulation/input", Some(&first_event))
+                .await
+                .0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            call(&router, "/api/simulation/input", Some(&first_event))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+        let skipped = serde_json::json!({
+            "grant_id": first_grant, "sequence": 3,
+            "event": {"kind": "click", "button": 272},
+        });
+        assert_eq!(
+            call(&router, "/api/simulation/input", Some(&skipped.to_string()))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+        let (_, current) = call(&router, "/api/simulation", None).await;
+        assert_eq!(current["next_sequence"], 2);
+        assert_eq!(current["events"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            call_input(&router, r#"{"kind":"click","button":272}"#)
+                .await
+                .0,
+            StatusCode::OK
+        );
+
+        assert_eq!(
+            call(&router, "/api/simulation/revoke", Some("{}")).await.0,
+            StatusCode::OK
+        );
+        let (_, second) = call_start(&router).await;
+        assert_ne!(second["input_grant"], first_grant);
+        assert_eq!(second["next_sequence"], 1);
+        assert_eq!(
+            call(&router, "/api/simulation/input", Some(&first_event))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+        drop(router);
+
+        let restarted = super::router();
+        let (_, new_session) = call_start(&restarted).await;
+        assert_ne!(new_session["input_grant"], first_grant);
+        assert_eq!(
+            call(&restarted, "/api/simulation/input", Some(&first_event))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+        let (_, snapshot) = call(&restarted, "/api/simulation", None).await;
+        assert!(snapshot["events"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn oversized_fake_commands_do_not_mutate_authority_or_consume_input_sequence() {
+        let router = router();
+        let start = serde_json::json!({"demo_code": "X".repeat(MAX_MESSAGE_SIZE_BYTES)});
+        assert_eq!(
+            call(&router, "/api/simulation/start", Some(&start.to_string()))
+                .await
+                .0,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+        let (_, locked) = call(&router, "/api/simulation", None).await;
+        assert_eq!(locked["state"], "LOCAL_LOCKED");
+        assert_eq!(locked["auth_blocked"], false);
+
+        let (_, active) = call_start(&router).await;
+        let large = serde_json::json!({
+            "grant_id": active["input_grant"], "sequence": 1,
+            "event": {"kind": "key", "code": 30},
+            "padding": "X".repeat(MAX_INPUT_EVENT_SIZE_BYTES),
+        });
+        assert_eq!(
+            call(&router, "/api/simulation/input", Some(&large.to_string()))
+                .await
+                .0,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+        let (_, unchanged) = call(&router, "/api/simulation", None).await;
+        assert_eq!(unchanged["next_sequence"], 1);
+        assert!(unchanged["events"].as_array().unwrap().is_empty());
+        assert_eq!(
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
+            StatusCode::OK
+        );
     }
 
     #[tokio::test]
@@ -717,10 +877,9 @@ mod tests {
             StatusCode::UNPROCESSABLE_ENTITY
         );
         assert_eq!(
-            call(
+            call_input(
                 &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30,"current_state":"REMOTE_ACTIVE"}"#)
+                r#"{"kind":"key","code":30,"current_state":"REMOTE_ACTIVE"}"#
             )
             .await
             .0,
@@ -770,13 +929,9 @@ mod tests {
         call_start(&router).await;
         for _ in 0..13 {
             assert_eq!(
-                call(
-                    &router,
-                    "/api/simulation/input",
-                    Some(r#"{"kind":"move","dx":24,"dy":0}"#)
-                )
-                .await
-                .0,
+                call_input(&router, r#"{"kind":"move","dx":24,"dy":0}"#)
+                    .await
+                    .0,
                 StatusCode::OK
             );
         }
@@ -787,13 +942,9 @@ mod tests {
         let (_, after) = call(&router, "/api/simulation", None).await;
         assert_eq!(after["pointer"]["x"], snapshot["pointer"]["x"]);
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"move","dx":24,"dy":0}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"move","dx":24,"dy":0}"#)
+                .await
+                .0,
             StatusCode::CONFLICT
         );
         let (_, refused) = call(&router, "/api/simulation", None).await;
@@ -808,13 +959,7 @@ mod tests {
         let router = persisted_router(&directory_fd).unwrap();
         assert_eq!(call_start(&router).await.0, StatusCode::OK);
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
             StatusCode::OK
         );
         let (_, revoked) = call(&router, "/api/simulation/revoke", Some("{}")).await;
@@ -830,13 +975,9 @@ mod tests {
         assert_eq!(state["epoch"], 2);
         assert!(state["events"].as_array().unwrap().is_empty());
         assert_eq!(
-            call(
-                &restarted,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30}"#)
-            )
-            .await
-            .0,
+            call_input(&restarted, r#"{"kind":"key","code":30}"#)
+                .await
+                .0,
             StatusCode::CONFLICT
         );
         assert_eq!(call_start(&restarted).await.0, StatusCode::OK);
@@ -861,13 +1002,7 @@ mod tests {
         let (_, snapshot) = call(&router, "/api/simulation", None).await;
         assert_eq!(snapshot["state"], "FAILED_SAFE");
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
             StatusCode::CONFLICT
         );
         assert_eq!(call_start(&router).await.0, StatusCode::CONFLICT);
@@ -893,24 +1028,24 @@ mod tests {
         assert_eq!(call_start(&router).await.0, StatusCode::CONFLICT);
         let (_, after_duplicate) = call(&router, "/api/simulation", None).await;
         assert_eq!(after_duplicate["state"], "REMOTE_ACTIVE");
-        let (_, sent) = call(
-            &router,
-            "/api/simulation/input",
-            Some(r#"{"kind":"key","code":30}"#),
-        )
-        .await;
+        let old_input = serde_json::json!({
+            "grant_id": after_duplicate["input_grant"], "sequence": 1,
+            "event": {"kind": "key", "code": 30},
+        })
+        .to_string();
+        let (_, sent) = call_input(&router, r#"{"kind":"key","code":30}"#).await;
         assert_eq!(sent["events"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            call(&router, "/api/simulation/input", Some(&old_input))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
         let (_, revoked) = call(&router, "/api/simulation/revoke", Some("{}")).await;
         assert_eq!(revoked["state"], "LOCAL_LOCKED");
         assert_eq!(revoked["epoch"], 1);
         assert_eq!(
-            call(
-                &router,
-                "/api/simulation/input",
-                Some(r#"{"kind":"key","code":30}"#)
-            )
-            .await
-            .0,
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
             StatusCode::CONFLICT
         );
         drop(router);
@@ -921,7 +1056,17 @@ mod tests {
         assert_eq!(state["state"], "LOCAL_LOCKED");
         assert_eq!(state["epoch"], 2);
         assert!(state["events"].as_array().unwrap().is_empty());
-        assert_eq!(call_start(&restarted).await.0, StatusCode::OK);
+        let (status, fresh) = call_start(&restarted).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(fresh["input_grant"], after_duplicate["input_grant"]);
+        assert_eq!(
+            call(&restarted, "/api/simulation/input", Some(&old_input))
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+        let (_, current) = call(&restarted, "/api/simulation", None).await;
+        assert!(current["events"].as_array().unwrap().is_empty());
         drop(restarted);
         let after_active_shutdown =
             separated_router(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
