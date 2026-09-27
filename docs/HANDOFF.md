@@ -19,14 +19,14 @@
 
 ## Checks
 
-- Phase 6: fake input passes; stale time cannot extend input leases.
+- Phase 6 fake input/lease time checked; exp07 restore identity guarded offline.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
 
 - Phase 6 offline only: authority is caller-supplied (no hostd), no live EIS.
-  eDP-only diagnostic deviation requested; safety review says NO-GO here.
-  Product stop and Gate C remain unchanged; no new isolation run.
+  One eDP-only diagnostic is operator-authorized, pending exact preflight;
+  prior review NO-GO noted. Product stop/Gate C unchanged; no run yet.
 
 ## Blockers
 

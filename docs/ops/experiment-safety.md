@@ -175,22 +175,23 @@ an independently verified SSH/visual confirmation; waiting for the watchdog
 avoids relying on that weaker path for this supervised observation. No new
 isolate run is authorized solely by this procedure.
 
-### Proposed eDP-1 diagnostic deviation (requested 2026-09-27; NO-GO)
+### One-run eDP-1 diagnostic exception (operator-authorized 2026-09-27)
 
 The operator accepts the risk of a GNOME Shell crash on the daily-driver laptop
-and requests one supervised eDP-1-only isolation observation despite the
-unexplained earlier SIGSEGV. Independent safety review found **no live go path
-on this host** under Doc 00/10 §49: operator risk acceptance and exact-command
-approval alone do not clear Mutter instability. The operator also accepts the
+and explicitly overrides the Phase 5 live-test pause for **one supervised,
+no-kill eDP-1-only diagnostic** despite the unexplained earlier SIGSEGV.
+The prior independent safety review recommended no-go on this host; the
+operator acknowledges that warning and authorizes this bounded risk to obtain
+new crash/restore evidence. This does not clear the Doc 00/10 §49 product
+stop, prove Mutter stable, or establish Gate FEAS-C. The operator also accepts the
 prior brief built-in-panel flicker, even though whether content appeared is
 unknown; no further capture of that flicker is requested for this diagnostic.
-This is a proposed diagnostic design, **not authorization
-to run it** or to activate the product, other matrix rows, SIGKILL, self-kill,
+This exception does **not** authorize product activation, other matrix rows, SIGKILL, self-kill,
 repeated cycles, or remote-input testing. A force restart
 could lose unsaved work and cannot restore the original GNOME session. If the
 operator cannot accept that outcome or cannot observe the entire run, do not
-start. The following command is **not authorized to run**; it is for separate reassessment,
-from the repository root after building both experiment binaries fresh:
+start. The authorized diagnostic command, from the repository root after
+building both experiment binaries fresh and satisfying every check below, is:
 
 ```sh
 ./target/debug/exp06_isolate_outputs --pause-after-isolate --watchdog-seconds 45
@@ -205,8 +206,7 @@ the test. Keep raw logs and images local until reviewed for private content.
 Without durable evidence, the diagnostic cannot resolve the crash/restore
 question and must not be attempted merely to repeat the earlier observation.
 
-If a new safety review establishes a credible go path under the governing stop
-conditions, save all work; enable and verify the built-in panel before
+Before launch, save all work; enable and verify the built-in panel before
 disconnecting HDMI; confirm `eDP-1` is the
 sole active physical output by a fresh read-only GetCurrentState; keep a newly
 verified key-based SSH login open from a second device; confirm the original
@@ -215,8 +215,9 @@ Shell PID, session, `ssh.socket`, and no pending exp06 timer; mask
 The operator must be present and independently watch the built-in screen
 through restoration to confirm recovery; no new privacy capture is required
 for this diagnostic. Do not
-start if any check fails. Only then seek fresh approval of the exact command;
-the request to amend this procedure alone is not launch approval.
+start if any check fails. Confirm the exact command and original eDP-only
+layout with the operator immediately before launch; no generic approval
+permits changing flags or retrying the run.
 
 During the run, do not press Enter, switch VTs, unplug another output, or kill
 the process while isolated. Record the printed absolute backup path, PID and
@@ -226,8 +227,13 @@ confirm the original topology, `PowerSaveMode=0`, Shell PID/session and visible
 desktop before sending Enter for the still-paused owner's ScreenCast cleanup.
 If the original session survives but the watchdog fails, use the exact backup
 with exp07 as described above; never guess a backup path. If Shell crashes or
-a new login appears, do **not** apply the old backup: retain the journal and
-timer result locally, then recover by normal login/restart. Do not retry on
+a new login appears, do **not** apply the old backup: exp07 now refuses a
+backup without the original login session ID and Shell PID, including when
+called by the watchdog. A failed watchdog service on identity mismatch is the
+expected fail-closed result, not evidence of restored topology. Exp07 exits
+before producing its normal report on such a refusal; retain the named unit's
+service journal and timer result locally as the durable refusal evidence, then
+recover by normal login/restart. Do not retry on
 crash, unexpected topology, or restore failure. A clean
 run is one diagnostic observation, not Gate FEAS-C PASS; resume the stop and
 review its evidence independently before any further mutating test.

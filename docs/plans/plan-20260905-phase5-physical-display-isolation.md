@@ -1,7 +1,7 @@
 # Plan: Phase 5 — Physical Display Isolation
 
 **Created:** 2026-09-05
-**Status:** stopped for reassessment; eDP-1 diagnostic deviation proposed but NO-GO (Gate FEAS-C unproven)
+**Status:** product gate stopped; one operator-authorized eDP-1 diagnostic pending preflight (Gate FEAS-C unproven)
 **Approved by:** user ("approved proceed", 2026-09-05)
 **Task tier:** governed
 
@@ -563,13 +563,13 @@ read-only run. See Risks.
 
 - Live Phase 5 work is stopped under Doc 00 §49 / Doc 10 §49 after the
   reported GNOME Shell crash. The trigger and abnormal-termination restore
-  outcome are unknown. The operator requested one diagnostic exception on
-  2026-09-27, but independent safety review found no credible go path on this
-  laptop while the instability remains unexplained. The operator accepts the
-  prior built-in flicker as a scoped privacy risk; §7 no longer requires a
-  repeat capture for that diagnostic, but still requires durable pre/postflight
-  evidence and a new safety reassessment. It is not launch authorization.
-  Product work and Gate C remain stopped.
+  outcome are unknown. A prior independent safety review recommended no-go
+  on this laptop; on 2026-09-27 the operator explicitly accepted that risk
+  and authorized one eDP-1-only, no-kill diagnostic under §7's bounded
+  watchdog and recovery protocol. Fresh preflight, persisted evidence,
+  exact-command confirmation and operator presence are required to launch.
+  This is not permission for other live rows or product activation; Gate C
+  and the product stop remain in force pending actual evidence.
 
 ## Execution Log
 
@@ -1199,3 +1199,19 @@ read-only run. See Risks.
   for the proposed diagnostic. Record that as explicit risk acceptance, not
   evidence that no content appeared. The diagnostic's capture prerequisite is
   removed; the earlier Shell instability and Gate FEAS-C stop remain open.
+- 2026-09-27 (one-run operator override, preflight pending): operator reiterated
+  authorization to run the eDP-1-only isolation diagnostic on this laptop and
+  to update the protocol, acknowledging the earlier review's no-go warning.
+  §7 now permits one 45-second watchdog-backed pause with no intentional kill,
+  only after saved work, eDP-only topology, fresh SSH, unique preflight evidence
+  and exact-command confirmation. No run or gate promotion has occurred yet.
+- 2026-09-27 (watchdog safety repair, no run): independent preflight review
+  found exp07 would apply an old backup to a restarted Shell/session. New exp06
+  backups persist the selected active Wayland session ID and original Shell PID;
+  exp07 now refuses missing/mismatched identity before restore writes or retry.
+  Pause-mode exp06 also prints the actual watchdog unit and timeout. Focused
+  offline tests/build passed; exp06 now also refuses launch unless remote desktop
+  is masked and inactive. On watchdog identity refusal, the named service journal
+  is the required durable evidence (exp07 does not produce a normal PASS report).
+  The sanitized preflight remains pending service masking and immediate operator
+  confirmation. No GNOME mutation occurred.

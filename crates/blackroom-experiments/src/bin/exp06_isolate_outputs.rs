@@ -29,7 +29,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blackroom_experiments::{
-    CommonArgs, ExperimentReport, ExperimentResult, evidence_dir, redact, write_evidence,
+    CommonArgs, ExperimentReport, ExperimentResult, current_uid, discover, evidence_dir, redact,
+    write_evidence,
 };
 use clap::Parser;
 use serde::{Deserialize, Serialize};
@@ -78,6 +79,30 @@ impl Args {
             WATCHDOG_SECONDS_DEFAULT.max(u64::from(self.cycles) * 15 + 30)
         }
     }
+}
+
+fn require_remote_desktop_masked() -> anyhow::Result<()> {
+    let output = Command::new("systemctl")
+        .args(["--user", "is-enabled", "gnome-remote-desktop.service"])
+        .output()?;
+    let state = String::from_utf8(output.stdout)?;
+    anyhow::ensure!(
+        matches!(state.trim(), "masked" | "masked-runtime"),
+        "gnome-remote-desktop.service must be masked before exp06"
+    );
+    let active = Command::new("systemctl")
+        .args([
+            "--user",
+            "is-active",
+            "--quiet",
+            "gnome-remote-desktop.service",
+        ])
+        .status()?;
+    anyhow::ensure!(
+        !active.success(),
+        "gnome-remote-desktop.service must be inactive before exp06"
+    );
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -407,11 +432,18 @@ struct LogicalMonitorBackup {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DisplayBackup {
+    session_id: String,
+    shell_pid: u32,
     outputs: Vec<OutputBackup>,
     topology: Vec<LogicalMonitorBackup>,
 }
 
-fn build_backup(monitors: &[MonitorEntry], logical: &[LogicalMonitorEntry]) -> DisplayBackup {
+fn build_backup(
+    monitors: &[MonitorEntry],
+    logical: &[LogicalMonitorEntry],
+    session_id: &str,
+    shell_pid: u32,
+) -> DisplayBackup {
     let outputs = monitors
         .iter()
         .filter_map(|m| {
@@ -446,7 +478,12 @@ fn build_backup(monitors: &[MonitorEntry], logical: &[LogicalMonitorEntry]) -> D
                 .collect(),
         })
         .collect();
-    DisplayBackup { outputs, topology }
+    DisplayBackup {
+        session_id: session_id.to_string(),
+        shell_pid,
+        outputs,
+        topology,
+    }
 }
 
 /// Reuses the mode IDs captured at snapshot time rather than re-resolving
@@ -1024,6 +1061,7 @@ fn run_one_cycle(
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::try_init().ok();
     let args = Args::parse();
+    require_remote_desktop_masked()?;
     let redact_on = args.common.redact_enabled();
     let now = OffsetDateTime::now_utc();
     let dir = evidence_dir(EXP_ID, now)?;
@@ -1034,7 +1072,16 @@ fn main() -> anyhow::Result<()> {
     // 1. Snapshot + persist (Decision 1/3: a separate process, exp07, must
     //    be able to restore from this file alone).
     let (_serial0, monitors0, logical0) = read_state(&conn)?;
-    let backup = build_backup(&monitors0, &logical0);
+    let original_session_id = discover(current_uid()?)?
+        .1
+        .ok_or_else(|| anyhow::anyhow!("no unique active Wayland user session"))?;
+    let original_shell_pid = gnome_shell_pid(&conn)?;
+    let backup = build_backup(
+        &monitors0,
+        &logical0,
+        &original_session_id,
+        original_shell_pid,
+    );
     let shell_pid_before = if args.auto_kill_after_isolate {
         anyhow::ensure!(
             logical0.len() == 1
@@ -1046,7 +1093,7 @@ fn main() -> anyhow::Result<()> {
             std::path::Path::new("/usr/bin/kill").is_file(),
             "external kill command unavailable"
         );
-        Some(gnome_shell_pid(&conn)?)
+        Some(original_shell_pid)
     } else {
         None
     };
@@ -1185,9 +1232,11 @@ fn main() -> anyhow::Result<()> {
             anyhow::bail!("self-SIGKILL unexpectedly returned with status {status}");
         }
         println!(
-            "Isolated. PID={}, backup={}",
+            "Isolated. PID={}, backup={}, watchdog={} ({}s)",
             std::process::id(),
-            backup_path.display()
+            backup_path.display(),
+            watchdog_unit,
+            watchdog_seconds
         );
         println!("Press Enter to restore gracefully and exit, OR from a separate");
         println!(

@@ -17,7 +17,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blackroom_experiments::{
-    CommonArgs, ExperimentReport, ExperimentResult, evidence_dir, redact, write_evidence,
+    CommonArgs, ExperimentReport, ExperimentResult, current_uid, discover, evidence_dir, redact,
+    write_evidence,
 };
 use clap::Parser;
 use serde::{Deserialize, Serialize};
@@ -192,8 +193,36 @@ struct LogicalMonitorBackup {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DisplayBackup {
+    session_id: String,
+    shell_pid: u32,
     outputs: Vec<OutputBackup>,
     topology: Vec<LogicalMonitorBackup>,
+}
+
+fn verify_identity(
+    backup: &DisplayBackup,
+    current_session_id: &str,
+    current_shell_pid: u32,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !backup.session_id.is_empty()
+            && backup.shell_pid != 0
+            && backup.session_id == current_session_id
+            && backup.shell_pid == current_shell_pid,
+        "refusing display backup from a different GNOME session or Shell process"
+    );
+    Ok(())
+}
+
+fn verify_live_identity(conn: &Connection, backup: &DisplayBackup) -> anyhow::Result<()> {
+    let session_id = discover(current_uid()?)?
+        .1
+        .ok_or_else(|| anyhow::anyhow!("no unique active Wayland user session"))?;
+    let proxy = zbus::blocking::fdo::DBusProxy::new(conn)?;
+    let shell_pid = proxy.get_connection_unix_process_id(zbus::names::BusName::try_from(
+        "org.gnome.Mutter.ScreenCast",
+    )?)?;
+    verify_identity(backup, &session_id, shell_pid)
 }
 
 /// Reuses the mode IDs captured at snapshot time (Experiment 5 precedent),
@@ -285,9 +314,12 @@ struct Findings {
 }
 
 fn attempt_restore(conn: &Connection, backup: &DisplayBackup) -> anyhow::Result<()> {
+    verify_live_identity(conn, backup)?;
     let write_side = to_write_side(backup)?;
     let (serial, ..) = read_state(conn)?;
+    verify_live_identity(conn, backup)?;
     apply_monitors_config(conn, serial, &write_side)?;
+    verify_live_identity(conn, backup)?;
     set_power_save_mode(conn, POWER_SAVE_ON)
 }
 
@@ -301,6 +333,7 @@ fn main() -> anyhow::Result<()> {
     let backup: DisplayBackup = serde_json::from_str(&backup_text)?;
 
     let conn = Connection::session()?;
+    verify_live_identity(&conn, &backup)?;
 
     let (_serial0, monitors0, _logical0) = read_state(&conn)?;
     let monitors_before_restore: Vec<String> = monitors0
@@ -402,4 +435,28 @@ fn main() -> anyhow::Result<()> {
     println!("Wrote evidence to {}", dir.display());
     println!("Result: {result}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restore_refuses_missing_or_changed_origin() {
+        let mut backup = DisplayBackup {
+            session_id: "3".to_string(),
+            shell_pid: 34735,
+            outputs: Vec::new(),
+            topology: Vec::new(),
+        };
+        assert!(verify_identity(&backup, "3", 34735).is_ok());
+        assert!(verify_identity(&backup, "4", 34735).is_err());
+        assert!(verify_identity(&backup, "3", 34736).is_err());
+        backup.session_id.clear();
+        assert!(verify_identity(&backup, "", 34735).is_err());
+        backup.session_id = "3".to_string();
+        backup.shell_pid = 0;
+        assert!(verify_identity(&backup, "3", 0).is_err());
+        assert!(serde_json::from_str::<DisplayBackup>(r#"{"outputs":[],"topology":[]}"#).is_err());
+    }
 }
