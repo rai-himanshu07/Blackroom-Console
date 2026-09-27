@@ -54,7 +54,7 @@ fn checked_reply(
         ));
     }
     let expected = match command {
-        OfflineCommand::Start { .. } | OfflineCommand::Input {} => State::RemoteActive,
+        OfflineCommand::Start { .. } | OfflineCommand::Input { .. } => State::RemoteActive,
         OfflineCommand::Revoke {} => State::LocalLocked,
         OfflineCommand::Status {} => match response.state.as_str() {
             "LOCAL_LOCKED" => State::LocalLocked,
@@ -71,6 +71,12 @@ fn checked_reply(
         return Err(BlackroomError::new(
             ErrorCode::HostUnavailable,
             "invalid offline authority response",
+        ));
+    }
+    if matches!(command, OfflineCommand::Input { epoch, .. } if *epoch != response.epoch) {
+        return Err(BlackroomError::new(
+            ErrorCode::HostUnavailable,
+            "offline input epoch changed",
         ));
     }
     match (command, response.next_proof.as_deref()) {
@@ -344,7 +350,7 @@ impl SeparatedHost {
         self.request(OfflineCommand::Revoke {})
     }
 
-    pub fn input(&mut self, event: InputEvent) -> Result<(), BlackroomError> {
+    pub fn input(&mut self, event: InputEvent, sequence: u64) -> Result<(), BlackroomError> {
         if !event.valid() {
             return Err(BlackroomError::new(
                 ErrorCode::IpcInvalidMessage,
@@ -357,7 +363,10 @@ impl SeparatedHost {
                 "offline input requires an active session",
             ));
         }
-        self.request(OfflineCommand::Input {})?;
+        self.request(OfflineCommand::Input {
+            epoch: self.epoch,
+            sequence,
+        })?;
         if let InputEvent::Move { dx, dy } = event {
             self.pointer.x = (self.pointer.x + dx / 10.0).clamp(5.0, 95.0);
             self.pointer.y = (self.pointer.y + dy / 10.0).clamp(8.0, 88.0);
@@ -403,7 +412,11 @@ mod tests {
             code: None,
             next_proof: None,
         };
-        assert!(checked_reply(&OfflineCommand::Input {}, &reply, 4).is_err());
+        let input = OfflineCommand::Input {
+            epoch: 4,
+            sequence: 1,
+        };
+        assert!(checked_reply(&input, &reply, 4).is_err());
         reply.state = "REMOTE_ACTIVE".into();
         reply.epoch = 3;
         reply.next_proof = Some("ab".repeat(32));
@@ -431,7 +444,7 @@ mod tests {
             .unwrap(),
             State::RemoteActive
         );
-        assert!(checked_reply(&OfflineCommand::Input {}, &reply, 4).is_err());
+        assert!(checked_reply(&input, &reply, 4).is_err());
         reply.next_proof = Some("invalid".into());
         assert!(
             checked_reply(
@@ -457,7 +470,7 @@ mod tests {
             .is_err()
         );
         assert_eq!(
-            checked_reply(&OfflineCommand::Input {}, &reply, 4).unwrap(),
+            checked_reply(&input, &reply, 4).unwrap(),
             State::RemoteActive
         );
         assert_eq!(
@@ -513,7 +526,7 @@ mod tests {
         demo.hostd.0.kill().unwrap();
         demo.hostd.0.wait().unwrap();
         assert_ne!(demo.snapshot().state, State::RemoteActive.as_str());
-        assert!(demo.input(InputEvent::Key { code: 30 }).is_err());
+        assert!(demo.input(InputEvent::Key { code: 30 }, 1).is_err());
         let deadline = Instant::now() + Duration::from_secs(3);
         while demo.agent.0.try_wait().unwrap().is_none() && Instant::now() < deadline {
             std::thread::yield_now();
@@ -523,7 +536,7 @@ mod tests {
         assert!(demo.snapshot().events.is_empty());
         demo.start(DEMO_CODE).unwrap();
         assert!(demo.snapshot().epoch > prior_epoch);
-        demo.input(InputEvent::Key { code: 30 }).unwrap();
+        demo.input(InputEvent::Key { code: 30 }, 1).unwrap();
         assert_eq!(demo.snapshot().events.len(), 1);
         drop(demo);
         let mut restarted =
@@ -546,7 +559,7 @@ mod tests {
         demo.agent.0.kill().unwrap();
         demo.agent.0.wait().unwrap();
         assert_eq!(demo.snapshot().state, State::FailedSafe.as_str());
-        assert!(demo.input(InputEvent::Key { code: 30 }).is_err());
+        assert!(demo.input(InputEvent::Key { code: 30 }, 1).is_err());
         assert_eq!(demo.snapshot().state, State::FailedSafe.as_str());
         assert!(demo.snapshot().events.is_empty());
         assert_eq!(
@@ -611,7 +624,10 @@ mod tests {
             let stopped = demo.snapshot();
             assert_eq!(stopped.state, State::FailedSafe.as_str(), "{loss}");
             assert!(stopped.epoch > before, "{loss}");
-            assert!(demo.input(InputEvent::Key { code: 30 }).is_err(), "{loss}");
+            assert!(
+                demo.input(InputEvent::Key { code: 30 }, 1).is_err(),
+                "{loss}"
+            );
             assert!(demo.snapshot().events.is_empty(), "{loss}");
             assert_eq!(
                 demo.start(DEMO_CODE).unwrap_err().code,
@@ -663,7 +679,7 @@ mod tests {
             ErrorCode::HostUnavailable
         );
         assert_eq!(demo.snapshot().state, State::LocalLocked.as_str());
-        assert!(demo.input(InputEvent::Key { code: 30 }).is_err());
+        assert!(demo.input(InputEvent::Key { code: 30 }, 1).is_err());
         assert!(demo.snapshot().events.is_empty());
         drop(demo);
         let mut restarted =

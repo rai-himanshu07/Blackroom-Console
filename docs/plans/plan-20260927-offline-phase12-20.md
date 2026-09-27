@@ -18,6 +18,8 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   Each acknowledged fake grant gets a random, non-secret input ID; input
   requires that ID and the exact next sequence before the fake sink is called.
   Invalid, replayed, gapped and stale envelopes leave the event log unchanged.
+  Separated hostd also requires the active signed lease epoch and its own
+  increasing sequence before it forwards fake input to the agent.
 - [x] Phase 13 slice: browser consumes the current grant/sequence in memory,
   disables control before initial status and on missing binding, ignores
   status responses older than a local command, and renders locked/failed-safe/

@@ -158,6 +158,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
     let mut gateway = accept_gateway(&listener)?;
     let mut agent = Some(connect_agent(agent_socket)?);
     let mut current_grant: Option<AuthorityUpdate> = None;
+    let mut input_sequence = 0_u64;
     let mut invalid_start_attempts = 0_u8;
     loop {
         if host.emergency_required() {
@@ -214,6 +215,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 if invalid_start_attempts == MAX_INVALID_START_ATTEMPTS {
                     if host.state() == State::RemoteActive {
                         current_grant = None;
+                        input_sequence = 0;
                         let granted_epoch = host.epoch();
                         let update = host.revoke_update()?;
                         let stream = agent
@@ -244,6 +246,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 let stream = agent.as_mut().expect("agent connected");
                 if acknowledged(stream, &update, directory)? {
                     current_grant = Some(update);
+                    input_sequence = 0;
                     simulation_proof = next_proof.clone();
                     invalid_start_attempts = 0;
                     let mut response = reply(&host, true, None);
@@ -259,6 +262,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
             }
             OfflineCommand::Revoke {} => {
                 current_grant = None;
+                input_sequence = 0;
                 let granted_epoch = host.epoch();
                 let update = host.revoke_update()?;
                 let stream = agent
@@ -273,19 +277,26 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 host.complete_recovery(granted_epoch)?;
                 reply(&host, true, None)
             }
-            OfflineCommand::Input {} => match current_grant.as_ref() {
-                Some(update) => {
+            OfflineCommand::Input { epoch, sequence } => match current_grant.as_ref() {
+                Some(AuthorityUpdate::Grant { lease, .. })
+                    if lease.security_epoch.value() == epoch
+                        && input_sequence.checked_add(1) == Some(sequence) =>
+                {
+                    let update = current_grant.as_ref().expect("checked current grant");
                     let stream = agent
                         .as_mut()
                         .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
                     if acknowledged(stream, update, directory)? {
+                        input_sequence = sequence;
                         reply(&host, true, None)
                     } else {
                         current_grant = None;
+                        input_sequence = 0;
                         host.revoke_update()?;
                         reply(&host, false, Some("LEASE_INVALID"))
                     }
                 }
+                Some(_) => reply(&host, false, Some("LEASE_INVALID")),
                 None => reply(&host, false, Some("AUTH_INVALID")),
             },
             OfflineCommand::Status {} => reply(&host, true, None),

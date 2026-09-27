@@ -32,6 +32,8 @@ requests to 64 KiB. The browser hides fake control if the grant or sequence
 is missing, and discards status replies that started before a later command.
 These guards prevent stale local requests, not unauthorized clients: no
 production authentication, WebRTC or media channel is enabled.
+In `SEPARATE` mode hostd independently refuses a wrong lease epoch or repeated
+input sequence before it contacts the fake agent.
 
 To keep only the synthetic host identity and epoch across gateway restarts,
 prepare an **existing, owner-owned `0700` directory outside this repository**

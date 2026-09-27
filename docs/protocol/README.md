@@ -15,7 +15,10 @@ that snapshot is `REMOTE_ACTIVE`, it includes a fresh, non-secret 32-hex-digit
 `scroll`. The gateway checks the current grant and exact next sequence before
 dispatch and advances the sequence only after successful fake input. Repeats,
 gaps, prior-grant commands and legacy unbound bodies are refused without
-recording input. HTTP JSON is bounded by the core 64-KiB message limit, with
-the stricter 512-byte limit for input. `input_grant` is a freshness marker,
+recording input. In `--separate` mode, hostd also checks the active signed
+lease epoch and its own exact next sequence before contacting the fake agent;
+invalid commands do not advance either counter. HTTP JSON is bounded by the
+core 64-KiB message limit, with the stricter 512-byte limit for input.
+`input_grant` is a freshness marker,
 not a credential; the public demo code is not user authentication or WebRTC
 signalling. Neither endpoint can send live GNOME input.

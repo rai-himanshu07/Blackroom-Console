@@ -316,7 +316,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
         agent
             .set_write_timeout(Some(Duration::from_secs(2)))
             .unwrap();
-        for (expected, expected_epoch) in [(1_u8, 1), (1, 1), (0, 2), (1, 2), (0, 3)] {
+        for (expected, expected_epoch) in [(1_u8, 1), (1, 1), (1, 1), (0, 2), (1, 2), (0, 3)] {
             let mut header = [0_u8; 4];
             agent.read_exact(&mut header).unwrap();
             let length = u32::from_be_bytes(header) as usize;
@@ -410,7 +410,13 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
             },
             "REMOTE_ACTIVE",
         ),
-        (OfflineCommand::Input {}, "REMOTE_ACTIVE"),
+        (
+            OfflineCommand::Input {
+                epoch: 1,
+                sequence: 1,
+            },
+            "REMOTE_ACTIVE",
+        ),
         (OfflineCommand::Revoke {}, "LOCAL_LOCKED"),
         (
             OfflineCommand::Start {
@@ -442,6 +448,23 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
             current_proof = replacement;
         } else {
             assert!(response.next_proof.is_none());
+        }
+        if index == 1 {
+            for (epoch, sequence) in [(1, 1), (1, 0), (1, 3), (2, 2)] {
+                write_frame(&mut gateway, &OfflineCommand::Input { epoch, sequence }).unwrap();
+                let refused: OfflineReply = read_frame(&mut gateway).unwrap();
+                assert!(!refused.accepted);
+                assert_eq!(refused.code.as_deref(), Some("LEASE_INVALID"));
+            }
+            write_frame(
+                &mut gateway,
+                &OfflineCommand::Input {
+                    epoch: 1,
+                    sequence: 2,
+                },
+            )
+            .unwrap();
+            assert!(read_frame::<OfflineReply>(&mut gateway).unwrap().accepted);
         }
         if index == 2 {
             write_frame(
@@ -505,7 +528,14 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
             let locked: OfflineReply = read_frame(&mut gateway).unwrap();
             assert!(!locked.accepted);
             assert_eq!(locked.code.as_deref(), Some("AUTH_RATE_LIMITED"));
-            write_frame(&mut gateway, &OfflineCommand::Input {}).unwrap();
+            write_frame(
+                &mut gateway,
+                &OfflineCommand::Input {
+                    epoch: 2,
+                    sequence: 1,
+                },
+            )
+            .unwrap();
             let blocked: OfflineReply = read_frame(&mut gateway).unwrap();
             assert!(!blocked.accepted);
             assert_eq!(blocked.state, "LOCAL_LOCKED");

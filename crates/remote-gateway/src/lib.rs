@@ -59,10 +59,10 @@ impl SimulationBackend {
         }
     }
 
-    fn input(&mut self, event: InputEvent) -> Result<(), BlackroomError> {
+    fn input(&mut self, event: InputEvent, sequence: u64) -> Result<(), BlackroomError> {
         match self {
             Self::InProcess(host) => host.input(event),
-            Self::Separated(host) => host.input(event),
+            Self::Separated(host) => host.input(event, sequence),
         }
     }
 }
@@ -133,7 +133,7 @@ impl OfflineConsole {
                 "stale offline input grant or sequence",
             ));
         }
-        self.backend.input(command.event)?;
+        self.backend.input(command.event, command.sequence)?;
         self.last_sequence = command.sequence;
         Ok(())
     }

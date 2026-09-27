@@ -12,7 +12,7 @@ pub const DEMO_CODE: &str = "SIMULATE";
 pub enum OfflineCommand {
     Start { proof: String, demo_code: String },
     Revoke {},
-    Input {},
+    Input { epoch: u64, sequence: u64 },
     Status {},
 }
 
@@ -86,10 +86,20 @@ mod tests {
     #[test]
     fn framed_offline_command_round_trip_and_rejects_extra_fields() {
         let (mut sender, mut receiver) = UnixStream::pair().unwrap();
-        write_frame(&mut sender, &OfflineCommand::Input {}).unwrap();
+        write_frame(
+            &mut sender,
+            &OfflineCommand::Input {
+                epoch: 1,
+                sequence: 1,
+            },
+        )
+        .unwrap();
         assert!(matches!(
             read_frame::<OfflineCommand>(&mut receiver).unwrap(),
-            OfflineCommand::Input {}
+            OfflineCommand::Input {
+                epoch: 1,
+                sequence: 1
+            }
         ));
         let invalid = serde_json::json!({"command": "start", "authenticated": true});
         write_frame(&mut sender, &invalid).unwrap();
