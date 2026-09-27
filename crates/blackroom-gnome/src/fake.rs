@@ -74,6 +74,7 @@ pub struct FakeGnomeBackend {
     faults: FaultConfig,
     virtual_monitor_active: bool,
     physical_outputs_disabled: bool,
+    physical_input_isolated: bool,
     remote_input_enabled: bool,
     capturing: bool,
     locked: bool,
@@ -86,6 +87,7 @@ impl FakeGnomeBackend {
             faults,
             virtual_monitor_active: false,
             physical_outputs_disabled: false,
+            physical_input_isolated: false,
             remote_input_enabled: false,
             capturing: false,
             locked: false,
@@ -105,6 +107,47 @@ impl FakeGnomeBackend {
 
     pub fn is_remote_input_enabled(&self) -> bool {
         self.remote_input_enabled
+    }
+
+    pub fn is_capturing(&self) -> bool {
+        self.capturing
+    }
+
+    pub fn is_physical_input_isolated(&self) -> bool {
+        self.physical_input_isolated
+    }
+
+    pub fn physical_device_accepted(&self, _device: &str) -> bool {
+        !self.physical_input_isolated
+    }
+
+    pub fn emergency_chord_observable(&self) -> bool {
+        true
+    }
+
+    pub fn isolate_physical_input(&mut self) -> Result<(), BlackroomError> {
+        if let FaultDecision::ApplyEffect =
+            self.decide("isolate_physical_input", ErrorCode::InputIsolationFailed)?
+        {
+            self.physical_input_isolated = true;
+        }
+        Ok(())
+    }
+
+    pub fn restore_physical_input(&mut self) -> Result<(), BlackroomError> {
+        if let FaultDecision::ApplyEffect =
+            self.decide("restore_physical_input", ErrorCode::InputRestoreFailed)?
+        {
+            self.physical_input_isolated = false;
+        }
+        Ok(())
+    }
+
+    pub fn observed_lock_state(&mut self) -> Result<bool, BlackroomError> {
+        match self.decide("observed_lock_state", ErrorCode::SessionLockFailed)? {
+            FaultDecision::ApplyEffect => Ok(self.locked),
+            FaultDecision::SkipEffect => Ok(false),
+        }
     }
 
     pub fn is_physical_outputs_disabled(&self) -> bool {
@@ -274,6 +317,31 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
     use std::thread;
+
+    #[test]
+    fn physical_isolation_covers_hotplug_and_preserves_emergency_observation() {
+        let mut backend = FakeGnomeBackend::default();
+        backend.enable_remote_input().unwrap();
+        backend.isolate_physical_input().unwrap();
+        assert!(!backend.physical_device_accepted("internal-keyboard"));
+        assert!(!backend.physical_device_accepted("new-usb-keyboard"));
+        assert!(backend.is_remote_input_enabled());
+        assert!(backend.emergency_chord_observable());
+        backend.restore_physical_input().unwrap();
+        assert!(backend.physical_device_accepted("new-usb-keyboard"));
+    }
+
+    #[test]
+    fn lock_and_input_isolation_require_observed_effects() {
+        let faults = FaultConfig::new()
+            .inject("observed_lock_state", FaultMode::Partial)
+            .inject("isolate_physical_input", FaultMode::Partial);
+        let mut backend = FakeGnomeBackend::new(faults);
+        backend.lock_session().unwrap();
+        assert!(!backend.observed_lock_state().unwrap());
+        backend.isolate_physical_input().unwrap();
+        assert!(!backend.is_physical_input_isolated());
+    }
 
     #[test]
     fn normal_operation_applies_effects() {

@@ -5,6 +5,21 @@
 **Approved by:** user ("approved proceed", 2026-09-05)
 **Task tier:** governed
 
+The recorded one-run approvals are spent and Gate FEAS-C remains stopped. For
+future diagnostic work, use the prospective run-specific route in
+`docs/ops/experiment-safety.md` §7: preserve the product stop and the failed
+connected-HDMI observation, but do not require another independent review for
+each same-mechanism supervised diagnostic with unchanged recovery controls.
+Offline implementation may continue independently; no live run is approved by
+this plan alone.
+The matrix, hotplug/mode variants, and cycle counts below are the original
+comprehensive acceptance targets, not prerequisites for building the app
+offline. Select the minimum live evidence for a *supported* display layout
+before enabling isolation there; leave connected-HDMI support disabled while
+its final restoration remains unreliable. Defer other runs until a named
+failure or expanded support claim calls for them. Do not mark FEAS-C PASS
+from the unplugged-HDMI diagnostic or from incomplete privacy/restore proof.
+
 ## Goal
 
 Prove, with real (not mocked, not black-window) Mutter mutation, that every physical
@@ -1268,3 +1283,47 @@ read-only run. See Risks.
   the plan's required topology hash. The generated artifacts are preserved
   unchanged; the hash-plus-field acceptance criterion remains **unmet** and
   must be reconciled before any Gate FEAS-C determination.
+- 2026-09-27 (one connected-but-inactive HDMI diagnostic; STOP, no repeat):
+  operator approved the exact 45-second no-kill pause command with fresh
+  second-device SSH, saved work and eDP observation. The first watchdog
+  exp07 PASS restored eDP-only while Meta-0 remained raw. After the operator
+  confirmed desktop and SSH, Enter armed a separate 45-second cleanup timer
+  before ScreenCast Stop. Exp06's final findings report FAIL: HDMI-1 became
+  logically active beside eDP-1 after Stop, matching the previous failure;
+  Shell PID 34735/session 3 and power ON were stable. The second watchdog
+  exp07 PASS restored the original eDP-only logical topology; Meta-0 was
+  gone, timers disarmed, service restored disabled/inactive and operator
+  confirmed normal desktop. See `docs/experiments/evidence/exp06/2026-09-27-3/observation.md`.
+  This run supports a reproducible connected-HDMI post-Stop mismatch, not
+  its cause or Gate C PASS. Original generated artifacts remain unchanged;
+  historical Shell crash and backup-hash acceptance gap remain. No new run
+  is authorized by this result.
+- 2026-09-27 (offline post-Stop guard repair, no run): exp06 no longer disarms
+  its identity-checked RestoreGuard before ScreenCast Stop. It disarms the
+  guard and exact-backup timer only when the pre-Stop restore, Stop result,
+  connector removal and final topology all verify; a mismatch still reports
+  FAIL and retains both fallback paths. Focused synthetic tests and lint pass;
+  this changed fallback has not been observed live. The canonical
+  `blackroom-gnome` hash covers sorted output records (including enabled
+  state), not the full logical topology. Exp06/exp07's historical JSON schema
+  omits enabled/primary/hash, so a compatible shared-schema migration and
+  field-plus-hash verification remain separate work before Gate C assessment.
+- 2026-09-27 (offline future-backup schema, no run): new exp06 snapshots include
+  per-output enabled state, primary connector/serial and the existing
+  `blackroom-gnome` output hash. Exp07 continues to read old backups with
+  identity plus exact logical-field checks; it rejects incomplete or corrupt
+  new metadata before any GNOME write and requires current backed-output hash
+  **and** exact logical topology for a new-backup PASS. Raw virtual connectors
+  left by a still-paused exp06 are excluded from the physical-output hash;
+  disabled outputs with no current mode retain only their saved mode in that
+  comparison. Focused synthetic exp06/exp07/canonical-hash tests and lint pass.
+  The review identified two additional recovery risks: the original
+  `DefaultHasher` value could change across builds, and disabled raw HDMI
+  without a current mode was omitted from the snapshot. The offline repair
+  now uses a pinned version-one SHA-256-derived output hash and includes raw
+  disabled outputs with explicit no-mode fields. Exp07 falls back to exact
+  identity/topology checks for old, unversioned or unknown-version backups;
+  it enforces hash plus fields for version one. The hash is not a security
+  control or a full topology hash. Cross-build fixture, disabled-HDMI and
+  old-backup tests pass, but the new path has not been observed live. Old
+  generated evidence is unchanged and Gate FEAS-C stays stopped.

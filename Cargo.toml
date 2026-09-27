@@ -6,6 +6,8 @@ members = [
     "crates/blackroom-gnome",
     "crates/blackroom-systest",
     "crates/gnome-session-agent",
+    "crates/remote-hostd",
+    "crates/remote-gateway",
 ]
 
 [workspace.package]

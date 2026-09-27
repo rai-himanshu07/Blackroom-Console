@@ -9,13 +9,15 @@
 
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
+
 /// Monotonically increasing security epoch (Doc 07 §16). Incremented on
 /// every authority-invalidating event (assessment C7's list: emergency,
 /// revoke-all, remote-access disable, security reset, host recovery,
 /// unclean-shutdown restart, TOTP reset, password change, Access Key
 /// rotation, trusted-device revocation, uninstall/upgrade teardown). A
 /// lease/session bound to an older epoch is invalid (Invariant 1, 6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SecurityEpoch(u64);
 
 impl SecurityEpoch {

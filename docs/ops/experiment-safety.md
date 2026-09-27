@@ -10,6 +10,18 @@ starting with Phase 4. Source: assessment §8 ("Safety plan for running experime
 development workstation"); this workstation is both the development machine and the
 target, so there is no disposable test box.
 
+## Experiment selection
+
+Implement independent app components with synthetic/local checks first. Run a
+live experiment only when it resolves a named unknown essential to the
+supported core workflow and cannot be answered offline. One bounded run on
+the supported layout should answer one question; expand only after a concrete
+failure or a new support claim. Historical 50-cycle targets, every GPU/mode
+matrix row, repeated observations, and optional cursor/hotplug experiments
+are not automatic prerequisites to writing the app. They remain unproven when
+deferred. No live isolation, input injection, or activation is authorized by
+this selection rule; the prerequisites below and §7 still apply to each run.
+
 ## 1. Out-of-band access (prerequisite, verified once)
 
 - `openssh-server` is installed and socket-activated (`ssh.socket`), LAN address
@@ -118,12 +130,12 @@ target, so there is no disposable test box.
 - This is distinct from §2's watchdog: it bounds automated test loops against a hang, not
   operator recovery from a lost physical display/input.
 
-## 7. Supervised crash reassessment (Phase 5 stop still applies)
+## 7. Supervised diagnostics (product stop still applies)
 
-This is a recovery procedure, not authorization to run an experiment. Before any new
-GNOME mutation, the operator must be at the workstation, establish a fresh SSH login
-from a second device, and approve the exact command. Keep that SSH shell open. Record
-the start time and GNOME Shell PID; check `ssh.socket` is active and no earlier exp06
+This is a recovery procedure, not blanket authorization to run an experiment. Before
+any new GNOME mutation, the operator must be at the workstation, establish a fresh SSH
+login from a second device, and approve the exact command and run conditions. Keep that
+SSH shell open. Record the start time and GNOME Shell PID; check `ssh.socket` is active and no earlier exp06
 watchdog timer is pending. `gnome-remote-desktop.service` must be masked per §5 for
 ScreenCast experiments. Do not run a deliberate SIGKILL or physical-output isolation
 as an initial crash diagnostic. A single `exp04_virtual_monitor --skip-cycles` run
@@ -277,6 +289,32 @@ returned to disabled/inactive; the operator confirmed a normal desktop.
 This narrows the earlier failure to the connected-HDMI setup without proving
 Mutter's cause or a safe connected-HDMI restore. Do not promote Gate C or
 repeat either test based on this observation.
+
+### Next supervised diagnostic (prospective rule)
+
+The earlier crash and connected-HDMI restoration failure block product activation
+and Gate FEAS-C, not all investigation. The historical one-run approvals above are
+spent; they do not authorize a new run. A new bounded diagnostic can proceed on
+this host without a new independent review of the *same* mechanism if the operator
+explicitly accepts the known crash/privacy/restore risk for its exact command and
+layout, and the current code/evidence identifies the failure being investigated.
+No approval is needed to continue independent offline implementation or synthetic
+tests. A different mechanism, input injection, intentional process kill, or changed
+recovery envelope needs its own risk assessment before live execution.
+
+Before each live display/input run, save work, verify a fresh second-device SSH
+session, original Shell/login identity and physical layout, capture a unique
+baseline, confirm the relevant service state and no stale timers, and verify the
+exact-backup identity-guarded restore timer is armed before any mutation. Follow
+the two-timer cleanup procedure above when stopping a paused exp06 owner. The
+operator watches the physical display through final cleanup; confirm raw and
+logical topology, power, Shell/session, timer result and desktop visibility before
+declaring recovery. If a prerequisite fails, Shell/session changes, the watchdog
+fails, or final topology differs, stop that run, recover via the original-session
+path above where possible, and reassess the failure before any retry. Never use
+an old backup on a replacement session. Record failures and uncertainty as such;
+the next clean diagnostic cannot by itself certify Gate FEAS-C or erase the
+connected-HDMI result. Do not repeat matrix runs simply to accumulate PASS reports.
 
 The deliberate **HDMI-only SIGKILL** scenario is a different, higher-risk
 test and requires its own explicit approval; earlier GNOME Shell SIGSEGV under

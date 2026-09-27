@@ -8,24 +8,26 @@
 ## Goal
 
 Build and test the minimal Phase 6 remote-input path offline, without creating
-an EIS session or injecting input on the daily-driver host. Gate FEAS-C and
-the Phase 5 Mutter-instability stop remain in force for product activation;
-live FEAS-D proof requires a separate supervised approval.
+an EIS session or injecting input on the daily-driver host. Independent later-phase
+host, gateway, and browser implementation may proceed offline in parallel. Gate
+FEAS-C and the Phase 5 Mutter-instability stop remain in force for product
+activation; live FEAS-D proof requires a separate supervised approval.
 
 ## Acceptance Criteria
 
 - The exact GNOME 50.1 `RemoteDesktop.Session.ConnectToEIS` contract and the
   selected `reis` API/version are verified from current source or documentation;
   record unknowns instead of inferring the contract from InputCapture.
-- A future Experiment 8 can prove pointer, click, scroll, keyboard, modifiers,
-  and special keys reach the *selected existing* GNOME session in a terminal,
-  editor, browser, and window movement, without arbitrary shell execution.
+- A future bounded Experiment 8 can prove the input modes required by the
+  supported core workflow reach the *selected existing* GNOME session,
+  including refusal after revoke/teardown; expand the app/event matrix only
+  when a specific use case or failure requires it.
 - A future authorization check rejects input unless authentication,
   authorization, current epoch, valid control lease, and `REMOTE_ACTIVE` all
   hold; fake-hostd tests must cover each missing condition and teardown.
-- Cursor position/shape and absolute coordinates on the virtual-monitor
-  region have a defined observation method for Experiment 28, including the
-  Intel/NVIDIA paths; unobserved hardware-cursor claims remain unknown.
+- Cursor position/shape and absolute coordinates on the supported virtual
+  monitor have a defined observation method if needed for core usability;
+  unobserved GPU or hardware-cursor variants remain unknown.
 - No FEAS-D PASS or Phase 7 readiness claim is made from introspection or
   static tests alone.
 
@@ -33,9 +35,11 @@ live FEAS-D proof requires a separate supervised approval.
 
 - No live `CreateSession`, `ConnectToEIS`, input injection, or physical input
   isolation without a separate supervised test approval.
-- No Gate FEAS-C promotion, product remote-mode activation, Phase 7 work, or
-  relaxation of the Phase 5 stop for live display experiments.
-- No browser transport, product networking, or hostd deployment (later phases).
+- No Gate FEAS-C promotion, product remote-mode activation, or live Phase 7
+  experiment without its own recovery and operator approval.
+- This plan does not implement browser transport, product networking, or hostd
+  deployment; separate offline slices may implement them without waiting for
+  a live FEAS-C or FEAS-D result. Do not expose a remote-mode activation path.
 
 ## Evidence And Decisions
 
@@ -77,6 +81,12 @@ live FEAS-D proof requires a separate supervised approval.
   once its exact API and license are reviewed. Do not wire an input listener
   into agent startup or enable remote mode. This does not amend Doc 00 §49's
   live safety stop or certify any feasibility gate.
+- 2026-09-27 implementation-first amendment: that earlier narrow exception
+  no longer prevents independent offline host, gateway, UI, or input-isolation
+  development. This supersedes the earlier Doc 00/10 §49 stop interpretation
+  for independent offline code, not for live tests or product activation. It
+  gives no permission to inject input or change physical state. Track unresolved
+  gates; do not present offline implementation as live feasibility evidence.
 
 ## Risks
 
@@ -90,6 +100,9 @@ live FEAS-D proof requires a separate supervised approval.
 - The offline gate accepts a verifying key and authentication/authorization
   snapshot from its caller. Until the agent binds those to trusted hostd
   state, synthetic tests cannot establish the real trust boundary.
+- The new agent-owned offline authority builds that snapshot per event from
+  private state and a host verifier; its simulated grant is not a production
+  hostd identity, authentication, or state-update channel.
 - Intel/NVIDIA cursor and absolute-coordinate mapping must be measured, not
   inferred from a pointer moving on one GPU.
 - `reis::event::EiConvertEventIterator::next` blocks while waiting for
@@ -115,15 +128,18 @@ live FEAS-D proof requires a separate supervised approval.
   - Depends on: step 1 and the 2026-09-27 offline-only exception
   - Verify: focused fake-hostd negative tests for all five authority terms;
     no input after revoke, teardown, or stale epoch.
-- [ ] 3. Only after a separate live-test approval on a prepared host with an
-  operator and recovery path,
-      implement and run Experiments 8 and 28 using bounded input events.
-  - Files: `crates/blackroom-experiments/src/bin/exp08_remote_input.rs`,
-    `crates/blackroom-experiments/src/bin/exp28_cursor.rs`
+- [ ] 3. Only after a separate live-test approval with an operator and recovery
+      path, run one bounded Experiment 8 proof for keyboard, pointer, click,
+      scroll, revoke, and teardown in the selected existing session. Add the
+      Experiment 28 cursor/absolute-coordinate check only if that unknown
+      blocks usability on the supported display layout.
+  - Files: `crates/blackroom-experiments/src/bin/exp08_remote_input.rs`;
+    `exp28_cursor.rs` only if required by the supported core path
   - Depends on: step 2 and a new live-test authorization
-  - Verify: Doc 10 §15 / Doc 02 §14 app-and-event matrix plus cursor/mapping
-    observations; session identity, teardown, and no-input-when-unauthorized.
-- [ ] 4. Review recorded evidence independently and determine FEAS-D PASS or
+  - Verify: representative target-window input, session identity, teardown,
+    and no-input-when-unauthorized; expand the app/hardware matrix only for a
+    specific failure or additional support claim.
+- [ ] 4. Review recorded evidence for the supported configuration and determine FEAS-D PASS or
       stop-and-report; only then consider Phase 7's separate Gate E plan.
   - Files: `docs/gnome/capability-report.md`, `docs/HANDOFF.md`
   - Depends on: step 3
@@ -131,16 +147,16 @@ live FEAS-D proof requires a separate supervised approval.
 
 ## Final Verification
 
-- Run focused synthetic tests after each offline implementation slice, then
-  `AGENTS.md`'s Rust workspace gates and dependency checks if `reis` is added.
+- Run focused synthetic tests after each offline implementation slice; use one
+  workspace/dependency checkpoint for integration or release, not every slice.
 - No GNOME input session or gate promotion can be validated by unit tests;
   these require separate operator evidence and independent review.
 
 ## Blockers
 
 - Phase 5 stop-and-report and unproven FEAS-C block product activation and
-  live input experiments. The exception authorizes offline Phase 6 PoC code
-  only; its live test still requires fresh, explicit approval.
+  unapproved live input experiments, not independent offline work in later
+  phases. A live input test still requires fresh, explicit approval.
 
 ## Execution Log
 
@@ -269,3 +285,84 @@ live FEAS-D proof requires a separate supervised approval.
   while the pure `ControlLease::validate` contract remains unchanged.
   Focused core regression and Clippy pass. The agent still lacks a trusted
   hostd authority/verifier source; no live EIS or input was attempted.
+- 2026-09-27 (offline cross-component slice): the user-session agent now owns
+  its verifier, epoch, session, state and credential; it validates grants,
+  clears failed replacements, refuses revoked credentials within an epoch and
+  dispatches all implemented EI event types through its authority. A fake
+  `reis` peer observes one key tap through this path and no post-revoke input.
+  An offline `remote-hostd` library owns a fixed synthetic signing key,
+  epoch and state; `remote-gateway --offline-sim` links it and the agent into
+  one loopback-only process with an in-memory input journal. The Vite/TypeScript
+  local control surface starts, sends and revokes that fake session. API
+  requests cannot supply authority fields. The normal agent startup and
+  live GNOME paths are unchanged. The CLI/UI are **simulation only**: no real
+  hostd identity, persisted epoch, trusted IPC update stream, real desktop
+  capture, input injection or FEAS-C/FEAS-D/FEAS-E proof exists yet. Step 2
+  remains open for real hostd trust binding and further live-independent
+  hardening; activation remains disabled.
+- 2026-09-27 (offline hostd-agent update socket): the core protocol now
+  carries structured Grant/Revoke updates with a signed lease. Hostd writes
+  length-prefixed bounded frames; the agent checks `SO_PEERCRED` before a
+  deadline-limited read, validates signature/session/epoch, and closes input
+  on invalid messages, EOF or timeout. The offline gateway sends updates
+  through a persistent Unix socket pair and drains queued revocations before
+  fake input; tests reproduced and fixed input-after-host-loss and epoch drift
+  on repeated Start attempts. All peers still share one process and UID;
+  no installed hostd socket ACL, durable identity/epoch, separate-service
+  recovery, live agent activation, Mutter EIS send or feasibility proof exists.
+- 2026-09-27 (offline persisted-host and process test): added an opt-in
+  file-backed host authority scoped to a pre-opened owner-only directory fd.
+  It creates a `0600` Ed25519 key and epoch, holds an exclusive lock, refuses
+  partial/symlinked/corrupt state, fsyncs atomic epoch replacement before
+  returning from revoke or restart, and blocks grants on epoch exhaustion.
+  A synthetic child process reopened the state, advanced the epoch and sent
+  revoke/grant updates over a Unix socket; the parent checked peer UID/PID,
+  dispatched fake input, then refused it on EOF. The loopback browser demo
+  still uses the original ephemeral in-process key and socket pair. No
+  production path/ACL, deployed hostd and agent services, live GNOME input,
+  or FEAS-C/D/E evidence was exercised; activation remains disabled.
+- 2026-09-27 (opt-in persisted offline console): the loopback gateway now
+  accepts an explicit `--state-dir` absolute path, opens it without following
+  symlinks, and refuses unsafe ownership/mode or incomplete state. Its HTTP
+  flow verifies persisted Start/Revoke, locked restart at a higher epoch,
+  storage-failure refusal and no state writes when the port is occupied.
+  The browser displays EPHEMERAL or PERSISTED; the default remains volatile.
+  This is still a same-UID, one-process simulation. No service installation,
+  physical state change, live input, or feasibility-gate promotion occurred.
+- 2026-09-27 (separate offline executables): an explicit
+  `gnome-session-agent --offline-sim-agent` binds only a private socket,
+  verifies the configured public key and peer UID, accepts bounded host
+  updates and reports fake control/EOF transitions without GNOME discovery.
+  `remote-hostd --offline-sim-host` opens persisted state and sends signed
+  Grant/Revoke updates over an agent socket inside that private directory.
+  Process tests verify correct delivery, refusal of wrong UID and old epoch,
+  and refusal of external socket paths. These are offline test tools, not
+  installed services or the browser's in-process authority. Production
+  verifier/UID provisioning, process recovery and live gates remain open.
+- 2026-09-27 (separated offline console path): hostd gained bounded,
+  strict Start/Revoke/Input control frames, with signature-checked agent
+  acknowledgment before accepting fake input. A separate private runtime
+  directory holds transient sockets. The gateway now supervises real offline
+  hostd/agent child processes under an explicit `--separate` option; its
+  HTTP test covers Start/input/revoke, persisted restart, and active-shutdown
+  rollback (caught and fixed a lost-revoke race). The web console reports
+  SEPARATE while continuing to label all content synthetic. This remains
+  same-UID local simulation, not installed hostd/agent privilege separation,
+  GNOME input, or FEAS-C/D/E evidence.
+- 2026-09-27 (idle and scratch recovery): a real browser launch exposed that
+  the offline agent exited after its 3s initial accept timeout while hostd
+  waited for Start. Hostd now connects at service startup; a bounded
+  beyond-3s idle test and browser Start succeed. Separate child-death tests
+  refuse further input, report `LOCAL_LOCKED` even on idle status reads, and
+  restart locked. Added opt-in `--separate-scratch`
+  with a private temporary identity and explicit SIGTERM/SIGINT shutdown;
+  graceful signal cleanup was observed. The terminal tool's hard stop left
+  four owner-only scratch directories in `/tmp` from two earlier runs; they
+  were not removed. No GNOME mutation or feasibility-gate promotion occurred.
+- 2026-09-27 (offline child recovery): status now checks supervised hostd
+  and agent processes and reports `LOCAL_LOCKED` after either dies. Only an
+  explicit subsequent Start relaunches both children from persisted state,
+  advances the epoch and requires a new signed grant before recording fake
+  input. Failed relaunch remains locked and logs no input; real-process tests
+  cover host death, agent death and missing replacement binary. No automatic
+  product recovery or live input was enabled.

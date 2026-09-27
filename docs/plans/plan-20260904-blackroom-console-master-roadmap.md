@@ -9,20 +9,34 @@
 with `/plan-task` when a phase starts — the first one is
 [plan-20260904-phase0-1-discovery-and-environment.md](plan-20260904-phase0-1-discovery-and-environment.md).
 
+**2026-09-27 execution amendment:** Build independent host, gateway, and browser
+pieces offline before closing every live feasibility gate. The phase sequence
+below describes product dependencies and the original comprehensive experiment
+scope, not a requirement to run all experiments or finish each phase before
+starting the next offline slice. Choose a bounded live test only for a specific
+unknown that blocks the supported core workflow; defer optional hardware
+variants, large matrices, repeat counts, and soak until a failure or support
+claim justifies them. Keep unproven features disabled and gaps explicit. Do not
+activate remote mode or call the product verified until its privacy, input,
+lock, rollback, and emergency claims have evidence on the supported setup.
+This user-approved execution amendment supersedes the earlier phase-order and
+stop-on-instability rules for **independent offline code only**; it does not
+override the live experiment recovery procedure or any product gate.
+
 ## Goal
 
 Deliver the product defined by Document 00: a Wayland-native remote console for
 Ubuntu 26.04 / GNOME 50+ that lets an authenticated browser use the existing GNOME session
 while the physical display is disabled and physical input is blocked, and that returns the
 workstation to `LOCAL_LOCKED` (or a defined `FAILED_SAFE`) on disconnect, failure, or
-emergency — built phase by phase behind experimentally proven feasibility gates, never as
-a single pass.
+emergency — implemented incrementally offline, with real feasibility evidence before
+enabling or claiming each dependent live capability.
 
 ## Acceptance Criteria
 
-- Every hard feasibility gate FEAS-A…H (Doc 00 §48 / Doc 10 §48) is demonstrated on the
-  target host with recorded evidence before any networking or browser work beyond local
-  prototypes begins.
+- Independent networking and browser implementation may start with synthetic/local
+  backends. Every feasibility claim needed for the supported live product must have
+  target-host evidence before enabling that capability or declaring release readiness.
 - Every product invariant INV-001…INV-014 has at least one automated test
   (`INV-SEC-*`/`INV-PERF-*` assertions) and, where physical, a recorded manual
   verification.
@@ -37,8 +51,8 @@ a single pass.
 - KDE, wlroots, X11, other distributions, multi-user, headless second sessions, clipboard,
   file transfer, audio, printing, camera, mobile-native clients, passkeys/WebAuthn as a
   replacement for the agreed model, enterprise identity (Doc 00 §72).
-- Any "best-effort" or feature-flagged version of display isolation, input isolation, lock
-  semantics, or emergency independence (Doc 00 §36, §49).
+- Shipping a "best-effort" isolation, lock, or emergency fallback. A disabled internal
+  implementation for offline development is not a supported product capability.
 - Rewriting the generated workflow scaffolding beyond the command-table alignment already
   approved.
 
@@ -78,8 +92,9 @@ a single pass.
   isolated behind `GnomeBackend`, versioned capability detection (Doc 05 §159, Doc 20).
 - Spec silence on numbers/algorithms invites inconsistent ad-hoc choices → single
   `blackroom_core::limits` and `docs/security/architecture.md` own them (assessment §6.4–6.5).
-- Single developer + agent, large surface → strict per-phase DoD and small commits (Doc 11
-  §44–45); no phase may start before the previous phase's gate is recorded in `docs/HANDOFF.md`.
+- Single developer + agent, large surface → prioritize a working offline core and keep
+  gaps visible in `docs/HANDOFF.md`; a failed live gate blocks dependent activation,
+  not independent offline work in a later phase.
 
 ## Steps
 

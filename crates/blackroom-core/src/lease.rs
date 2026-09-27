@@ -7,6 +7,7 @@
 use std::time::SystemTime;
 
 use ed25519_dalek::{Signature, SignatureError, Signer, SigningKey, Verifier, VerifyingKey};
+use serde::{Deserialize, Serialize};
 
 use crate::epoch::SecurityEpoch;
 use crate::error::{BlackroomError, ErrorCode};
@@ -14,7 +15,7 @@ use crate::state::State;
 
 /// Capability granted by a lease (assessment C6: lease capabilities are
 /// `VIEW, CONTROL` for v1; touch/tablet/clipboard are deferred).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Capability {
     View,
     Control,
@@ -31,7 +32,8 @@ impl Capability {
 
 /// The 8 assessment-C5 fields (Doc 07 itself says `user`; C5 already
 /// normalizes this to `user_id` — not a new conflict).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ControlLease {
     pub session_id: String,
     pub host_id: String,
@@ -213,6 +215,28 @@ mod tests {
             expires_at: now + Duration::from_secs(30),
             capabilities: vec![Capability::View, Capability::Control],
         }
+    }
+
+    #[test]
+    fn serialized_control_lease_keeps_signature() {
+        let lease = sample_lease(SecurityEpoch::INITIAL, SystemTime::now());
+        let (signing_key, verifying_key) = test_keypair();
+        let signature = lease.sign(&signing_key);
+        let wire = serde_json::to_vec(&lease).unwrap();
+        let restored: ControlLease = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(restored, lease);
+        restored.verify(&verifying_key, &signature).unwrap();
+    }
+
+    #[test]
+    fn serialized_lease_rejects_caller_authorization_fields() {
+        let lease = sample_lease(SecurityEpoch::INITIAL, SystemTime::now());
+        let mut value = serde_json::to_value(lease).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("authenticated".into(), serde_json::json!(true));
+        assert!(serde_json::from_value::<ControlLease>(value).is_err());
     }
 
     #[test]

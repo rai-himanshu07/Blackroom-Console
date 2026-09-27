@@ -92,6 +92,23 @@ impl EiConnection {
         self.connection.is_some() && self.converter.is_some()
     }
 
+    pub fn bind_seat(
+        &mut self,
+        added: &reis::event::SeatAdded,
+        capabilities: reis::event::DeviceCapability,
+    ) -> Result<(), BlackroomError> {
+        if !self.is_ready() {
+            return Err(BlackroomError::new(
+                ErrorCode::MutterUnavailable,
+                "EIS sender is not ready",
+            ));
+        }
+        added.seat.bind_capabilities(capabilities.into());
+        self.context
+            .flush()
+            .map_err(|_| BlackroomError::new(ErrorCode::MutterUnavailable, "EIS seat bind failed"))
+    }
+
     pub fn send_key_tap(
         &mut self,
         authorization: &InputAuthorization<'_>,

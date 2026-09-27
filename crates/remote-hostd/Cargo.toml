@@ -1,0 +1,23 @@
+[package]
+name = "remote-hostd"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Host-owned offline authority for Blackroom Console simulations"
+
+[lints]
+workspace = true
+
+[dependencies]
+blackroom-core = { version = "0.1.0", path = "../blackroom-core" }
+ed25519-dalek = "3.0.0"
+getrandom = "0.4.3"
+hex = "0.4.3"
+rustix = { version = "1.1.4", features = ["fs", "process", "net", "event"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+
+[dev-dependencies]
+tempfile = "3.23.0"

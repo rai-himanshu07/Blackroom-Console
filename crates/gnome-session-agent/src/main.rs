@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use gnome_session_agent::{AgentState, ipc, startup};
 
+mod offline;
+
 /// Doc 06 §29: bounded wait/retry if GNOME is not yet ready at startup.
 const MAX_STARTUP_ATTEMPTS: u32 = 10;
 const STARTUP_RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -19,6 +21,14 @@ fn socket_path() -> PathBuf {
 }
 
 fn main() {
+    let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if !arguments.is_empty() {
+        if let Err(error) = offline::run(&arguments) {
+            eprintln!("offline authority refused: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     tracing_subscriber::fmt::init();
     tracing::info!("gnome-session-agent starting");
     let state = startup::start(MAX_STARTUP_ATTEMPTS, STARTUP_RETRY_DELAY);
@@ -46,10 +56,8 @@ fn main() {
     loop {
         match ipc::accept_authorized(&listener, expected_uid) {
             Ok(_stream) => {
-                // No message protocol exists yet (remote-hostd, its only
-                // intended peer, does not exist yet either) — accepting
-                // and immediately closing proves the peer-verification
-                // mechanism without inventing protocol semantics early.
+                // The installed agent does not consume host authority updates;
+                // the explicit offline-only entry path above is separate.
                 tracing::info!("agent.sock: authorized connection closed (no protocol yet)");
             }
             Err(error) => {

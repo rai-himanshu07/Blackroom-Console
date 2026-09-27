@@ -13,11 +13,10 @@
 //! re-read fresh on every call, not the mode IDs).
 
 use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use sha2::{Digest, Sha256};
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::{OwnedValue, Type, Value};
 
@@ -222,12 +221,12 @@ pub struct DisplayBackup {
     pub outputs: Vec<OutputBackup>,
     pub topology: Vec<LogicalMonitorBackup>,
     pub primary_output: Option<(String, String)>,
-    /// Same-process/same-build integrity/equality check (Doc 05 §29) —
-    /// explicitly not a security control. Computed over `outputs` sorted by
-    /// `(connector, serial)`, `timestamp_unix`/`session_id` excluded so two
-    /// snapshots of the same topology hash equal regardless of when taken.
+    /// Versioned output equality check (Doc 05 §29), not a security control.
+    /// Full logical-topology fields must also match.
     pub configuration_hash: u64,
 }
+
+pub const CONFIGURATION_HASH_VERSION: u32 = 1;
 
 fn now_unix() -> i64 {
     SystemTime::now()
@@ -236,22 +235,34 @@ fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
-fn compute_hash(outputs: &[OutputBackup]) -> u64 {
+pub fn compute_hash(outputs: &[OutputBackup]) -> u64 {
     let mut sorted: Vec<&OutputBackup> = outputs.iter().collect();
     sorted.sort_by(|a, b| (&a.connector, &a.serial).cmp(&(&b.connector, &b.serial)));
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = Sha256::new();
+    hasher.update(b"blackroom-output-hash-v1");
+    hasher.update((sorted.len() as u64).to_be_bytes());
     for output in sorted {
-        output.connector.hash(&mut hasher);
-        output.vendor.hash(&mut hasher);
-        output.product.hash(&mut hasher);
-        output.serial.hash(&mut hasher);
-        output.mode_id.hash(&mut hasher);
-        output.width.hash(&mut hasher);
-        output.height.hash(&mut hasher);
-        output.refresh_rate.to_bits().hash(&mut hasher);
-        output.enabled.hash(&mut hasher);
+        for field in [
+            &output.connector,
+            &output.vendor,
+            &output.product,
+            &output.serial,
+            &output.mode_id,
+        ] {
+            hasher.update((field.len() as u64).to_be_bytes());
+            hasher.update(field.as_bytes());
+        }
+        hasher.update(output.width.to_be_bytes());
+        hasher.update(output.height.to_be_bytes());
+        hasher.update(output.refresh_rate.to_bits().to_be_bytes());
+        hasher.update([u8::from(output.enabled)]);
     }
-    hasher.finish()
+    let digest = hasher.finalize();
+    u64::from_be_bytes(
+        digest[..8]
+            .try_into()
+            .expect("SHA-256 digest is at least 8 bytes"),
+    )
 }
 
 /// One output's identity + currently-active mode, extracted from the raw
@@ -629,6 +640,15 @@ mod tests {
         let mut b = a.clone();
         b[0].width = 2560;
         assert_ne!(compute_hash(&a), compute_hash(&b));
+    }
+
+    #[test]
+    fn compute_hash_has_a_stable_version_one_fixture() {
+        assert_eq!(CONFIGURATION_HASH_VERSION, 1);
+        assert_eq!(
+            compute_hash(&[output("eDP-1", "S1", "m1", true)]),
+            130760377717090583
+        );
     }
 
     #[test]

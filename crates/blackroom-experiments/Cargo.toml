@@ -9,6 +9,7 @@ description = "Document 10 feasibility experiments (read-only Phase 0-1, mutatin
 
 [dependencies]
 anyhow = "1.0.104"
+blackroom-gnome = { version = "0.1.0", path = "../blackroom-gnome" }
 clap = { version = "4.6.6", features = ["derive"] }
 pipewire = "0.10.1"
 serde = { version = "1.0.229", features = ["derive"] }

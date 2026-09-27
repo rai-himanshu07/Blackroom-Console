@@ -32,6 +32,7 @@ use blackroom_experiments::{
     CommonArgs, ExperimentReport, ExperimentResult, current_uid, discover, evidence_dir, redact,
     write_evidence,
 };
+use blackroom_gnome::mutter::display_config::{self, OutputBackup as CanonicalOutputBackup};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -252,6 +253,9 @@ mod tests {
                 primary: true,
                 monitors: vec![("eDP-1".to_string(), "internal".to_string())],
             }],
+            primary_output: Some(("eDP-1".to_string(), "internal".to_string())),
+            hash_version: display_config::CONFIGURATION_HASH_VERSION,
+            configuration_hash: output_hash(&[]),
         };
         let original = LogicalMonitorEntry {
             x: 0,
@@ -285,7 +289,120 @@ mod tests {
             }],
             properties: HashMap::new(),
         };
+        assert!(!original_topology_matches(
+            &backup,
+            std::slice::from_ref(&hdmi)
+        ));
         assert!(!original_topology_matches(&backup, &[original, hdmi]));
+        assert!(!cleanup_verified(true, false, true, true));
+    }
+
+    #[test]
+    fn new_backup_hash_tracks_hdmi_enabled() {
+        let monitor = |connector: &str, serial: &str| MonitorEntry {
+            connector_info: ConnectorInfo {
+                connector: connector.into(),
+                vendor: "vendor".into(),
+                product: "screen".into(),
+                serial: serial.into(),
+            },
+            modes: vec![ModeInfo {
+                id: "mode-1".into(),
+                width: 1920,
+                height: 1080,
+                refresh_rate: 60.0,
+                preferred_scale: 1.0,
+                supported_scales: vec![1.0],
+                properties: HashMap::from([(
+                    "is-current".into(),
+                    OwnedValue::try_from(Value::from(true)).unwrap(),
+                )]),
+            }],
+            properties: HashMap::new(),
+        };
+        let monitors = vec![monitor("eDP-1", "internal"), monitor("HDMI-1", "external")];
+        let original = LogicalMonitorEntry {
+            x: 0,
+            y: 0,
+            scale: 1.0,
+            transform: 0,
+            primary: true,
+            monitors: vec![monitors[0].connector_info.clone()],
+            properties: HashMap::new(),
+        };
+        let backup = build_backup(&monitors, std::slice::from_ref(&original), "3", 34735);
+        assert_eq!(
+            backup.primary_output,
+            Some(("eDP-1".into(), "internal".into()))
+        );
+        assert_eq!(backup.outputs.len(), 2);
+        assert!(backup.outputs[0].enabled);
+        assert!(!backup.outputs[1].enabled);
+        let json = serde_json::to_value(&backup).unwrap();
+        assert!(json["configuration_hash"].is_u64());
+        assert_eq!(json["outputs"][1]["enabled"], false);
+        assert_eq!(
+            current_output_hash(&backup, &monitors, std::slice::from_ref(&original)),
+            Some(backup.configuration_hash)
+        );
+        let mut wrong_mode = monitors.clone();
+        wrong_mode[0].modes[0].width = 2560;
+        assert_ne!(
+            current_output_hash(&backup, &wrong_mode, std::slice::from_ref(&original)),
+            Some(backup.configuration_hash)
+        );
+        let mut with_hdmi = vec![original];
+        with_hdmi.push(LogicalMonitorEntry {
+            x: 1920,
+            y: 0,
+            scale: 1.0,
+            transform: 0,
+            primary: false,
+            monitors: vec![monitors[1].connector_info.clone()],
+            properties: HashMap::new(),
+        });
+        assert!(!original_topology_matches(&backup, &with_hdmi));
+        assert_ne!(
+            current_output_hash(&backup, &monitors, &with_hdmi),
+            Some(backup.configuration_hash)
+        );
+        let mut no_hdmi_mode = monitors.clone();
+        no_hdmi_mode[1].modes.clear();
+        let disabled_backup = build_backup(
+            &no_hdmi_mode,
+            std::slice::from_ref(&with_hdmi[0]),
+            "3",
+            34735,
+        );
+        assert_eq!(disabled_backup.outputs.len(), 2);
+        assert_eq!(disabled_backup.outputs[1].mode_id, "");
+        assert!(!disabled_backup.outputs[1].enabled);
+        assert_eq!(
+            current_output_hash(&disabled_backup, &no_hdmi_mode, &with_hdmi[..1]),
+            Some(disabled_backup.configuration_hash)
+        );
+        assert_ne!(
+            current_output_hash(&disabled_backup, &no_hdmi_mode, &with_hdmi),
+            Some(disabled_backup.configuration_hash)
+        );
+    }
+
+    #[test]
+    fn restore_guard_disarms_only_after_verified_owner_stop() {
+        assert!(cleanup_verified(true, true, true, true));
+        for (prestop_restored, final_topology_restored, stop_succeeded, virtual_gone) in [
+            (false, true, true, true),
+            (true, false, true, true),
+            (true, true, false, true),
+            (true, true, true, false),
+        ] {
+            assert!(!cleanup_verified(
+                prestop_restored,
+                final_topology_restored,
+                stop_succeeded,
+                virtual_gone
+            ));
+        }
     }
 
     #[test]
@@ -476,6 +593,7 @@ struct OutputBackup {
     width: i32,
     height: i32,
     refresh_rate: f64,
+    enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -494,6 +612,75 @@ struct DisplayBackup {
     shell_pid: u32,
     outputs: Vec<OutputBackup>,
     topology: Vec<LogicalMonitorBackup>,
+    primary_output: Option<(String, String)>,
+    hash_version: u32,
+    configuration_hash: u64,
+}
+
+fn output_hash(outputs: &[OutputBackup]) -> u64 {
+    let canonical: Vec<_> = outputs
+        .iter()
+        .map(|output| CanonicalOutputBackup {
+            connector: output.connector.clone(),
+            vendor: output.vendor.clone(),
+            product: output.product.clone(),
+            serial: output.serial.clone(),
+            mode_id: output.mode_id.clone(),
+            width: output.width,
+            height: output.height,
+            refresh_rate: output.refresh_rate,
+            enabled: output.enabled,
+        })
+        .collect();
+    display_config::compute_hash(&canonical)
+}
+
+fn current_output_hash(
+    backup: &DisplayBackup,
+    monitors: &[MonitorEntry],
+    logical: &[LogicalMonitorEntry],
+) -> Option<u64> {
+    let outputs: Vec<_> = backup
+        .outputs
+        .iter()
+        .map(|saved| {
+            let monitor = monitors.iter().find(|monitor| {
+                monitor.connector_info.connector == saved.connector
+                    && monitor.connector_info.serial == saved.serial
+            })?;
+            let enabled = logical.iter().any(|entry| {
+                entry.monitors.iter().any(|identity| {
+                    identity.connector == saved.connector && identity.serial == saved.serial
+                })
+            });
+            let current_mode = monitor
+                .modes
+                .iter()
+                .find(|mode| is_current_mode(&mode.properties));
+            let (mode_id, width, height, refresh_rate) = match current_mode {
+                Some(mode) => (mode.id.clone(), mode.width, mode.height, mode.refresh_rate),
+                None if !enabled && !saved.enabled => (
+                    saved.mode_id.clone(),
+                    saved.width,
+                    saved.height,
+                    saved.refresh_rate,
+                ),
+                None => return None,
+            };
+            Some(CanonicalOutputBackup {
+                connector: monitor.connector_info.connector.clone(),
+                vendor: monitor.connector_info.vendor.clone(),
+                product: monitor.connector_info.product.clone(),
+                serial: monitor.connector_info.serial.clone(),
+                mode_id,
+                width,
+                height,
+                refresh_rate,
+                enabled,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(display_config::compute_hash(&outputs))
 }
 
 fn build_backup(
@@ -502,26 +689,7 @@ fn build_backup(
     session_id: &str,
     shell_pid: u32,
 ) -> DisplayBackup {
-    let outputs = monitors
-        .iter()
-        .filter_map(|m| {
-            let mode = m
-                .modes
-                .iter()
-                .find(|mode| is_current_mode(&mode.properties))?;
-            Some(OutputBackup {
-                connector: m.connector_info.connector.clone(),
-                vendor: m.connector_info.vendor.clone(),
-                product: m.connector_info.product.clone(),
-                serial: m.connector_info.serial.clone(),
-                mode_id: mode.id.clone(),
-                width: mode.width,
-                height: mode.height,
-                refresh_rate: mode.refresh_rate,
-            })
-        })
-        .collect();
-    let topology = logical
+    let topology: Vec<LogicalMonitorBackup> = logical
         .iter()
         .map(|lm| LogicalMonitorBackup {
             x: lm.x,
@@ -536,11 +704,49 @@ fn build_backup(
                 .collect(),
         })
         .collect();
+    let outputs = monitors
+        .iter()
+        .filter_map(|m| {
+            let enabled = topology.iter().any(|lm| {
+                lm.monitors.iter().any(|(connector, serial)| {
+                    connector == &m.connector_info.connector && serial == &m.connector_info.serial
+                })
+            });
+            let (mode_id, width, height, refresh_rate) = match m
+                .modes
+                .iter()
+                .find(|mode| is_current_mode(&mode.properties))
+            {
+                Some(mode) => (mode.id.clone(), mode.width, mode.height, mode.refresh_rate),
+                None if !enabled => (String::new(), 0, 0, 0.0),
+                None => return None,
+            };
+            Some(OutputBackup {
+                connector: m.connector_info.connector.clone(),
+                vendor: m.connector_info.vendor.clone(),
+                product: m.connector_info.product.clone(),
+                serial: m.connector_info.serial.clone(),
+                mode_id,
+                width,
+                height,
+                refresh_rate,
+                enabled,
+            })
+        })
+        .collect::<Vec<_>>();
+    let primary_output = topology
+        .iter()
+        .find(|lm| lm.primary)
+        .and_then(|lm| lm.monitors.first().cloned());
+    let configuration_hash = output_hash(&outputs);
     DisplayBackup {
         session_id: session_id.to_string(),
         shell_pid,
         outputs,
         topology,
+        primary_output,
+        hash_version: display_config::CONFIGURATION_HASH_VERSION,
+        configuration_hash,
     }
 }
 
@@ -1139,6 +1345,7 @@ struct FinalState {
     watchdog_timer_state: Option<String>,
     watchdog_service_state: Option<String>,
     topology_matches_original: bool,
+    configuration_hash_matches: Option<bool>,
     read_error: Option<String>,
     probe_errors: Vec<&'static str>,
 }
@@ -1198,33 +1405,39 @@ fn capture_final_state(
         .as_deref()
         .map(|state| state == "active");
     match read_state(conn) {
-        Ok((_serial, monitors, logical)) => FinalState {
-            raw_connectors: monitors
-                .iter()
-                .map(|monitor| monitor.connector_info.connector.clone())
-                .collect(),
-            logical_connectors: logical
-                .iter()
-                .flat_map(|monitor| {
-                    monitor
-                        .monitors
-                        .iter()
-                        .map(|connector| connector.connector.clone())
-                })
-                .collect(),
-            power_save_mode,
-            shell_pid,
-            session_id: session_id.clone(),
-            watchdog_timer_active,
-            watchdog_timer_state,
-            watchdog_service_state,
-            topology_matches_original: original_topology_matches(backup, &logical)
-                && power_save_mode == Some(POWER_SAVE_ON)
-                && shell_pid == Some(backup.shell_pid)
-                && session_id.as_deref() == Some(backup.session_id.as_str()),
-            read_error: None,
-            probe_errors,
-        },
+        Ok((_serial, monitors, logical)) => {
+            let configuration_hash_matches = current_output_hash(backup, &monitors, &logical)
+                .map(|hash| hash == backup.configuration_hash);
+            FinalState {
+                raw_connectors: monitors
+                    .iter()
+                    .map(|monitor| monitor.connector_info.connector.clone())
+                    .collect(),
+                logical_connectors: logical
+                    .iter()
+                    .flat_map(|monitor| {
+                        monitor
+                            .monitors
+                            .iter()
+                            .map(|connector| connector.connector.clone())
+                    })
+                    .collect(),
+                power_save_mode,
+                shell_pid,
+                session_id: session_id.clone(),
+                watchdog_timer_active,
+                watchdog_timer_state,
+                watchdog_service_state,
+                topology_matches_original: original_topology_matches(backup, &logical)
+                    && configuration_hash_matches == Some(true)
+                    && power_save_mode == Some(POWER_SAVE_ON)
+                    && shell_pid == Some(backup.shell_pid)
+                    && session_id.as_deref() == Some(backup.session_id.as_str()),
+                configuration_hash_matches,
+                read_error: None,
+                probe_errors,
+            }
+        }
         Err(error) => FinalState {
             raw_connectors: Vec::new(),
             logical_connectors: Vec::new(),
@@ -1235,6 +1448,7 @@ fn capture_final_state(
             watchdog_timer_state,
             watchdog_service_state,
             topology_matches_original: false,
+            configuration_hash_matches: None,
             read_error: Some(error.to_string()),
             probe_errors,
         },
@@ -1296,6 +1510,15 @@ fn run_one_cycle(
     }
 }
 
+fn cleanup_verified(
+    prestop_restored: bool,
+    final_topology_restored: bool,
+    stop_succeeded: bool,
+    virtual_gone: bool,
+) -> bool {
+    prestop_restored && final_topology_restored && stop_succeeded && virtual_gone
+}
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::try_init().ok();
     let args = Args::parse();
@@ -1319,6 +1542,10 @@ fn main() -> anyhow::Result<()> {
         &logical0,
         &original_session_id,
         original_shell_pid,
+    );
+    anyhow::ensure!(
+        backup.primary_output.is_some(),
+        "refusing isolation without an identifiable primary output"
     );
     let shell_pid_before = if args.auto_kill_after_isolate {
         anyhow::ensure!(
@@ -1515,14 +1742,8 @@ fn main() -> anyhow::Result<()> {
             eprintln!("Restore after pause failed: {error}");
             all_restored = false;
         } else {
-            let expected_physical_count: usize =
-                original_write_side.iter().map(|lm| lm.monitors.len()).sum();
             all_restored = read_state(&conn)
-                .map(|(_serial, _monitors, logical)| {
-                    physical_connectors_active(&logical, &virtual_connector).len()
-                        == expected_physical_count
-                        && logical.len() == original_write_side.len()
-                })
+                .map(|(_serial, _monitors, logical)| original_topology_matches(&backup, &logical))
                 .unwrap_or(false);
         }
         paused = true;
@@ -1544,10 +1765,6 @@ fn main() -> anyhow::Result<()> {
                 break;
             }
         }
-    }
-
-    if all_restored {
-        restore_guard.disarm();
     }
 
     let stop_error = Proxy::new(
@@ -1585,17 +1802,20 @@ fn main() -> anyhow::Result<()> {
         final_state: Some(final_state),
     };
 
+    let verified_cleanup = cleanup_verified(
+        all_restored,
+        final_topology_restored,
+        findings.stop_error.is_none(),
+        findings.virtual_connector_fully_gone,
+    );
+
     let result = if paused {
-        if final_topology_restored && findings.stop_error.is_none() && virtual_connector_fully_gone
-        {
+        if verified_cleanup {
             ExperimentResult::Partial // isolate proven; restore path exercised separately (exp07)
         } else {
             ExperimentResult::Fail
         }
-    } else if all_restored
-        && final_topology_restored
-        && findings.stop_error.is_none()
-        && findings.virtual_connector_fully_gone
+    } else if verified_cleanup
         && findings
             .cycles
             .iter()
@@ -1606,10 +1826,8 @@ fn main() -> anyhow::Result<()> {
         ExperimentResult::Fail
     };
 
-    if final_topology_restored
-        && findings.stop_error.is_none()
-        && findings.virtual_connector_fully_gone
-    {
+    if verified_cleanup {
+        restore_guard.disarm();
         if let Some(unit) = &cleanup_watchdog_unit {
             disarm_watchdog(unit);
         } else {

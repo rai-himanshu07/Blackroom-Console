@@ -9,8 +9,10 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// Canonical host state (Doc 07 §4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum State {
     /// Normal local workstation state (Doc 07 §5.1).
     LocalActive,
