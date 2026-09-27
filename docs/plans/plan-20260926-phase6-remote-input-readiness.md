@@ -260,3 +260,12 @@ live FEAS-D proof requires a separate supervised approval.
   behavior and input safety remain unverified. No remote-hostd authority
   owner exists yet, so the verifying key and current state are still
   caller-supplied snapshots; Step 2, FEAS-D and Gate C remain open.
+- 2026-09-27 (offline lease-expiry hardening): a signed lease with an
+  already-expired real deadline was accepted for input when the caller
+  reused an older `InputAuthorization.now` snapshot. A core regression
+  reproduces the bypass without sleeping and verifies that dispatch
+  never calls the sink. `InputAuthorization::validate` now compares lease
+  expiry against the later of the supplied time and `SystemTime::now()`,
+  while the pure `ControlLease::validate` contract remains unchanged.
+  Focused core regression and Clippy pass. The agent still lacks a trusted
+  hostd authority/verifier source; no live EIS or input was attempted.

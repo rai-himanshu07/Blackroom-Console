@@ -19,7 +19,7 @@
 
 ## Checks
 
-- Phase 6: fake key/pointer/scroll/click/chord passed; no live GNOME input.
+- Phase 6: fake input passes; stale time cannot extend input leases.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions

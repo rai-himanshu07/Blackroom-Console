@@ -82,7 +82,7 @@ impl InputAuthorization<'_> {
             self.current_state,
             self.current_session_id,
             self.revoked,
-            self.now,
+            self.now.max(SystemTime::now()),
         )
     }
 
@@ -327,6 +327,44 @@ mod tests {
         authorization.current_state = State::LocalLocked;
         assert!(authorization.dispatch(1, send).is_err());
         assert_eq!(sent.get(), 1);
+    }
+
+    #[test]
+    fn input_dispatch_rechecks_expiry_when_snapshot_time_is_stale() {
+        use std::cell::Cell;
+
+        let stale_time = SystemTime::now() - Duration::from_secs(60);
+        let lease = sample_lease(SecurityEpoch::INITIAL, stale_time);
+        let (signing_key, verifying_key) = test_keypair();
+        let signature = lease.sign(&signing_key);
+        let authorization = InputAuthorization {
+            lease: &lease,
+            signature: &signature,
+            verifying_key: &verifying_key,
+            authenticated: true,
+            authorized: true,
+            current_epoch: SecurityEpoch::INITIAL,
+            current_state: State::RemoteActive,
+            current_session_id: "rs_01TESTSESSION",
+            revoked: false,
+            now: stale_time,
+        };
+        let called = Cell::new(false);
+        assert_eq!(
+            authorization.validate().unwrap_err().code,
+            ErrorCode::LeaseExpired
+        );
+        assert_eq!(
+            authorization
+                .dispatch((), |_| {
+                    called.set(true);
+                    Ok(())
+                })
+                .unwrap_err()
+                .code,
+            ErrorCode::LeaseExpired
+        );
+        assert!(!called.get());
     }
 
     fn test_keypair() -> (SigningKey, VerifyingKey) {
