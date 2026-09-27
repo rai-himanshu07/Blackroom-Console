@@ -1227,3 +1227,23 @@ read-only run. See Risks.
   restoration before `Session.Stop` and has no final topology check afterward.
   The first PASS was transient, not end-to-end stable restoration. Gate FEAS-C
   remains unproven; do not repeat or proceed to another live matrix row.
+- 2026-09-27 (new unplugged-HDMI diagnostic requested, no run): operator
+  physically disconnected HDMI-1; fresh GetCurrentState shows only eDP-1 in
+  raw and logical topology. That removes the prior reactivation's physical
+  precondition, but does not repair the missing post-Stop check. Exp06 now
+  compares final logical topology against its backup and persists raw/logical
+  outputs, power, Shell/session and timer status; a mismatch changes pause
+  output from PARTIAL to FAIL. The watchdog remains armed through cleanup
+  until final checks succeed. Focused offline regression reproduces rejection
+  of synthetic eDP-plus-HDMI after Stop. A fresh preflight, independent safety
+  review and new exact-command approval are required before this distinct
+  hardware-configuration diagnostic. Gate C remains stopped.
+- 2026-09-27 (cleanup recovery amendment, no run): reviewer found that a
+  pause test consumes its first timer before Enter, so deferring disarm did
+  not cover Session.Stop. Exp06 now checks original Shell PID/login session
+  before local restore and in RestoreGuard, arms a separate 45-second
+  identity-guarded exp07 timer before cleanup, and leaves it armed if final
+  topology fails. Findings include its unit, final raw/logical connectors,
+  DPMS, Shell/session, timer/service state and probe errors. Focused offline
+  tests pass; this still needs independent review and operator preflight
+  before any second diagnostic.

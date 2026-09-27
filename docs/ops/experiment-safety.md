@@ -246,6 +246,26 @@ the original eDP-only topology. Shell PID 34735 survived; final restoration
 was not stable through owner cleanup. See the saved exp06 observation. Do not
 run another isolation row or treat the earlier watchdog PASS as Gate C proof.
 
+**New hardware condition, separately requested diagnostic (not yet run):**
+the operator physically disconnected HDMI-1, and a fresh read-only
+GetCurrentState confirms raw and active logical connectors contain only
+eDP-1. This removes the prior run's disabled-but-connected HDMI condition,
+not the restoration risk or product stop. Before any one new run with the
+same no-kill, 45-second pause command, require a fresh unique baseline, saved
+work, live second-device SSH, visible eDP, original Shell/session identity,
+masked remote desktop, zero pending timers, fresh checked binaries and exact
+operator approval. Exp06 must persist its post-Stop raw/logical outputs,
+power, Shell/session, timer/service state and probe errors, and report FAIL
+on final mismatch. The first timer will have fired before Enter. Exp06 must
+check original Shell/session identity, arm a **second 45-second watchdog**
+against the same exact backup before local restore or ScreenCast Stop, print
+its unit, and disarm it only after the post-Stop check succeeds. If that check
+fails, leave the cleanup timer to fire, then independently verify the original
+session and topology before any manual recovery. Never apply the backup to a
+replacement Shell/session. No automatic repeat is authorized. Even a clean
+run on this different physical layout does not prove the prior connected-HDMI
+case or Gate C.
+
 The deliberate **HDMI-only SIGKILL** scenario is a different, higher-risk
 test and requires its own explicit approval; earlier GNOME Shell SIGSEGV under
 virtual-monitor removal remains unexplained. Before launch, confirm the

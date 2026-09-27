@@ -25,8 +25,8 @@
 ## Decisions
 
 - Phase 6 offline only: authority is caller-supplied (no hostd), no live EIS.
-  One eDP-only diagnostic consumed; no more live isolation authorized.
-  Product stop and Gate C remain in force pending restoration reassessment.
+  Prior eDP diagnostic consumed; one unplugged-HDMI diagnostic awaits fresh
+  preflight and exact approval. Product stop and Gate C remain in force.
 
 ## Blockers
 
@@ -35,6 +35,6 @@
 
 ## Next Actions
 
-1. Investigate exp06 post-Stop HDMI reactivation and missing final topology
-  check offline; do not repeat isolation before independent reassessment.
+1. HDMI unplugged; exp06 records post-Stop topology and arms a second cleanup
+  watchdog. Review, re-preflight and re-approve before any live run.
 2. Keep Phase 6 input offline until trusted host authority exists.

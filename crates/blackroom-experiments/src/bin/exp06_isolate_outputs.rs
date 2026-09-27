@@ -237,6 +237,64 @@ mod tests {
         }
         assert!(Args::try_parse_from(["exp06", "--watchdog-seconds", "90"]).is_err());
     }
+
+    #[test]
+    fn final_topology_rejects_extra_hdmi_after_virtual_monitor_stop() {
+        let backup = DisplayBackup {
+            session_id: "3".to_string(),
+            shell_pid: 34735,
+            outputs: Vec::new(),
+            topology: vec![LogicalMonitorBackup {
+                x: 0,
+                y: 0,
+                scale: 1.0,
+                transform: 0,
+                primary: true,
+                monitors: vec![("eDP-1".to_string(), "internal".to_string())],
+            }],
+        };
+        let original = LogicalMonitorEntry {
+            x: 0,
+            y: 0,
+            scale: 1.0,
+            transform: 0,
+            primary: true,
+            monitors: vec![ConnectorInfo {
+                connector: "eDP-1".to_string(),
+                vendor: String::new(),
+                product: String::new(),
+                serial: "internal".to_string(),
+            }],
+            properties: HashMap::new(),
+        };
+        assert!(original_topology_matches(
+            &backup,
+            std::slice::from_ref(&original)
+        ));
+        let hdmi = LogicalMonitorEntry {
+            x: 1920,
+            y: 0,
+            scale: 1.0,
+            transform: 0,
+            primary: false,
+            monitors: vec![ConnectorInfo {
+                connector: "HDMI-1".to_string(),
+                vendor: String::new(),
+                product: String::new(),
+                serial: "external".to_string(),
+            }],
+            properties: HashMap::new(),
+        };
+        assert!(!original_topology_matches(&backup, &[original, hdmi]));
+    }
+
+    #[test]
+    fn local_restore_refuses_changed_session_or_shell() {
+        assert!(verify_restore_identity("3", 34735, "3", 34735).is_ok());
+        assert!(verify_restore_identity("3", 34735, "4", 34735).is_err());
+        assert!(verify_restore_identity("3", 34735, "3", 34736).is_err());
+        assert!(verify_restore_identity("", 34735, "", 34735).is_err());
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -486,6 +544,25 @@ fn build_backup(
     }
 }
 
+fn original_topology_matches(backup: &DisplayBackup, logical: &[LogicalMonitorEntry]) -> bool {
+    logical.len() == backup.topology.len()
+        && backup.topology.iter().all(|expected| {
+            logical.iter().any(|actual| {
+                actual.x == expected.x
+                    && actual.y == expected.y
+                    && (actual.scale - expected.scale).abs() < f64::EPSILON
+                    && actual.transform == expected.transform
+                    && actual.primary == expected.primary
+                    && actual.monitors.len() == expected.monitors.len()
+                    && expected.monitors.iter().all(|(connector, serial)| {
+                        actual.monitors.iter().any(|current| {
+                            &current.connector == connector && &current.serial == serial
+                        })
+                    })
+            })
+        })
+}
+
 /// Reuses the mode IDs captured at snapshot time rather than re-resolving
 /// them (Experiment 5 precedent: only the `serial` is re-read fresh).
 fn to_write_side(backup: &DisplayBackup) -> anyhow::Result<Vec<LogicalMonitorConfig>> {
@@ -534,6 +611,8 @@ fn to_write_side(backup: &DisplayBackup) -> anyhow::Result<Vec<LogicalMonitorCon
 struct RestoreGuard<'a> {
     conn: &'a Connection,
     original: Vec<LogicalMonitorConfig>,
+    session_id: String,
+    shell_pid: u32,
     disarmed: bool,
 }
 
@@ -548,8 +627,20 @@ impl Drop for RestoreGuard<'_> {
         if self.disarmed {
             return;
         }
+        if let Err(error) =
+            verify_live_restore_identity(self.conn, &self.session_id, self.shell_pid)
+        {
+            eprintln!("CRITICAL: RestoreGuard refused stale display backup: {error}");
+            return;
+        }
         match read_state(self.conn) {
             Ok((serial, ..)) => {
+                if let Err(error) =
+                    verify_live_restore_identity(self.conn, &self.session_id, self.shell_pid)
+                {
+                    eprintln!("CRITICAL: RestoreGuard refused stale display backup: {error}");
+                    return;
+                }
                 if let Err(error) = apply_monitors_config(self.conn, serial, &self.original) {
                     eprintln!(
                         "CRITICAL: RestoreGuard failed to restore original display topology: {error}"
@@ -908,6 +999,38 @@ fn gnome_shell_pid(conn: &Connection) -> anyhow::Result<u32> {
     )
 }
 
+fn verify_restore_identity(
+    expected_session_id: &str,
+    expected_shell_pid: u32,
+    current_session_id: &str,
+    current_shell_pid: u32,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !expected_session_id.is_empty()
+            && expected_shell_pid != 0
+            && expected_session_id == current_session_id
+            && expected_shell_pid == current_shell_pid,
+        "refusing display backup from a different GNOME session or Shell process"
+    );
+    Ok(())
+}
+
+fn verify_live_restore_identity(
+    conn: &Connection,
+    expected_session_id: &str,
+    expected_shell_pid: u32,
+) -> anyhow::Result<()> {
+    let session_id = discover(current_uid()?)?
+        .1
+        .ok_or_else(|| anyhow::anyhow!("no unique active Wayland user session"))?;
+    verify_restore_identity(
+        expected_session_id,
+        expected_shell_pid,
+        &session_id,
+        gnome_shell_pid(conn)?,
+    )
+}
+
 fn auto_kill_preflight(
     conn: &Connection,
     original_write_side: &[LogicalMonitorConfig],
@@ -997,10 +1120,125 @@ struct Findings {
     apply_monitors_config_allowed: bool,
     watchdog_armed: bool,
     watchdog_unit: Option<String>,
+    cleanup_watchdog_unit: Option<String>,
     cycles: Vec<CycleFindings>,
     stop_error: Option<String>,
     virtual_connector_fully_gone: bool,
     paused_for_manual_kill_test: bool,
+    final_state: Option<FinalState>,
+}
+
+#[derive(Debug, Serialize)]
+struct FinalState {
+    raw_connectors: Vec<String>,
+    logical_connectors: Vec<String>,
+    power_save_mode: Option<i32>,
+    shell_pid: Option<u32>,
+    session_id: Option<String>,
+    watchdog_timer_active: Option<bool>,
+    watchdog_timer_state: Option<String>,
+    watchdog_service_state: Option<String>,
+    topology_matches_original: bool,
+    read_error: Option<String>,
+    probe_errors: Vec<&'static str>,
+}
+
+fn capture_final_state(
+    conn: &Connection,
+    backup: &DisplayBackup,
+    watchdog_unit: &str,
+) -> FinalState {
+    let mut probe_errors = Vec::new();
+    let power_save_mode = display_config_proxy(conn)
+        .and_then(|proxy| {
+            proxy
+                .get_property::<i32>("PowerSaveMode")
+                .map_err(anyhow::Error::from)
+        })
+        .ok();
+    if power_save_mode.is_none() {
+        probe_errors.push("PowerSaveMode unavailable");
+    }
+    let shell_pid = gnome_shell_pid(conn).ok();
+    if shell_pid.is_none() {
+        probe_errors.push("ScreenCast owner PID unavailable");
+    }
+    let session_id = current_uid()
+        .and_then(|uid| discover(uid).map(|(_, selected)| selected))
+        .ok()
+        .flatten();
+    if session_id.is_none() {
+        probe_errors.push("active Wayland session unavailable");
+    }
+    let unit_state = |suffix: &str| {
+        Command::new("systemctl")
+            .args([
+                "--user",
+                "show",
+                &format!("{watchdog_unit}.{suffix}"),
+                "--property=ActiveState",
+                "--value",
+            ])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|state| state.trim().to_string())
+            .filter(|state| !state.is_empty())
+    };
+    let watchdog_timer_state = unit_state("timer");
+    let watchdog_service_state = unit_state("service");
+    if watchdog_timer_state.is_none() {
+        probe_errors.push("watchdog timer state unavailable");
+    }
+    if watchdog_service_state.is_none() {
+        probe_errors.push("watchdog service state unavailable");
+    }
+    let watchdog_timer_active = watchdog_timer_state
+        .as_deref()
+        .map(|state| state == "active");
+    match read_state(conn) {
+        Ok((_serial, monitors, logical)) => FinalState {
+            raw_connectors: monitors
+                .iter()
+                .map(|monitor| monitor.connector_info.connector.clone())
+                .collect(),
+            logical_connectors: logical
+                .iter()
+                .flat_map(|monitor| {
+                    monitor
+                        .monitors
+                        .iter()
+                        .map(|connector| connector.connector.clone())
+                })
+                .collect(),
+            power_save_mode,
+            shell_pid,
+            session_id: session_id.clone(),
+            watchdog_timer_active,
+            watchdog_timer_state,
+            watchdog_service_state,
+            topology_matches_original: original_topology_matches(backup, &logical)
+                && power_save_mode == Some(POWER_SAVE_ON)
+                && shell_pid == Some(backup.shell_pid)
+                && session_id.as_deref() == Some(backup.session_id.as_str()),
+            read_error: None,
+            probe_errors,
+        },
+        Err(error) => FinalState {
+            raw_connectors: Vec::new(),
+            logical_connectors: Vec::new(),
+            power_save_mode,
+            shell_pid,
+            session_id,
+            watchdog_timer_active,
+            watchdog_timer_state,
+            watchdog_service_state,
+            topology_matches_original: false,
+            read_error: Some(error.to_string()),
+            probe_errors,
+        },
+    }
 }
 
 fn run_one_cycle(
@@ -1119,10 +1357,12 @@ fn main() -> anyhow::Result<()> {
             apply_monitors_config_allowed: false,
             watchdog_armed: false,
             watchdog_unit: None,
+            cleanup_watchdog_unit: None,
             cycles: vec![],
             stop_error: None,
             virtual_connector_fully_gone: false,
             paused_for_manual_kill_test: false,
+            final_state: None,
         };
         write_experiment_report(&dir, now, redact_on, &findings, ExperimentResult::Blocked)?;
         println!(
@@ -1149,10 +1389,13 @@ fn main() -> anyhow::Result<()> {
     let mut restore_guard = RestoreGuard {
         conn: &conn,
         original: original_write_side.clone(),
+        session_id: original_session_id.clone(),
+        shell_pid: original_shell_pid,
         disarmed: false,
     };
 
     let (mut cycles, mut all_restored, mut paused) = (Vec::new(), true, false);
+    let mut cleanup_watchdog_unit = None;
 
     if args.pause_after_isolate {
         // First isolate only, then block — the deliberate ungraceful-
@@ -1246,13 +1489,25 @@ fn main() -> anyhow::Result<()> {
         );
         let mut line = String::new();
         std::io::stdin().lock().read_line(&mut line)?;
+        verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
+        let cleanup_unit = format!("{watchdog_unit}-cleanup");
+        arm_watchdog(&cleanup_unit, WATCHDOG_SECONDS_DEFAULT, &backup_path)?;
+        println!(
+            "Cleanup watchdog={} ({}s)",
+            cleanup_unit, WATCHDOG_SECONDS_DEFAULT
+        );
+        std::io::stdout().flush()?;
+        cleanup_watchdog_unit = Some(cleanup_unit);
         // Actually restore now (bug found live 2026-09-05: this branch
         // previously fell through without restoring at all, and
         // `all_restored`'s unmutated `true` default wrongly disarmed
         // RestoreGuard — the operator had to restore manually over SSH).
         let restore_error = (|| -> anyhow::Result<()> {
+            verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
             let (serial, ..) = read_state(&conn)?;
+            verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
             apply_monitors_config(&conn, serial, &original_write_side)?;
+            verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
             set_power_save_mode(&conn, POWER_SAVE_ON)
         })()
         .err();
@@ -1293,7 +1548,6 @@ fn main() -> anyhow::Result<()> {
 
     if all_restored {
         restore_guard.disarm();
-        disarm_watchdog(&watchdog_unit);
     }
 
     let stop_error = Proxy::new(
@@ -1312,6 +1566,9 @@ fn main() -> anyhow::Result<()> {
 
     let remaining = poll_for_connector_gone(&conn, &virtual_connector)?;
     let virtual_connector_fully_gone = !remaining.contains(&virtual_connector);
+    let monitored_unit = cleanup_watchdog_unit.as_deref().unwrap_or(&watchdog_unit);
+    let final_state = capture_final_state(&conn, &backup, monitored_unit);
+    let final_topology_restored = final_state.topology_matches_original;
 
     let findings = Findings {
         host,
@@ -1319,16 +1576,24 @@ fn main() -> anyhow::Result<()> {
         virtual_connector: Some(virtual_connector),
         apply_monitors_config_allowed: apply_allowed,
         watchdog_armed,
-        watchdog_unit: Some(watchdog_unit),
+        watchdog_unit: Some(watchdog_unit.clone()),
+        cleanup_watchdog_unit: cleanup_watchdog_unit.clone(),
         cycles,
         stop_error,
         virtual_connector_fully_gone,
         paused_for_manual_kill_test: paused,
+        final_state: Some(final_state),
     };
 
     let result = if paused {
-        ExperimentResult::Partial // isolate proven; restore path exercised separately (exp07)
+        if final_topology_restored && findings.stop_error.is_none() && virtual_connector_fully_gone
+        {
+            ExperimentResult::Partial // isolate proven; restore path exercised separately (exp07)
+        } else {
+            ExperimentResult::Fail
+        }
     } else if all_restored
+        && final_topology_restored
         && findings.stop_error.is_none()
         && findings.virtual_connector_fully_gone
         && findings
@@ -1340,6 +1605,17 @@ fn main() -> anyhow::Result<()> {
     } else {
         ExperimentResult::Fail
     };
+
+    if final_topology_restored
+        && findings.stop_error.is_none()
+        && findings.virtual_connector_fully_gone
+    {
+        if let Some(unit) = &cleanup_watchdog_unit {
+            disarm_watchdog(unit);
+        } else {
+            disarm_watchdog(&watchdog_unit);
+        }
+    }
 
     write_experiment_report(&dir, now, redact_on, &findings, result)?;
     println!("Wrote evidence to {}", dir.display());
