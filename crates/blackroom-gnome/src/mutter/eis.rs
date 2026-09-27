@@ -13,6 +13,7 @@ pub struct EiConnection {
     connection: Option<reis::event::Connection>,
     converter: Option<reis::event::EiEventConverter>,
     sequence: u32,
+    active_devices: Vec<(reis::event::Device, u32)>,
 }
 
 impl EiConnection {
@@ -29,6 +30,7 @@ impl EiConnection {
             connection: None,
             converter: None,
             sequence: 0,
+            active_devices: Vec::new(),
         })
     }
 
@@ -96,11 +98,31 @@ impl EiConnection {
         resumed: &reis::event::DeviceResumed,
         keycode: u32,
     ) -> Result<(), BlackroomError> {
+        authorization.validate()?;
+        let deadline = Instant::now() + Duration::from_millis(10);
+        while Instant::now() < deadline {
+            if self
+                .next_event_until(deadline.saturating_duration_since(Instant::now()))?
+                .is_none()
+            {
+                break;
+            }
+        }
         authorization.dispatch(keycode, |keycode| {
             if !self.is_ready() {
                 return Err(BlackroomError::new(
                     ErrorCode::MutterUnavailable,
                     "EIS sender is not ready",
+                ));
+            }
+            if !self
+                .active_devices
+                .iter()
+                .any(|(device, serial)| device == &resumed.device && *serial == resumed.serial)
+            {
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    "EIS keyboard device is not active",
                 ));
             }
             let keyboard = resumed
@@ -149,6 +171,7 @@ impl EiConnection {
                 return Ok(None);
             }
             if let Some(event) = converter.next_event() {
+                Self::track_device_event(&mut self.active_devices, &event);
                 return Ok(Some(event));
             }
             while let Some(message) = self.context.pending_event() {
@@ -166,6 +189,7 @@ impl EiConnection {
                 })?;
             }
             if let Some(event) = converter.next_event() {
+                Self::track_device_event(&mut self.active_devices, &event);
                 return Ok(Some(event));
             }
             if !Self::readable_until(&self.context, deadline)? {
@@ -175,12 +199,36 @@ impl EiConnection {
                 Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(_) => {
+                    self.active_devices.clear();
+                    self.connection = None;
                     return Err(BlackroomError::new(
                         ErrorCode::MutterUnavailable,
                         "EIS device socket closed",
                     ));
                 }
             }
+        }
+    }
+
+    fn track_device_event(
+        active_devices: &mut Vec<(reis::event::Device, u32)>,
+        event: &reis::event::EiEvent,
+    ) {
+        match event {
+            reis::event::EiEvent::DeviceResumed(resumed) => {
+                active_devices.retain(|(device, _)| device != &resumed.device);
+                active_devices.push((resumed.device.clone(), resumed.serial));
+            }
+            reis::event::EiEvent::DevicePaused(paused) => {
+                active_devices.retain(|(device, _)| device != &paused.device);
+            }
+            reis::event::EiEvent::DeviceRemoved(removed) => {
+                active_devices.retain(|(device, _)| device != &removed.device);
+            }
+            reis::event::EiEvent::SeatRemoved(_) | reis::event::EiEvent::Disconnected(_) => {
+                active_devices.clear();
+            }
+            _ => {}
         }
     }
 
@@ -315,6 +363,7 @@ mod tests {
                             .map_err(|error| std::io::Error::other(error.to_string()))?;
                         let mut key_states = Vec::new();
                         let mut key_times = Vec::new();
+                        let mut keyboard_device = None;
                         let deadline = Instant::now() + Duration::from_secs(2);
                         while Instant::now() < deadline {
                             match context.read() {
@@ -342,6 +391,7 @@ mod tests {
                                         |_| {},
                                     );
                                     device.resumed();
+                                    keyboard_device = Some(device);
                                     context.flush().map_err(|error| {
                                         std::io::Error::other(error.to_string())
                                     })?;
@@ -373,6 +423,14 @@ mod tests {
                                             "key release frame was not later than press",
                                         ));
                                     }
+                                    let device = keyboard_device.as_ref().ok_or_else(|| {
+                                        std::io::Error::other("synthetic keyboard device missing")
+                                    })?;
+                                    device.paused();
+                                    device.resumed();
+                                    context.flush().map_err(|error| {
+                                        std::io::Error::other(error.to_string())
+                                    })?;
                                     done_rx
                                         .recv_timeout(Duration::from_secs(2))
                                         .map_err(std::io::Error::other)?;
@@ -451,6 +509,42 @@ mod tests {
             ErrorCode::LeaseInvalid
         );
         assert_eq!(sender.sequence, 1);
+        authorization.current_state = State::RemoteActive;
+        let event = sender.next_event_until(Duration::from_secs(2))?;
+        assert!(matches!(event, Some(reis::event::EiEvent::DevicePaused(_))));
+        assert_eq!(
+            sender
+                .send_key_tap(&authorization, &resumed, 30)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        assert_eq!(sender.sequence, 1);
+        let resumed_again = reis::event::DeviceResumed {
+            device: resumed.device.clone(),
+            serial: *sender
+                .active_devices
+                .iter()
+                .find(|(device, _)| device == &resumed.device)
+                .map(|(_, serial)| serial)
+                .ok_or_else(|| std::io::Error::other("new device serial was not tracked"))?,
+        };
+        assert_ne!(resumed_again.serial, resumed.serial);
+        let removed = reis::event::EiEvent::DeviceRemoved(reis::event::DeviceRemoved {
+            device: resumed_again.device.clone(),
+        });
+        EiConnection::track_device_event(&mut sender.active_devices, &removed);
+        assert_eq!(
+            sender
+                .send_key_tap(&authorization, &resumed_again, 30)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        EiConnection::track_device_event(
+            &mut sender.active_devices,
+            &reis::event::EiEvent::DeviceResumed(resumed_again.clone()),
+        );
         assert!(
             sender
                 .next_event_until(Duration::from_millis(30))?
@@ -460,10 +554,9 @@ mod tests {
         server
             .join()
             .map_err(|_| std::io::Error::other("synthetic EIS server panicked"))??;
-        authorization.current_state = State::RemoteActive;
         assert_eq!(
             sender
-                .send_key_tap(&authorization, &resumed, 30)
+                .send_key_tap(&authorization, &resumed_again, 30)
                 .unwrap_err()
                 .code,
             ErrorCode::MutterUnavailable

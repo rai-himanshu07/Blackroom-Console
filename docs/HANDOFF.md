@@ -19,8 +19,8 @@
 
 ## Checks
 
-- Phase 6: signed fake key tap delivered press/release and refused revoke/
-  wrong-state sends; no live GNOME input. Workspace sweep at checkpoint.
+- Phase 6: signed fake key tap and pause/resume serial tracking tested;
+  stale devices refused. No live GNOME input. Workspace sweep pending.
 - `Blackroom_Console` indexed (fast); experiment binaries excluded from graph.
 
 ## Decisions
@@ -35,6 +35,6 @@
 
 ## Next Actions
 
-1. Bind authorization to trusted agent state; fake-test device pause/remove
-  and pointer/scroll before any live EIS or FEAS-D claim.
+1. Bind authorization to trusted agent state; fake-test pointer/scroll
+  before any live EIS or FEAS-D claim.
 2. Separate review/approval required before live GNOME EIS or input.

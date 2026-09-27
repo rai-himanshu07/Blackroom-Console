@@ -222,3 +222,16 @@ live FEAS-D proof requires a separate supervised approval.
   device pause/removal is not tracked, pointer/scroll remain unimplemented,
   and no Mutter EIS connection or input event has been opened. Gate FEAS-D
   and Step 2 remain open; no live test is authorized.
+- 2026-09-27 (offline device lifecycle gate): `EiConnection` now records
+  device identity and current resume serial when bounded EI reads deliver
+  `DeviceResumed`; it invalidates the device on `DevicePaused`, removal,
+  seat removal, disconnection, and socket EOF. An authorized tap first
+  drains queued lifecycle events within 10ms, then validates authority
+  again immediately before writes and refuses a stale resume serial.
+  The fake EIS peer sent real protocol pause/resume events after the first
+  tap; a stale handle was refused and the new serial was tracked. A
+  constructed `DeviceRemoved` event tests removal invalidation, and a
+  closed socket leaves the sender not-ready. The focused EI suite passes.
+  This does not solve the unavoidable pause-vs-send race, trusted agent
+  authority binding, pointer/scroll breadth, or live Mutter behavior;
+  Step 2/FEAS-D remain open and no live input is authorized.
