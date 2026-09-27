@@ -158,6 +158,136 @@ impl EiConnection {
         })
     }
 
+    pub fn send_pointer_motion(
+        &mut self,
+        authorization: &InputAuthorization<'_>,
+        resumed: &reis::event::DeviceResumed,
+        dx: f32,
+        dy: f32,
+    ) -> Result<(), BlackroomError> {
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err(BlackroomError::new(
+                ErrorCode::IpcInvalidMessage,
+                "EIS pointer motion must be finite",
+            ));
+        }
+        authorization.validate()?;
+        let deadline = Instant::now() + Duration::from_millis(10);
+        while Instant::now() < deadline {
+            if self
+                .next_event_until(deadline.saturating_duration_since(Instant::now()))?
+                .is_none()
+            {
+                break;
+            }
+        }
+        authorization.dispatch((dx, dy), |(dx, dy)| {
+            if !self.is_ready()
+                || !self
+                    .active_devices
+                    .iter()
+                    .any(|(device, serial)| device == &resumed.device && *serial == resumed.serial)
+            {
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    "EIS pointer device is not active",
+                ));
+            }
+            let pointer = resumed
+                .device
+                .interface::<reis::ei::Pointer>()
+                .ok_or_else(|| {
+                    BlackroomError::new(ErrorCode::MutterUnavailable, "EIS pointer unavailable")
+                })?;
+            let sequence = self.sequence.checked_add(1).ok_or_else(|| {
+                BlackroomError::new(ErrorCode::MutterUnavailable, "EIS sequence exhausted")
+            })?;
+            let timestamp = monotonic_micros()?;
+            self.sequence = sequence;
+            resumed
+                .device
+                .device()
+                .start_emulating(resumed.serial, sequence);
+            pointer.motion_relative(dx, dy);
+            resumed.device.device().frame(resumed.serial, timestamp);
+            resumed.device.device().stop_emulating(resumed.serial);
+            if self.context.flush().is_err() {
+                self.connection = None;
+                self.converter = None;
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    "EIS pointer delivery failed",
+                ));
+            }
+            Ok(())
+        })
+    }
+
+    pub fn send_scroll_delta(
+        &mut self,
+        authorization: &InputAuthorization<'_>,
+        resumed: &reis::event::DeviceResumed,
+        dx: f32,
+        dy: f32,
+    ) -> Result<(), BlackroomError> {
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err(BlackroomError::new(
+                ErrorCode::IpcInvalidMessage,
+                "EIS scroll delta must be finite",
+            ));
+        }
+        authorization.validate()?;
+        let deadline = Instant::now() + Duration::from_millis(10);
+        while Instant::now() < deadline {
+            if self
+                .next_event_until(deadline.saturating_duration_since(Instant::now()))?
+                .is_none()
+            {
+                break;
+            }
+        }
+        authorization.dispatch((dx, dy), |(dx, dy)| {
+            if !self.is_ready()
+                || !self
+                    .active_devices
+                    .iter()
+                    .any(|(device, serial)| device == &resumed.device && *serial == resumed.serial)
+            {
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    "EIS scroll device is not active",
+                ));
+            }
+            let scroll = resumed
+                .device
+                .interface::<reis::ei::Scroll>()
+                .ok_or_else(|| {
+                    BlackroomError::new(ErrorCode::MutterUnavailable, "EIS scroll unavailable")
+                })?;
+            let sequence = self.sequence.checked_add(1).ok_or_else(|| {
+                BlackroomError::new(ErrorCode::MutterUnavailable, "EIS sequence exhausted")
+            })?;
+            let timestamp = monotonic_micros()?;
+            self.sequence = sequence;
+            resumed
+                .device
+                .device()
+                .start_emulating(resumed.serial, sequence);
+            scroll.scroll(dx, dy);
+            resumed.device.device().frame(resumed.serial, timestamp);
+            resumed.device.device().stop_emulating(resumed.serial);
+            if self.context.flush().is_err() {
+                self.connection = None;
+                self.converter = None;
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    "EIS scroll delivery failed",
+                ));
+            }
+            Ok(())
+        })
+    }
+
     pub fn next_event_until(
         &mut self,
         timeout: Duration,
@@ -356,7 +486,9 @@ mod tests {
                             reis::request::EisRequestConverter::new(&context, response, 1);
                         let _seat = converter.handle().add_seat(
                             Some("synthetic-keyboard"),
-                            reis::request::DeviceCapability::Keyboard.into(),
+                            reis::request::DeviceCapability::Keyboard
+                                | reis::request::DeviceCapability::Pointer
+                                | reis::request::DeviceCapability::Scroll,
                         );
                         context
                             .flush()
@@ -364,6 +496,11 @@ mod tests {
                         let mut key_states = Vec::new();
                         let mut key_times = Vec::new();
                         let mut keyboard_device = None;
+                        let mut keyboard_complete = false;
+                        let mut motion_phase = 0;
+                        let mut active_serial = None;
+                        let mut motion_time = None;
+                        let mut scroll_time = None;
                         let deadline = Instant::now() + Duration::from_secs(2);
                         while Instant::now() < deadline {
                             match context.read() {
@@ -387,7 +524,9 @@ mod tests {
                                     let device = binding.seat.add_device(
                                         Some("synthetic-keyboard-device"),
                                         reis::eis::device::DeviceType::Virtual,
-                                        reis::request::DeviceCapability::Keyboard.into(),
+                                        reis::request::DeviceCapability::Keyboard
+                                            | reis::request::DeviceCapability::Pointer
+                                            | reis::request::DeviceCapability::Scroll,
                                         |_| {},
                                     );
                                     device.resumed();
@@ -395,6 +534,28 @@ mod tests {
                                     context.flush().map_err(|error| {
                                         std::io::Error::other(error.to_string())
                                     })?;
+                                } else if let reis::request::EisRequest::DeviceStartEmulating(
+                                    start,
+                                ) = request
+                                {
+                                    if keyboard_complete {
+                                        let sequence = match motion_phase {
+                                            0 => 2,
+                                            4 => 3,
+                                            _ => {
+                                                return Err(std::io::Error::other(
+                                                    "unexpected emulation start",
+                                                ));
+                                            }
+                                        };
+                                        if start.sequence != sequence {
+                                            return Err(std::io::Error::other(
+                                                "unexpected emulation sequence",
+                                            ));
+                                        }
+                                        active_serial = Some(start.last_serial);
+                                        motion_phase += 1;
+                                    }
                                 } else if let reis::request::EisRequest::KeyboardKey(key) = request
                                 {
                                     if key.key != 30 {
@@ -404,37 +565,95 @@ mod tests {
                                     }
                                     key_states.push(key.state);
                                     key_times.push(key.time);
-                                } else if matches!(
-                                    request,
-                                    reis::request::EisRequest::DeviceStopEmulating(_)
-                                ) {
-                                    if key_states
-                                        != [
-                                            reis::eis::keyboard::KeyState::Press,
-                                            reis::eis::keyboard::KeyState::Released,
-                                        ]
-                                    {
+                                } else if let reis::request::EisRequest::PointerMotion(motion) =
+                                    request
+                                {
+                                    if motion_phase != 1 || motion.dx != 2.0 || motion.dy != -3.0 {
                                         return Err(std::io::Error::other(
-                                            "key tap did not release",
+                                            "unexpected pointer motion",
                                         ));
                                     }
-                                    if key_times.len() != 2 || key_times[0] >= key_times[1] {
+                                    motion_time = Some(motion.time);
+                                    motion_phase = 2;
+                                } else if let reis::request::EisRequest::ScrollDelta(delta) =
+                                    request
+                                {
+                                    if motion_phase != 5 || delta.dx != 0.0 || delta.dy != 5.0 {
                                         return Err(std::io::Error::other(
-                                            "key release frame was not later than press",
+                                            "unexpected scroll delta",
                                         ));
                                     }
-                                    let device = keyboard_device.as_ref().ok_or_else(|| {
-                                        std::io::Error::other("synthetic keyboard device missing")
-                                    })?;
-                                    device.paused();
-                                    device.resumed();
-                                    context.flush().map_err(|error| {
-                                        std::io::Error::other(error.to_string())
-                                    })?;
-                                    done_rx
-                                        .recv_timeout(Duration::from_secs(2))
-                                        .map_err(std::io::Error::other)?;
-                                    return Ok(());
+                                    scroll_time = Some(delta.time);
+                                    motion_phase = 6;
+                                } else if let reis::request::EisRequest::Frame(frame) = request {
+                                    if keyboard_complete {
+                                        let event_time = match motion_phase {
+                                            2 => motion_time,
+                                            6 => scroll_time,
+                                            _ => {
+                                                return Err(std::io::Error::other(
+                                                    "unexpected motion frame",
+                                                ));
+                                            }
+                                        };
+                                        if frame.time == 0
+                                            || event_time != Some(frame.time)
+                                            || active_serial != Some(frame.last_serial)
+                                        {
+                                            return Err(std::io::Error::other(
+                                                "invalid motion frame",
+                                            ));
+                                        }
+                                        motion_phase += 1;
+                                    }
+                                } else if let reis::request::EisRequest::DeviceStopEmulating(stop) =
+                                    request
+                                {
+                                    if !keyboard_complete {
+                                        if key_states
+                                            != [
+                                                reis::eis::keyboard::KeyState::Press,
+                                                reis::eis::keyboard::KeyState::Released,
+                                            ]
+                                            || key_times.len() != 2
+                                            || key_times[0] >= key_times[1]
+                                        {
+                                            return Err(std::io::Error::other(
+                                                "key tap did not release",
+                                            ));
+                                        }
+                                        keyboard_complete = true;
+                                        let device = keyboard_device.as_ref().ok_or_else(|| {
+                                            std::io::Error::other(
+                                                "synthetic keyboard device missing",
+                                            )
+                                        })?;
+                                        device.paused();
+                                        device.resumed();
+                                        context.flush().map_err(|error| {
+                                            std::io::Error::other(error.to_string())
+                                        })?;
+                                    } else {
+                                        if active_serial != Some(stop.last_serial) {
+                                            return Err(std::io::Error::other(
+                                                "unexpected stop serial",
+                                            ));
+                                        }
+                                        match motion_phase {
+                                            3 => motion_phase = 4,
+                                            7 => {
+                                                done_rx
+                                                    .recv_timeout(Duration::from_secs(2))
+                                                    .map_err(std::io::Error::other)?;
+                                                return Ok(());
+                                            }
+                                            _ => {
+                                                return Err(std::io::Error::other(
+                                                    "unexpected emulation stop",
+                                                ));
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -453,9 +672,11 @@ mod tests {
         let Some(reis::event::EiEvent::SeatAdded(added)) = event else {
             return Err(std::io::Error::other("synthetic keyboard seat not advertised").into());
         };
-        added
-            .seat
-            .bind_capabilities(reis::event::DeviceCapability::Keyboard.into());
+        added.seat.bind_capabilities(
+            reis::event::DeviceCapability::Keyboard
+                | reis::event::DeviceCapability::Pointer
+                | reis::event::DeviceCapability::Scroll,
+        );
         sender.context.flush()?;
         let event = sender.next_event_until(Duration::from_secs(2))?;
         assert!(matches!(event, Some(reis::event::EiEvent::DeviceAdded(_))));
@@ -530,6 +751,46 @@ mod tests {
                 .ok_or_else(|| std::io::Error::other("new device serial was not tracked"))?,
         };
         assert_ne!(resumed_again.serial, resumed.serial);
+        assert_eq!(
+            sender
+                .send_pointer_motion(&authorization, &resumed, 2.0, -3.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        assert_eq!(
+            sender
+                .send_scroll_delta(&authorization, &resumed, 0.0, 5.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        EiConnection::track_device_event(
+            &mut sender.active_devices,
+            &reis::event::EiEvent::DevicePaused(reis::event::DevicePaused {
+                device: resumed_again.device.clone(),
+                serial: resumed_again.serial,
+            }),
+        );
+        assert_eq!(
+            sender
+                .send_pointer_motion(&authorization, &resumed_again, 2.0, -3.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        assert_eq!(
+            sender
+                .send_scroll_delta(&authorization, &resumed_again, 0.0, 5.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        assert_eq!(sender.sequence, 1);
+        EiConnection::track_device_event(
+            &mut sender.active_devices,
+            &reis::event::EiEvent::DeviceResumed(resumed_again.clone()),
+        );
         let removed = reis::event::EiEvent::DeviceRemoved(reis::event::DeviceRemoved {
             device: resumed_again.device.clone(),
         });
@@ -545,6 +806,56 @@ mod tests {
             &mut sender.active_devices,
             &reis::event::EiEvent::DeviceResumed(resumed_again.clone()),
         );
+        authorization.revoked = true;
+        assert_eq!(
+            sender
+                .send_pointer_motion(&authorization, &resumed_again, 2.0, -3.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::LeaseRevoked
+        );
+        authorization.revoked = false;
+        assert_eq!(
+            sender
+                .send_pointer_motion(&authorization, &resumed_again, f32::NAN, 0.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::IpcInvalidMessage
+        );
+        assert_eq!(sender.sequence, 1);
+        sender.send_pointer_motion(&authorization, &resumed_again, 2.0, -3.0)?;
+        assert_eq!(sender.sequence, 2);
+        authorization.revoked = true;
+        assert_eq!(
+            sender
+                .send_scroll_delta(&authorization, &resumed_again, 0.0, 5.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::LeaseRevoked
+        );
+        authorization.revoked = false;
+        assert_eq!(
+            sender
+                .send_scroll_delta(&authorization, &resumed_again, f32::INFINITY, 5.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::IpcInvalidMessage
+        );
+        EiConnection::track_device_event(&mut sender.active_devices, &removed);
+        assert_eq!(
+            sender
+                .send_scroll_delta(&authorization, &resumed_again, 0.0, 5.0)
+                .unwrap_err()
+                .code,
+            ErrorCode::MutterUnavailable
+        );
+        assert_eq!(sender.sequence, 2);
+        EiConnection::track_device_event(
+            &mut sender.active_devices,
+            &reis::event::EiEvent::DeviceResumed(resumed_again.clone()),
+        );
+        sender.send_scroll_delta(&authorization, &resumed_again, 0.0, 5.0)?;
+        assert_eq!(sender.sequence, 3);
         assert!(
             sender
                 .next_event_until(Duration::from_millis(30))?

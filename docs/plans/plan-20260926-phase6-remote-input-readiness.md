@@ -235,3 +235,17 @@ live FEAS-D proof requires a separate supervised approval.
   This does not solve the unavoidable pause-vs-send race, trusted agent
   authority binding, pointer/scroll breadth, or live Mutter behavior;
   Step 2/FEAS-D remain open and no live input is authorized.
+- 2026-09-27 (offline relative pointer and scroll, Step 2 still partial):
+  `EiConnection` now accepts finite relative pointer motion and scroll
+  deltas only with a signed current CONTROL lease and an active resumed
+  device serial advertising the respective interface. Each command uses
+  start/frame/stop and invalidates the connection on flush failure. One
+  synthetic EIS peer advertises keyboard, pointer and scroll, receives
+  the exact motion and scroll deltas, and asserts start/event/timestamped
+  frame/stop order with matching serials and sequence numbers. Fake checks
+  refuse revoked leases, non-finite deltas, stale serials, paused and
+  removed devices without advancing the send sequence. Focused GNOME tests/Clippy and the
+  workspace test, format, Clippy, check, deny and audit gates passed. No
+  live input was sent; trusted agent-sourced verification and state remain
+  unimplemented. Absolute positioning, clicks, modifier/special-key
+  behavior, FEAS-D and Gate C remain unproven; no live test is authorized.
