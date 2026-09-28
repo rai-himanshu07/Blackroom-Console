@@ -20,6 +20,18 @@ session is refused; an unmapped owner or disagreeing lock signals is
 any login1 session. Both raw lock signals were false, but the corrected
 read-only verdict is **INDETERMINATE**, not proof of an unlocked session. The
 earlier false/false `UNLOCKED_OBSERVED` output lacked this provenance check
-and must not be used as lock evidence. `ActiveChanged`, real lock/unlock dialog
-control, workspace continuity and capture/EIS behavior across lock remain
-unmeasured. Phase 8 and FEAS-A remain partial; no lock was called.
+and must not be used as lock evidence. Before the separately approved run
+below, no lock had been called. `ActiveChanged`, remote unlock-dialog control,
+workspace continuity and capture/EIS behavior across lock remain unmeasured;
+Phase 8 and FEAS-A remain partial.
+
+One separately approved lock-only diagnostic on 2026-09-28 targeted the exact
+active login1 Wayland session with `loginctl lock-session 2`. ScreenSaver
+became active first and login1 `LockedHint` later became true. The operator
+visually observed the built-in GNOME lock screen with no desktop content,
+manually unlocked and confirmed the original desktop responsive; the same
+session and GNOME Shell PID survived. Raw lock signals returned to false.
+The owner-provenance classification stayed `INDETERMINATE`, and no remote
+unlock/capture/input continuity was tested. See the unique Experiment 11
+[lock-only observation](../experiments/evidence/exp11/2026-09-28-lock-only/observation.md);
+FEAS-A remains unproven. No repeat was authorized.

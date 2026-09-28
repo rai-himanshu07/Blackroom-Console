@@ -20,6 +20,10 @@ grab devices, inject input, or promote any feasibility/security gate.
   again before querying ScreenSaver `GetActive` and login1 `LockedHint`.
   Owner PID provenance is checked; this host's user-bus owner has no login1
   session, so false/false is INDETERMINATE. FEAS-A remains open.
+- [x] Phase 8 bounded supervised lock-only diagnostic: one login1-targeted
+  `Lock` returned, ScreenSaver active preceded login1 LockedHint true; operator
+  saw the local lock screen without desktop content and manually recovered the
+  same session. No remote unlock, capture/EIS continuity or FEAS-A PASS.
 - [x] Phase 9: agent-owned fake activation/teardown transaction; signed grants
   are acknowledged only after observations; verified `LOCAL_LOCKED` or explicit
   `FAILED_SAFE` on failed restoration. Hostd/agent process-loss and idle lease
