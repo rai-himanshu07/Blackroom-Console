@@ -72,6 +72,7 @@ enum FaultDecision {
 /// In-memory [`GnomeBackend`] fake.
 pub struct FakeGnomeBackend {
     faults: FaultConfig,
+    connectors: Vec<String>,
     virtual_monitor_active: bool,
     physical_outputs_disabled: bool,
     physical_input_isolated: bool,
@@ -85,6 +86,7 @@ impl FakeGnomeBackend {
     pub fn new(faults: FaultConfig) -> Self {
         Self {
             faults,
+            connectors: vec!["eDP-1".to_string()],
             virtual_monitor_active: false,
             physical_outputs_disabled: false,
             physical_input_isolated: false,
@@ -154,6 +156,10 @@ impl FakeGnomeBackend {
         self.physical_outputs_disabled
     }
 
+    pub fn set_connectors(&mut self, connectors: Vec<String>) {
+        self.connectors = connectors;
+    }
+
     pub fn is_virtual_monitor_active(&self) -> bool {
         self.virtual_monitor_active
     }
@@ -202,7 +208,7 @@ impl GnomeBackend for FakeGnomeBackend {
     fn get_display_state(&mut self) -> Result<DisplayState, BlackroomError> {
         self.decide("get_display_state", ErrorCode::MutterUnavailable)?;
         Ok(DisplayState {
-            connectors: vec!["eDP-1".to_string()],
+            connectors: self.connectors.clone(),
             virtual_monitor_active: self.virtual_monitor_active,
         })
     }

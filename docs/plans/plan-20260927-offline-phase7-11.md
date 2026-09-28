@@ -29,6 +29,11 @@ grab devices, inject input, or promote any feasibility/security gate.
   `FAILED_SAFE` on failed restoration. Hostd/agent process-loss and idle lease
   expiry checks. A protected pending marker precedes grants; verified fake
   cleanup clears it after revoke or hostd EOF. Agent loss leaves `FAILED_SAFE`.
+- [x] Single-display fake policy: one physical connector may be eDP or a
+  desktop output; missing or extra connectors block fake activation. Before
+  granting and on active confirmation, a changed connector inventory closes
+  fake authority and restores local ownership. This is not a real Mutter
+  hotplug/privacy/recovery result or FEAS-C evidence.
 - [x] Phase 10: separate offline emergency executable persists a stop marker
   and epoch without hostd cooperation; atomic marker publication handles
   concurrent requests. Agent observes it even with synthetic hostd SIGSTOPped;

@@ -8,6 +8,7 @@ use crate::authority::InputAuthority;
 pub struct OfflineLifecycle {
     backend: FakeGnomeBackend,
     state: State,
+    supported_connector: Option<String>,
 }
 
 impl OfflineLifecycle {
@@ -15,6 +16,7 @@ impl OfflineLifecycle {
         Self {
             backend: FakeGnomeBackend::new(faults),
             state: State::LocalLocked,
+            supported_connector: None,
         }
     }
 
@@ -26,6 +28,10 @@ impl OfflineLifecycle {
         &self.backend
     }
 
+    fn expected_output_present(&self, connectors: &[String]) -> bool {
+        matches!(self.supported_connector.as_deref(), Some(expected) if connectors.len() == 1 && connectors[0] == expected)
+    }
+
     pub fn confirm_active(&mut self, authority: &mut InputAuthority) -> Result<(), BlackroomError> {
         let result = (|| {
             Self::verify(self.state == State::RemoteActive, ErrorCode::RecoveryFailed)?;
@@ -33,8 +39,10 @@ impl OfflineLifecycle {
                 self.backend.observed_lock_state()?,
                 ErrorCode::SessionLockFailed,
             )?;
+            let display = self.backend.get_display_state()?;
             Self::verify(
-                self.backend.get_display_state()?.virtual_monitor_active
+                display.virtual_monitor_active
+                    && self.expected_output_present(&display.connectors)
                     && self.backend.is_physical_outputs_disabled()
                     && self.backend.is_physical_input_isolated()
                     && self.backend.is_remote_input_enabled()
@@ -66,6 +74,12 @@ impl OfflineLifecycle {
                     "offline session is not usable",
                 ));
             }
+            let original = self.backend.get_display_state()?;
+            Self::verify(
+                original.connectors.len() == 1 && !original.connectors[0].is_empty(),
+                ErrorCode::DisplayIsolationFailed,
+            )?;
+            self.supported_connector = Some(original.connectors[0].clone());
             self.backend.lock_session()?;
             Self::verify(
                 self.backend.observed_lock_state()?,
@@ -96,6 +110,13 @@ impl OfflineLifecycle {
             Self::verify(
                 self.backend.discover_session()? == session,
                 ErrorCode::GnomeSessionUnavailable,
+            )?;
+            let display = self.backend.get_display_state()?;
+            Self::verify(
+                display.virtual_monitor_active
+                    && self.expected_output_present(&display.connectors)
+                    && self.backend.is_physical_outputs_disabled(),
+                ErrorCode::DisplayIsolationFailed,
             )?;
             authority.set_state(State::RemoteActive);
             authority.dispatch((), |_, _| Ok(()))?;
@@ -152,6 +173,7 @@ impl OfflineLifecycle {
             authority.fail_closed();
             State::FailedSafe
         };
+        self.supported_connector = None;
     }
 }
 
@@ -198,6 +220,60 @@ mod tests {
         assert!(authority.dispatch((), |_, _| Ok(())).is_err());
         lifecycle.recover(&mut authority);
         assert_eq!(lifecycle.state(), State::LocalLocked);
+    }
+
+    #[test]
+    fn new_physical_output_revokes_active_fake_control() {
+        for connectors in [
+            vec!["eDP-1".into(), "HDMI-1".into()],
+            vec!["HDMI-1".into()],
+            vec![],
+        ] {
+            let (mut host, mut authority, mut lifecycle) = setup(FaultConfig::new());
+            authority
+                .apply_host_update(host.grant_update().unwrap())
+                .unwrap();
+            lifecycle.activate(&mut authority).unwrap();
+            lifecycle.backend.set_connectors(connectors);
+
+            assert!(lifecycle.confirm_active(&mut authority).is_err());
+            assert_ne!(lifecycle.state(), State::RemoteActive);
+            assert!(authority.dispatch((), |_, _| Ok(())).is_err());
+        }
+    }
+
+    #[test]
+    fn sole_desktop_output_is_accepted_without_an_hdmi_fallback() {
+        let (mut host, mut authority, mut lifecycle) = setup(FaultConfig::new());
+        lifecycle.backend.set_connectors(vec!["DP-1".into()]);
+        authority
+            .apply_host_update(host.grant_update().unwrap())
+            .unwrap();
+
+        lifecycle.activate(&mut authority).unwrap();
+        lifecycle.confirm_active(&mut authority).unwrap();
+        assert_eq!(lifecycle.state(), State::RemoteActive);
+        lifecycle.recover(&mut authority);
+        assert_eq!(lifecycle.state(), State::LocalLocked);
+    }
+
+    #[test]
+    fn absent_or_extra_output_refuses_activation_before_virtual_monitor() {
+        for connectors in [vec![], vec!["eDP-1".into(), "HDMI-1".into()]] {
+            let (mut host, mut authority, mut lifecycle) = setup(FaultConfig::new());
+            lifecycle.backend.set_connectors(connectors);
+            authority
+                .apply_host_update(host.grant_update().unwrap())
+                .unwrap();
+
+            assert_eq!(
+                lifecycle.activate(&mut authority).unwrap_err().code,
+                ErrorCode::DisplayIsolationFailed
+            );
+            assert!(!lifecycle.backend().is_virtual_monitor_active());
+            assert_ne!(lifecycle.state(), State::RemoteActive);
+            assert!(authority.dispatch((), |_, _| Ok(())).is_err());
+        }
     }
 
     #[test]
