@@ -188,6 +188,16 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
   - Gate: **FEAS-B** PASS. Report.
 
 - [ ] **Phase 5 — Physical display isolation** (`11.P5`; Docs 10 Exp 6–7, 37, 26–27, 29; 02 §12–§13, §37–§38; 05 §28–§40, §60–§62; 20 §20–§24) — **hard gate**
+  - Supported-layout decision (2026-09-28): one physical display is a
+    first-class configuration, not a fallback requiring an optional HDMI
+    monitor. The matrix below records the original comprehensive targets;
+    connected-HDMI and hotplug claims are deferred until separately proven.
+    Every connected output in a declared layout must be isolated and restored;
+    an unexpected/unsupported output blocks activation or triggers safe
+    teardown. Single-display recovery needs verified out-of-band SSH and a
+    watchdog/emergency path, not a second monitor. FEAS-C remains STOP on
+    this host; eDP-only observation does not erase the connected-HDMI failure
+    or certify a single-monitor desktop GPU.
   - Files: `crates/blackroom-gnome/src/mutter/display_config.rs` (`GetCurrentState`
     snapshot → `DisplayBackup`, `ApplyMonitorsConfig` temporary, verify, restore, hotplug
     signal handling); experiments `exp06_isolate_outputs.rs` (with armed restore

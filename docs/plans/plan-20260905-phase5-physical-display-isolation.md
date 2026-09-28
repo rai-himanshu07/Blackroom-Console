@@ -20,16 +20,35 @@ its final restoration remains unreliable. Defer other runs until a named
 failure or expanded support claim calls for them. Do not mark FEAS-C PASS
 from the unplugged-HDMI diagnostic or from incomplete privacy/restore proof.
 
+**2026-09-28 supported-layout decision:** A second physical monitor is not a
+product prerequisite. A laptop with only its built-in panel, or a desktop with
+one physical monitor, is a first-class target: the one connected output must
+be isolated without exposing desktop content and restored exactly afterward.
+The HDMI-only and dual-output rows below remain historical matrix targets for
+*those* layouts, not a requirement to attach an optional second monitor to
+prove a single-display configuration. This is an explicit support-scope
+decision, not a Gate FEAS-C PASS or permission to discard the connected-HDMI
+failure. On this host, connected-HDMI operation remains unsupported/stopped;
+an unsupported output detected before activation must block it, and one
+appearing during remote mode must trigger safe teardown rather than be ignored.
+A single-display desktop GPU/output and the eDP-only laptop need separate
+evidence for their respective support claims. Recovery requires an independent
+second-device SSH channel
+and a proven watchdog/emergency route, not a second display; a sole physical
+screen offers no passive visual fallback if restore fails.
+
 ## Goal
 
-Prove, with real (not mocked, not black-window) Mutter mutation, that every physical
-display output on this host can be disabled while only the virtual monitor stays
+Prove, with real (not mocked, not black-window) Mutter mutation, that every
+physical display output in a declared supported layout can be disabled while
+only the virtual monitor stays
 active — a genuine **zero-physical-monitor** topology, not merely "an additional
 display" (Phase 4's proven, narrower case) — verified both via
 `DisplayConfig.GetCurrentState` and by direct human observation/photo of the
 physical panels, and that the exact original topology (connector, mode, scale,
 transform, position, primary) is restored reliably, including across a monitor
-hotplug and an **ungraceful** (process-killed) termination. Close the hard gate
+hotplug if that layout claims hotplug support and an **ungraceful** (process-killed)
+termination for the supported configuration. Close the hard gate
 **FEAS-C** (Doc 10 §48: "Physical display cannot expose the active desktop during
 remote mode"). Land `crates/blackroom-gnome/src/mutter/display_config.rs` — the
 `DisplayBackup` snapshot/disable/restore/hotplug module every later phase's real
@@ -52,19 +71,23 @@ read-only run. See Risks.
   noted per output, per Doc 02 §13's three-way distinction).
 - Exact original topology (connector, mode, scale, transform, position, primary)
   is restored and compared by hash (`DisplayBackup.configuration_hash`) plus
-  field-by-field comparison, for every matrix row.
-- A monitor hotplug (HDMI-1 connect/disconnect — the only physically
-  disconnectable output on this host) during isolation keeps the reconnected
-  output isolated (does not silently reappear as an active logical monitor) or
-  triggers safe teardown; original topology can still be restored afterward.
-- Matrix rows: `eDP-1` alone, `HDMI-1` alone, both together — each recording
-  GPU/driver/kernel/GNOME/Mutter versions and per-row virtual-monitor/capture/
-  teardown/restore results (Doc 10 §36's exact field list), satisfying
-  Experiment 29 without a dedicated binary (Decision 5). AMD stays `UNKNOWN`
-  (no hardware available, assessment §11 item 3, unchanged this phase).
-- 50 isolate/restore cycles complete clean (machine-verified via `GetCurrentState`
-  + hash, bounded per-cycle timeout per `experiment-safety.md` §6) — see Decision
-  8 for why these are not 50 operator-witnessed photo sessions.
+  field-by-field comparison for each claimed supported layout. The original
+  three-row matrix remains open for any later multi-output support claim.
+- A newly detected physical output during single-display isolation must remain
+  isolated or trigger safe teardown; HDMI-1 connect/disconnect testing on this
+  host is required only before claiming that hotplug or connected-HDMI layout
+  supported. It is not a prerequisite to operate with HDMI physically absent.
+- Original matrix rows: `eDP-1` alone, `HDMI-1` alone, both together. A support
+  claim needs the version and virtual-monitor/capture/teardown/restore results
+  for its actual layout (Doc 10 §36); the remaining rows stay unverified or
+  unsupported, not implicitly passed. A single-monitor desktop cannot inherit
+  evidence from this laptop's eDP panel. AMD stays `UNKNOWN` (no hardware
+  available, assessment §11 item 3, unchanged this phase).
+- The original 50-cycle target remains a deferred reliability claim, not a
+  prerequisite for single-display code or a reason to repeat live isolation
+  automatically. Before activation on any declared supported layout, verify
+  privacy, final restoration and the required abnormal-recovery path with
+  bounded evidence for that layout; make no untested reliability claim.
 - The restore watchdog (`experiment-safety.md` §2) is implemented and proven to
   actually fire and restore at least once via a deliberate ungraceful-termination
   scenario; `experiment-safety.md` §3's previously-`UNVERIFIED` VT-fallback
@@ -78,10 +101,11 @@ read-only run. See Risks.
   `DISPLAY_CONFIG_CAPABLE` rows have their "all-physical-disabled edge case
   remains open" notes resolved one way or the other, with `capability.rs` updated
   to match per the evidence-driven promotion rule (not asserted here).
-- Gate **FEAS-C** recorded PASS, **or** — if Mutter refuses a zero-physical
-  configuration or restoration proves unreliable — the plan's Execution Log
-  records a Doc 00 §49 / Doc 10 §49 stop-and-report instead of a workaround
-  (no black-window fallback, no silent scope-narrowing; Doc 05 §32).
+- Gate **FEAS-C** recorded PASS only for a declared, evidenced supported
+  configuration, **or** — if Mutter refuses a zero-physical configuration or
+  restoration proves unreliable there — the plan's Execution Log records a
+  Doc 00 §49 / Doc 10 §49 stop-and-report instead of a workaround. No
+  black-window fallback or silent scope change (Doc 05 §32).
 - `cargo test --workspace`, `cargo fmt --check`,
   `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo check --workspace --all-targets`, `cargo deny check`, `cargo audit` all
