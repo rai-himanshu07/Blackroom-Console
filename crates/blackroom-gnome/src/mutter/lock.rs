@@ -11,10 +11,14 @@ use crate::backend::SessionInfo;
 pub struct LockObservation {
     pub screen_saver_active: bool,
     pub logind_locked_hint: bool,
+    pub screen_saver_session_verified: bool,
 }
 
 impl LockObservation {
     pub fn classification(self) -> &'static str {
+        if !self.screen_saver_session_verified {
+            return "INDETERMINATE";
+        }
         match (self.screen_saver_active, self.logind_locked_hint) {
             (true, true) => "LOCKED_OBSERVED",
             (false, false) => "UNLOCKED_OBSERVED",
@@ -48,6 +52,17 @@ fn matches_selected_session(
         && active
 }
 
+fn require_same_session(
+    selected: &OwnedObjectPath,
+    owner: &OwnedObjectPath,
+) -> Result<(), BlackroomError> {
+    if owner == selected {
+        Ok(())
+    } else {
+        Err(unavailable())
+    }
+}
+
 pub fn observe(selected: &SessionInfo) -> Result<LockObservation, BlackroomError> {
     let system = Connection::system().map_err(|_| unavailable())?;
     let manager = Proxy::new(
@@ -60,6 +75,7 @@ pub fn observe(selected: &SessionInfo) -> Result<LockObservation, BlackroomError
     let path: OwnedObjectPath = manager
         .call("GetSession", &(selected.session_id.as_str(),))
         .map_err(|_| unavailable())?;
+    let session_path = path.clone();
     let session = Proxy::new(
         &system,
         "org.freedesktop.login1",
@@ -81,9 +97,27 @@ pub fn observe(selected: &SessionInfo) -> Result<LockObservation, BlackroomError
         .map_err(|_| unavailable())?;
 
     let bus = Connection::session().map_err(|_| unavailable())?;
+    let bus_daemon = Proxy::new(
+        &bus,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+    )
+    .map_err(|_| unavailable())?;
+    let owner: String = bus_daemon
+        .call("GetNameOwner", &("org.gnome.ScreenSaver",))
+        .map_err(|_| unavailable())?;
+    let owner_pid: u32 = bus_daemon
+        .call("GetConnectionUnixProcessID", &(owner.as_str(),))
+        .map_err(|_| unavailable())?;
+    let owner_session: Option<OwnedObjectPath> =
+        manager.call("GetSessionByPID", &(owner_pid,)).ok();
+    if let Some(owner_session) = owner_session.as_ref() {
+        require_same_session(&session_path, owner_session)?;
+    }
     let screen_saver = Proxy::new(
         &bus,
-        "org.gnome.ScreenSaver",
+        owner.as_str(),
         "/org/gnome/ScreenSaver",
         "org.gnome.ScreenSaver",
     )
@@ -94,6 +128,7 @@ pub fn observe(selected: &SessionInfo) -> Result<LockObservation, BlackroomError
     Ok(LockObservation {
         screen_saver_active,
         logind_locked_hint,
+        screen_saver_session_verified: owner_session.is_some(),
     })
 }
 
@@ -112,12 +147,22 @@ mod tests {
             assert_eq!(
                 LockObservation {
                     screen_saver_active,
-                    logind_locked_hint
+                    logind_locked_hint,
+                    screen_saver_session_verified: true,
                 }
                 .classification(),
                 expected
             );
         }
+        assert_eq!(
+            LockObservation {
+                screen_saver_active: true,
+                logind_locked_hint: true,
+                screen_saver_session_verified: false,
+            }
+            .classification(),
+            "INDETERMINATE"
+        );
     }
 
     #[test]
@@ -141,5 +186,13 @@ mod tests {
         assert!(!matches_selected_session(
             &selected, 1000, "seat0", "x11", "user", true
         ));
+    }
+
+    #[test]
+    fn lock_observation_refuses_screen_saver_owner_in_another_session() {
+        let selected: OwnedObjectPath = "/org/freedesktop/login1/session/_3".try_into().unwrap();
+        let other: OwnedObjectPath = "/org/freedesktop/login1/session/_4".try_into().unwrap();
+        assert!(require_same_session(&selected, &selected).is_ok());
+        assert!(require_same_session(&selected, &other).is_err());
     }
 }

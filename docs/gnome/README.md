@@ -26,5 +26,7 @@ fails closed; this command neither activates remote mode nor proves FEAS-C.
 
 `cargo run -p gnome-session-agent -- --lock-observation` reads GNOME
 ScreenSaver `GetActive` and login1 `LockedHint` for the selected session,
-without calling `Lock`. A mismatch is `INDETERMINATE`; agreement only reports
+without calling `Lock`. It checks the ScreenSaver owner's login1 session;
+an owner outside login1 or mismatched lock signals yields `INDETERMINATE`,
+while a known different session is refused. Even verified agreement is only
 the current observed state, not FEAS-A or same-session remote-unlock proof.

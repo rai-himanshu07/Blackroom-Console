@@ -53,6 +53,7 @@ fn lock_snapshot(observation: lock::LockObservation) -> serde_json::Value {
         "classification": observation.classification(),
         "screen_saver_active": observation.screen_saver_active,
         "logind_locked_hint": observation.logind_locked_hint,
+        "screen_saver_session_verified": observation.screen_saver_session_verified,
         "remote_mode_allowed": false,
     })
 }
@@ -171,9 +172,11 @@ mod tests {
         let observation = lock::LockObservation {
             screen_saver_active: true,
             logind_locked_hint: false,
+            screen_saver_session_verified: false,
         };
         let snapshot = lock_snapshot(observation);
         assert_eq!(snapshot["classification"], "INDETERMINATE");
+        assert_eq!(snapshot["screen_saver_session_verified"], false);
         assert_eq!(snapshot["remote_mode_allowed"], false);
     }
 }

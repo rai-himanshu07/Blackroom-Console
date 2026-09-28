@@ -18,7 +18,8 @@ grab devices, inject input, or promote any feasibility/security gate.
   false-success lock calls block activation.
 - [x] Phase 8 read-only preparation: real selected-session identity is checked
   again before querying ScreenSaver `GetActive` and login1 `LockedHint`.
-  One observation found both false; no real lock/unlock, FEAS-A remains open.
+  Owner PID provenance is checked; this host's user-bus owner has no login1
+  session, so false/false is INDETERMINATE. FEAS-A remains open.
 - [x] Phase 9: agent-owned fake activation/teardown transaction; signed grants
   are acknowledged only after observations; verified `LOCAL_LOCKED` or explicit
   `FAILED_SAFE` on failed restoration. Hostd/agent process-loss and idle lease

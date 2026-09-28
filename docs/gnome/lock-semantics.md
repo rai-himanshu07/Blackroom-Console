@@ -13,10 +13,13 @@ preparation and triggers rollback; cleanup that cannot confirm lock reports
 `gnome-session-agent --lock-observation` now rechecks the selected active
 Wayland login1 session's UID, seat, type and class, then reads GNOME
 ScreenSaver `GetActive` and login1 `LockedHint` without changing either.
-Disagreement reports `INDETERMINATE`. A 2026-09-28 read-only observation
-returned false/false (`UNLOCKED_OBSERVED`); this does not prove a lock
-transition or remotely controlled unlock. `ActiveChanged`, real lock/unlock
-dialog control, persistence of windows/workspaces and capture/EIS continuity
-across lock are still unmeasured. The session-bus ScreenSaver owner is not
-independently bound to the selected login1 session beyond the agent's current
-user/session context. Phase 8 and FEAS-A remain partial; no lock was called.
+The observer resolves the ScreenSaver D-Bus owner to a PID, then tries to
+match that PID's login1 session to the selected session. A known different
+session is refused; an unmapped owner or disagreeing lock signals is
+`INDETERMINATE`. On 2026-09-28 the owner was a `gjs` user-bus service outside
+any login1 session. Both raw lock signals were false, but the corrected
+read-only verdict is **INDETERMINATE**, not proof of an unlocked session. The
+earlier false/false `UNLOCKED_OBSERVED` output lacked this provenance check
+and must not be used as lock evidence. `ActiveChanged`, real lock/unlock dialog
+control, workspace continuity and capture/EIS behavior across lock remain
+unmeasured. Phase 8 and FEAS-A remain partial; no lock was called.
