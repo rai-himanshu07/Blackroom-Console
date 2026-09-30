@@ -37,9 +37,10 @@ Gate FEAS-C STOP; this was one separately approved no-kill run with no repeat.
    output could not be found. The systemd service exited successfully even
    though the binary printed FAIL. A later synthetic-tested code fix makes
    future exp07 verification FAILs exit nonzero; this run's report is unchanged.
-6. The operator confirmed the HDMI cable remained plugged in and the monitor
-   was powered with no signal. One operator-controlled cable re-seat did not
-   recover it: `/sys/class/drm/card0-HDMI-A-1/status` remained `disconnected`
+6. The operator confirmed the HDMI cable remained plugged in. This monitor
+   normally enters standby when it receives no input signal; standby itself
+   is not evidence of a separate fault. One operator-controlled cable re-seat
+   did not recover detection: `/sys/class/drm/card0-HDMI-A-1/status` remained `disconnected`
    and Mutter still showed raw eDP-1 only. GNOME Shell PID `34735`, active
    Wayland session `3`, eDP desktop/power and second-device SSH remained
    usable. No experiment timer remains; the runtime mask was removed and
@@ -53,5 +54,27 @@ explain why the physically connected HDMI output then disappeared at the
 kernel level, restore its original raw inventory, establish physical display
 privacy, or clear Gate FEAS-C. The bounded user journal logged monitor/work
 area assertions at ScreenCast Stop, but that does not establish root cause.
+The monitor's expected no-signal standby neither proves zero desktop content
+nor diagnoses the kernel connector loss; those are distinct observations.
 No GPU reset, extra cable cycles, manual exp07 retry, or further experiment
 was performed. Generated backup/findings/reports remain unchanged.
+
+## Post-reboot read-only reassessment
+
+After an operator reboot and physical HDMI reconnection, kernel DRM still
+reported `card0-HDMI-A-1/status=disconnected` with zero EDID bytes; Mutter
+continued to list only raw eDP-1. The new GNOME session had a new Shell PID,
+as expected after reboot. Both boots used kernel `7.0.0-34-generic` and
+NVIDIA driver `595.91.07`. The previous boot registered an NVIDIA DRM
+framebuffer; the new boot logged `Cannot find any crtc or sizes` instead.
+NVIDIA was initially runtime-suspended (`D3cold`), but a read-only
+`nvidia-smi` query brought it active and HDMI still reported disconnected.
+A later connector-only `modetest -M nvidia-drm -c` query with the GPU awake
+also reported HDMI-A-1 disconnected, zero modes and no EDID. The operator
+confirmed that the monitor OSD had the connected HDMI input selected.
+The monitor normally enters no-signal standby; that observation alone does
+not diagnose the failed hotplug path. No driver reload, forced connector
+write, GPU reset or new display experiment was performed. This comparison
+does not establish whether the cause is the monitor's hotplug signal, the
+laptop's HDMI path, or the NVIDIA driver/firmware state. Gate FEAS-C remains
+stopped; the original connected-HDMI inventory is still not restored.

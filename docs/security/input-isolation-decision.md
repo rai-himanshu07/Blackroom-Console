@@ -98,16 +98,19 @@ carries the kernel `sysrq` handler; because the input core delivers events only 
 the grabbing handle, SysRq and kernel VT key handling are expected to stop under a
 grab (unobserved), so they must not be counted as recovery paths.
 
-## Not verified (plan step 5 must observe)
+## Observed live on this host (2026-10-01, plan step 5; evidence `docs/experiments/evidence/exp09/`)
 
-Release on fd close and on SIGKILL; whether SysRq and the power button still
-work under a grab (SysRq expected off, see above); whether a grab of the six
-nodes is sufficient; that the observer page sees no physical input while
-remote input still works; events queued before the grab starts (leakage);
-key-repeat, LED and stuck-modifier state after release; a stalled helper and the
-watchdog and lease behavior; a USB combo device plus the internal devices; hotplug
-latency under load. The roadmap's 50-cycle requirement is not claimed: one bounded
-run answers one question and more cycles need a named failure.
+All with the operator present, an external kill timer and second-device SSH; counts only, no key codes.
+
+- While a grab is held, physical keyboard, mouse and touchpad input stops reaching the session (the observer page saw nothing while the holder read hundreds of events) and an injected EIS Shift tap still arrives: dongle in-process, dongle in a separate helper process, and the built-in keyboard, touchpad and dongle together.
+- Releasing: SIGKILL of the holder releases the grab and input returns within seconds; a frozen holder (SIGSTOP) keeps the grab, so a lease thread cannot help and only an external kill does (24 s with a 1 s accurate timer); killing the holder releases the built-in devices too; an emergency chord detected inside the helper releases cleanly (experiment chord Left Ctrl + Left Shift + Left Alt + Esc, held 2 s, from the built-in keyboard).
+- A key or button held when the grab starts is never released to the session, which then auto-repeats it for the whole grab (347 repeats in 10 s). The helper therefore must wait until every key and button is up before grabbing (the probe now does, bounded, with a prompt) and should release stragglers afterwards through the authorized input path (not built).
+- systemd timers default to 1 min accuracy, so `systemd-run --on-active=N` can fire up to a minute late; every kill and watchdog timer must set `AccuracySec=1s` (done in the probe and in the exp06 watchdog).
+- A chord made of keys that a laptop may not have or that the operator cannot press is a lock-out risk; the chord must be confirmed on each machine's built-in keyboard (a first chord using both Right keys did not release in one run, cause unknown).
+
+## Still not verified
+
+Whether SysRq and the power button work under a grab (SysRq expected off, see above); hotplug of the dongle; LED, repeat and stuck-modifier state after release when chord keys are still held; synthetic release of keys held at grab start; the lease lapse path live; lock screen and VT interplay; repeated cycles (the roadmap's 50-cycle requirement is not claimed: one bounded run answers one question and more cycles need a named failure); a real privileged helper instead of the experiment binary. FEAS-E needs the independent review of plan step 6 before any promotion.
 
 ## Out of scope
 

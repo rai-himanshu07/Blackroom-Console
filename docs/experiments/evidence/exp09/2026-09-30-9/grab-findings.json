@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    [
+      6,
+      "LITEON Dell Wireless Device",
+      "usb-0000:00:14.0-1.1/input0"
+    ],
+    [
+      7,
+      "LITEON Dell Wireless Device Mouse",
+      "usb-0000:00:14.0-1.1/input1"
+    ],
+    [
+      2,
+      "AT Translated Set 2 keyboard",
+      "isa0060/serio0/input0"
+    ],
+    [
+      3,
+      "PS/2 Generic Mouse",
+      "isa0060/serio1/input0"
+    ],
+    [
+      4,
+      "DELL0A71:00 04F3:317E Mouse",
+      "i2c-DELL0A71:00"
+    ],
+    [
+      5,
+      "DELL0A71:00 04F3:317E Touchpad",
+      "i2c-DELL0A71:00"
+    ]
+  ],
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "blocked": null,
+  "failure": null,
+  "aborted": null,
+  "phase_a": null,
+  "phase_b": null,
+  "phase_c0": null,
+  "phase_c": null,
+  "c0_device_events": 0,
+  "chord_only": true,
+  "focus_history": [
+    "t=251ms focus=true fullscreen=false visibility=\"visible\"",
+    "t=2260ms focus=true fullscreen=true visibility=\"visible\"",
+    "t=33845ms focus=true fullscreen=false visibility=\"visible\"",
+    "t=35346ms focus=true fullscreen=true visibility=\"visible\""
+  ],
+  "stages_requested": 1,
+  "stages": [
+    {
+      "name": "built-in devices released by the emergency chord",
+      "held": {
+        "key_events": 0,
+        "key_downs": 0,
+        "key_shape": "",
+        "shift_down": 0,
+        "pointer_moves": 0,
+        "buttons": 0,
+        "wheel_events": 0
+      },
+      "after": {
+        "key_events": 18,
+        "key_downs": 9,
+        "key_shape": "dudududduududududu",
+        "shift_down": 0,
+        "pointer_moves": 145,
+        "buttons": 0,
+        "wheel_events": 0
+      },
+      "after_device_events": 0,
+      "helper_reads": "READ e2=13 e5=806 chord=0",
+      "helper_reads_end": "READ e2=21 e5=806 e7=188 chord=4",
+      "chord_keys_max": 4,
+      "helper_end": "exit 0; RELEASED chord clean=true",
+      "seconds_to_end": 9,
+      "key_polls": 0,
+      "failures": [],
+      "gaps": []
+    }
+  ],
+  "probe_key_presses_in_b": 0,
+  "probe_motions_in_b": 0,
+  "injected_shift": null,
+  "restore_released": [],
+  "restore_failed": [],
+  "keys_still_down_after_release": null,
+  "grabbed_nodes_during_b": [],
+  "violations": [],
+  "notes": [
+    "the page lost focus during stage 4 after; it restarted"
+  ]
+}

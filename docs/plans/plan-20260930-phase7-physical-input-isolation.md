@@ -130,7 +130,7 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   - Verify: `cargo test -p remote-input-helper` (16 tests), clippy `-D warnings`.
     Not done: the privileged binary, evdev/udev I/O, the watchdog wiring and the
     chord choice; those stay behind step 5's approval.
-- [ ] 5a. Live, separate approval, lowest risk first: grab only the external
+- [x] 5a. Live, separate approval, lowest risk first: grab only the external
       wireless keyboard and mouse nodes (`event6`, `event7` on this host) so the
       built-in keyboard and touchpad stay usable for local recovery. One bounded
       grab with an external kill timer, a grab lease and second-device SSH; the
@@ -156,7 +156,7 @@ observes it; an unsafe or failed mechanism is reported as STOP.
     helper, hotplug, keys held across grab start, LED/repeat state, keyboard
     baseline before the grab. One run, not FEAS-E. Kill timer must use
     `pkill -KILL -x exp09_grab_prob` (15-char process name); the probe now checks.
-- [ ] 5b. Only if 5a passes and the built-in keyboard matters: one bounded grab of
+- [x] 5b. Only if 5a passes and the built-in keyboard matters: one bounded grab of
       the built-in keyboard and touchpad nodes (`event2`, `event3`, `event4`,
       `event5`) with the same safeguards plus the emergency chord. SysRq is
       expected to stop while the keyboard is grabbed and is not a recovery path.
@@ -213,3 +213,4 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   any kill timer whose command is not exactly `pkill -KILL -x exp09_grab_prob`.
   No repeat, SIGKILL or built-in run authorized.
 - 2026-10-01 (step 5a, runs 2 to 5, evidence exp09/2026-09-30-3..6): one-session `--full` probe built and reviewed (separate helper process, SIGKILL, frozen helper with its own timer, built-in nodes released by an experiment chord). Stage 1 and the SIGKILL release were observed on the dongle (run 4: helper killed, input back in 10 s). Findings: systemd timers default to 1 min accuracy (frozen-helper kill fired at 48 s, not 24 s; all probe and exp06 timers now use `AccuracySec=1s`); a frozen holder keeps the grab (observed, page silent); a key held at grab start auto-repeats into the session for the whole window (run 5, 347 repeats), so the helper must wait for all keys up before grabbing and release stragglers afterwards. Stages 3 and 4 and Exp 8 run 3 still open. FEAS-E not claimed.
+- 2026-10-01 (steps 5a and 5b done, runs 4 to 8 and Exp 8 run 3): in one supervised session series the probe observed, on the dongle and on the built-in keyboard and touchpad, that the grab hides physical input from the session while an injected tap still arrives, release on SIGKILL, a frozen holder keeping the grab until its own 24 s timer killed it, and release by an experiment chord (Left Ctrl + Left Shift + Left Alt + Esc) for the built-in devices; Exp 8 run 3 passed with the pointer magnitude observed. Findings recorded in `docs/security/input-isolation-decision.md` (stuck key at grab start, 1 min timer accuracy, chord must exist on the machine). Not observed: SysRq and power button, hotplug, LED and repeat state, synthetic release of stuck keys, real privileged helper. Step 6 (independent review and the FEAS-E decision) is open; FEAS-E and FEAS-D are not promoted.
