@@ -53,6 +53,7 @@ const KILL_COMM: &str = "exp09_grab_prob";
 /// The watchdog releases the grabs if the loop stops renewing for this long.
 const LEASE_MS: u64 = 4000;
 const HOLD_SECS: u64 = 10;
+const FOCUS_RECOVERY: Duration = Duration::from_secs(30);
 const AFTER_SECS: u64 = 10;
 const CHORD_WAIT_SECS: u64 = 40;
 /// The stalled helper runs under this name (a symlink), so only its own timer can kill it.
@@ -298,6 +299,8 @@ struct Run {
     phase_c0: Option<PhaseTally>,
     phase_c: Option<PhaseTally>,
     c0_device_events: u64,
+    /// Page focus and fullscreen changes (times and flags only), to diagnose a lost page.
+    focus_history: Vec<String>,
     stages_requested: usize,
     stages: Vec<StageResult>,
     probe_key_presses_in_b: u64,
@@ -673,9 +676,14 @@ fn wait_phase(
     isolation: Option<&Arc<Mutex<Isolation<EvdevGrab>>>>,
     origin: Instant,
 ) -> bool {
-    let end = Instant::now() + Duration::from_secs(secs);
+    let mut end = Instant::now() + Duration::from_secs(secs);
     while Instant::now() < end {
         if !observer.ready_now(FRESH) {
+            // Only un-grabbed phases can be recovered: with a grab held the operator cannot refocus.
+            if isolation.is_none() && recover_focus(observer, run, label, FOCUS_RECOVERY) {
+                end = Instant::now() + Duration::from_secs(secs);
+                continue;
+            }
             run.aborted = Some(format!(
                 "observer lost focus or fullscreen during phase {label}"
             ));
@@ -701,6 +709,25 @@ fn wait_phase(
 }
 
 /// Shows an instruction in the terminal and on the observer page, which is all the operator can see.
+/// Waits for the page to be focused and fullscreen again after the operator lost it in a window
+/// with no grab held, then clears the tally so the caller can restart the window. The earlier
+/// prompt is put back either way.
+fn recover_focus(observer: &Observer, run: &mut Run, label: &str, timeout: Duration) -> bool {
+    let previous = observer.prompt();
+    announce(
+        observer,
+        "The page lost focus or fullscreen. Click once in the middle of the page and press F11 if it is not fullscreen. Keep the mouse away from the screen edges. This step restarts.",
+    );
+    let ok = observer.wait_ready(timeout, Duration::from_secs(2))
+        && observer.arm(Duration::from_secs(10));
+    observer.set_prompt(&previous);
+    if ok {
+        run.notes
+            .push(format!("the page lost focus during {label}; it restarted"));
+    }
+    ok
+}
+
 fn announce(observer: &Observer, text: &str) {
     println!("{text}");
     observer.set_prompt(text);
@@ -765,7 +792,7 @@ fn execute(
     announce(
         observer,
         &format!(
-            "Phase A ({} s): with the EXTERNAL keyboard type lowercase letters, AND move and click the EXTERNAL mouse. Do not press Esc or F11.",
+            "Phase A ({} s): with the EXTERNAL keyboard type lowercase letters, AND move the EXTERNAL mouse around the MIDDLE of the screen. Do not click, keep away from the screen edges, and do not press Esc or F11.",
             args.phase_secs
         ),
     );
@@ -906,7 +933,7 @@ fn execute(
         announce(
             observer,
             &format!(
-                "Phase C ({} s): grab released. Type letters on the EXTERNAL keyboard AND move the EXTERNAL mouse again.",
+                "Phase C ({} s): grab released. Type letters on the EXTERNAL keyboard AND move the EXTERNAL mouse around the MIDDLE of the screen again. Do not click.",
                 args.phase_secs
             ),
         );
@@ -1393,9 +1420,17 @@ fn watch_counting(
     run: &mut Run,
     mut counter: Option<&mut EvdevGrab>,
 ) -> Result<(), String> {
-    let end = Instant::now() + Duration::from_secs(secs);
+    let mut end = Instant::now() + Duration::from_secs(secs);
     while Instant::now() < end {
         if !observer.ready_now(FRESH) {
+            if recover_focus(observer, run, label, FOCUS_RECOVERY) {
+                if let Some(counter) = counter.as_mut() {
+                    let _ = counter.drain(0);
+                    counter.reset_counts();
+                }
+                end = Instant::now() + Duration::from_secs(secs);
+                continue;
+            }
             let message = format!("observer lost focus or fullscreen during {label}");
             run.aborted = Some(message.clone());
             return Err(message);
@@ -1436,9 +1471,20 @@ fn quiet_window(
         let _ = builtin.drain(0);
         builtin.reset_counts();
     }
-    let end = Instant::now() + Duration::from_secs(secs);
+    let mut end = Instant::now() + Duration::from_secs(secs);
     while Instant::now() < end {
         if !observer.ready_now(FRESH) {
+            if recover_focus(observer, run, "a quiet window", FOCUS_RECOVERY) {
+                let mut guard = isolation.lock().unwrap_or_else(PoisonError::into_inner);
+                let _ = guard.grabber_mut().drain(0);
+                guard.grabber_mut().reset_counts();
+                if let Some(builtin) = builtin.as_mut() {
+                    let _ = builtin.drain(0);
+                    builtin.reset_counts();
+                }
+                end = Instant::now() + Duration::from_secs(secs);
+                continue;
+            }
             run.aborted =
                 Some("observer lost focus or fullscreen in the hands-off window".to_string());
             break;
@@ -2015,6 +2061,26 @@ fn classify_run(run: &mut Run) -> ExperimentResult {
     ExperimentResult::Pass
 }
 
+fn focus_history(observer: &Observer) -> Vec<String> {
+    observer.snapshot(|state| {
+        state
+            .tally
+            .as_ref()
+            .and_then(|tally| tally["transitions"].as_array())
+            .map(|list| {
+                list.iter()
+                    .map(|entry| {
+                        format!(
+                            "t={}ms focus={} fullscreen={} visibility={}",
+                            entry["t"], entry["focus"], entry["fullscreen"], entry["visibility"]
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
 fn stage_summary(run: &Run) -> String {
     run.stages
         .iter()
@@ -2058,7 +2124,9 @@ fn main() -> anyhow::Result<()> {
         Err(error) => run.blocked = Some(format!("preflight: {error:#}")),
         Ok(devices) => {
             let observer = Observer::start(OBSERVER_PAGE)?;
-            if let Err(error) = execute(&args, &mut run, &observer, devices)
+            let executed = execute(&args, &mut run, &observer, devices);
+            run.focus_history = focus_history(&observer);
+            if let Err(error) = executed
                 && run.blocked.is_none()
                 && run.failure.is_none()
             {
@@ -2260,6 +2328,21 @@ mod tests {
             .is_some()
         );
         assert!(kill_command_problem("", KILL_COMM).is_some());
+    }
+
+    #[test]
+    fn focus_recovery_gives_up_and_restores_the_prompt() {
+        let observer = Observer::start("<html></html>").expect("observer");
+        observer.set_prompt("Phase A: type");
+        let mut run = Run::default();
+        assert!(!recover_focus(
+            &observer,
+            &mut run,
+            "phase A",
+            Duration::from_millis(150)
+        ));
+        assert_eq!(observer.prompt(), "Phase A: type");
+        assert!(run.notes.is_empty());
     }
 
     #[test]

@@ -1,0 +1,67 @@
+{
+  "nodes": [
+    [
+      6,
+      "LITEON Dell Wireless Device",
+      "usb-0000:00:14.0-1.1/input0"
+    ],
+    [
+      7,
+      "LITEON Dell Wireless Device Mouse",
+      "usb-0000:00:14.0-1.1/input1"
+    ],
+    [
+      2,
+      "AT Translated Set 2 keyboard",
+      "isa0060/serio0/input0"
+    ],
+    [
+      3,
+      "PS/2 Generic Mouse",
+      "isa0060/serio1/input0"
+    ],
+    [
+      4,
+      "DELL0A71:00 04F3:317E Mouse",
+      "i2c-DELL0A71:00"
+    ],
+    [
+      5,
+      "DELL0A71:00 04F3:317E Touchpad",
+      "i2c-DELL0A71:00"
+    ]
+  ],
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "blocked": null,
+  "failure": null,
+  "aborted": "observer lost focus or fullscreen during phase A",
+  "phase_a": {
+    "key_events": 17,
+    "key_downs": 8,
+    "key_shape": "dududduududududuu",
+    "shift_down": 0,
+    "pointer_moves": 218,
+    "buttons": 4,
+    "wheel_events": 0
+  },
+  "phase_b": null,
+  "phase_c0": null,
+  "phase_c": null,
+  "c0_device_events": 0,
+  "stages_requested": 3,
+  "stages": [],
+  "probe_key_presses_in_b": 0,
+  "probe_motions_in_b": 0,
+  "injected_shift": null,
+  "restore_released": [],
+  "restore_failed": [],
+  "keys_still_down_after_release": null,
+  "grabbed_nodes_during_b": [],
+  "violations": [],
+  "notes": [
+    "later stages were skipped because an earlier stage did not pass",
+    "no hands-off tally after release, so ghost input was not checked",
+    "the operator did not use both a keyboard and a pointing device on the grabbed nodes in phase B"
+  ]
+}

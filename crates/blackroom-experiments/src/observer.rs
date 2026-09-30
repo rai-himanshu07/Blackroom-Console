@@ -150,6 +150,10 @@ impl Observer {
         false
     }
 
+    pub fn prompt(&self) -> String {
+        self.snapshot(|state| state.prompt.clone())
+    }
+
     /// Text shown on the page, for instructions the operator cannot read in the terminal.
     pub fn set_prompt(&self, text: &str) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
