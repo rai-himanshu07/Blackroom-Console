@@ -349,6 +349,7 @@ dependencies = [
  "getrandom 0.4.3",
  "pipewire",
  "reis",
+ "remote-input-helper",
  "serde",
  "serde_json",
  "time",

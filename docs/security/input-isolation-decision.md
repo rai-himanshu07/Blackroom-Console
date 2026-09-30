@@ -84,11 +84,21 @@ own open gate.
 | Emergency chord | restored | revoked, marker set |
 | Hostd or agent death | helper releases on socket EOF | already revoked |
 
+## Host inventory (read-only, 2026-09-30)
+
+`docs/experiments/evidence/exp09/2026-09-30/`: 23 event nodes, 6 would be grabbed
+(built-in keyboard, PS/2 mouse, the touchpad's Mouse and Touchpad nodes, an
+external wireless keyboard and its mouse node), 0 differences from udev tags.
+Fn-row hotkeys are on separate nodes and stay usable. The built-in keyboard node
+carries the kernel `sysrq` handler; because the input core delivers events only to
+the grabbing handle, SysRq and kernel VT key handling are expected to stop under a
+grab (unobserved), so they must not be counted as recovery paths.
+
 ## Not verified (plan step 5 must observe)
 
 Release on fd close and on SIGKILL; whether SysRq and the power button still
-work under a grab; node layout of the built-in keyboard and touchpad and whether
-a grab of them is sufficient; that the observer page sees no physical input while
+work under a grab (SysRq expected off, see above); whether a grab of the six
+nodes is sufficient; that the observer page sees no physical input while
 remote input still works; events queued before the grab starts (leakage);
 key-repeat, LED and stuck-modifier state after release; a stalled helper and the
 watchdog and lease behavior; a USB combo device plus the internal devices; hotplug

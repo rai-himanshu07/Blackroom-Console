@@ -170,3 +170,8 @@ observes it; an unsafe or failed mechanism is reported as STOP.
 - 2026-09-30 (step 4, direction approved by the operator): added the pure-logic
   crate `remote-input-helper` (classification, isolation state machine, lease,
   chord detector) with 16 tests; no device, ioctl or privilege is touched.
+- 2026-09-30 (step 5, read-only part): `exp09_input_inventory` classified this
+  host's 23 input nodes without opening any device: 6 would be grabbed, 0 differ
+  from udev tags; Fn-row hotkeys are on separate nodes; the grabbed keyboard node
+  carries the kernel `sysrq` handler. The live grab part of step 5 is not done and
+  needs approval and a privilege path.

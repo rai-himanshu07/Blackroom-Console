@@ -1,0 +1,551 @@
+[
+  {
+    "node": 0,
+    "name": "Lid Switch",
+    "phys": "PNP0C0D/button/input0",
+    "bus": "0019",
+    "handlers": [
+      "event0"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 1,
+    "name": "Power Button",
+    "phys": "PNP0C0C/button/input0",
+    "bus": "0019",
+    "handlers": [
+      "kbd",
+      "event1"
+    ],
+    "key_codes": 2,
+    "classification": "skip:NoInputRole",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 2,
+    "name": "AT Translated Set 2 keyboard",
+    "phys": "isa0060/serio0/input0",
+    "bus": "0011",
+    "handlers": [
+      "sysrq",
+      "kbd",
+      "event2",
+      "leds"
+    ],
+    "key_codes": 167,
+    "classification": "grab:keyboard",
+    "grab": true,
+    "udev": {
+      "seat": null,
+      "keyboard": true,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 3,
+    "name": "PS/2 Generic Mouse",
+    "phys": "isa0060/serio1/input0",
+    "bus": "0011",
+    "handlers": [
+      "mouse0",
+      "event3"
+    ],
+    "key_codes": 3,
+    "classification": "grab:pointer",
+    "grab": true,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": true,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 4,
+    "name": "DELL0A71:00 04F3:317E Mouse",
+    "phys": "i2c-DELL0A71:00",
+    "bus": "0018",
+    "handlers": [
+      "mouse1",
+      "event4"
+    ],
+    "key_codes": 2,
+    "classification": "grab:pointer",
+    "grab": true,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": true,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 5,
+    "name": "DELL0A71:00 04F3:317E Touchpad",
+    "phys": "i2c-DELL0A71:00",
+    "bus": "0018",
+    "handlers": [
+      "mouse2",
+      "event5"
+    ],
+    "key_codes": 7,
+    "classification": "grab:touchpad",
+    "grab": true,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": true,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 6,
+    "name": "LITEON Dell Wireless Device",
+    "phys": "usb-0000:00:14.0-1.1/input0",
+    "bus": "0003",
+    "handlers": [
+      "sysrq",
+      "kbd",
+      "event6",
+      "leds"
+    ],
+    "key_codes": 163,
+    "classification": "grab:keyboard",
+    "grab": true,
+    "udev": {
+      "seat": null,
+      "keyboard": true,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 7,
+    "name": "LITEON Dell Wireless Device Mouse",
+    "phys": "usb-0000:00:14.0-1.1/input1",
+    "bus": "0003",
+    "handlers": [
+      "mouse3",
+      "event7"
+    ],
+    "key_codes": 8,
+    "classification": "grab:pointer",
+    "grab": true,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": true,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 8,
+    "name": "LITEON Dell Wireless Device Consumer Control",
+    "phys": "usb-0000:00:14.0-1.1/input1",
+    "bus": "0003",
+    "handlers": [
+      "kbd",
+      "event8"
+    ],
+    "key_codes": 149,
+    "classification": "skip:NoInputRole",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 9,
+    "name": "Intel HID events",
+    "phys": "",
+    "bus": "0019",
+    "handlers": [
+      "rfkill",
+      "kbd",
+      "event9"
+    ],
+    "key_codes": 16,
+    "classification": "skip:NoInputRole",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 10,
+    "name": "Intel HID 5 button array",
+    "phys": "",
+    "bus": "0019",
+    "handlers": [
+      "kbd",
+      "event10"
+    ],
+    "key_codes": 6,
+    "classification": "skip:NoInputRole",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 11,
+    "name": "Dell Privacy Driver",
+    "phys": "",
+    "bus": "0019",
+    "handlers": [
+      "kbd",
+      "event11"
+    ],
+    "key_codes": 2,
+    "classification": "skip:NoInputRole",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 12,
+    "name": "Dell WMI hotkeys",
+    "phys": "",
+    "bus": "0019",
+    "handlers": [
+      "rfkill",
+      "kbd",
+      "event12"
+    ],
+    "key_codes": 19,
+    "classification": "skip:NoInputRole",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 13,
+    "name": "Video Bus",
+    "phys": "LNXVIDEO/video/input0",
+    "bus": "0019",
+    "handlers": [
+      "kbd",
+      "event13"
+    ],
+    "key_codes": 8,
+    "classification": "skip:NoInputRole",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 14,
+    "name": "Video Bus",
+    "phys": "LNXVIDEO/video/input0",
+    "bus": "0019",
+    "handlers": [
+      "kbd",
+      "event14"
+    ],
+    "key_codes": 8,
+    "classification": "skip:NoInputRole",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 15,
+    "name": "HDA NVidia HDMI/DP,pcm=3",
+    "phys": "ALSA",
+    "bus": "0000",
+    "handlers": [
+      "event15"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 16,
+    "name": "HDA NVidia HDMI/DP,pcm=7",
+    "phys": "ALSA",
+    "bus": "0000",
+    "handlers": [
+      "event16"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 17,
+    "name": "HDA NVidia HDMI/DP,pcm=8",
+    "phys": "ALSA",
+    "bus": "0000",
+    "handlers": [
+      "event17"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 18,
+    "name": "HDA NVidia HDMI/DP,pcm=9",
+    "phys": "ALSA",
+    "bus": "0000",
+    "handlers": [
+      "event18"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 19,
+    "name": "sof-hda-dsp Headphone Mic",
+    "phys": "ALSA",
+    "bus": "0000",
+    "handlers": [
+      "event19"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 20,
+    "name": "sof-hda-dsp HDMI/DP,pcm=3",
+    "phys": "ALSA",
+    "bus": "0000",
+    "handlers": [
+      "event20"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 21,
+    "name": "sof-hda-dsp HDMI/DP,pcm=4",
+    "phys": "ALSA",
+    "bus": "0000",
+    "handlers": [
+      "event21"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  },
+  {
+    "node": 22,
+    "name": "sof-hda-dsp HDMI/DP,pcm=5",
+    "phys": "ALSA",
+    "bus": "0000",
+    "handlers": [
+      "event22"
+    ],
+    "key_codes": 0,
+    "classification": "skip:Switch",
+    "grab": false,
+    "udev": {
+      "seat": null,
+      "keyboard": false,
+      "mouse": false,
+      "touchpad": false,
+      "touchscreen": false,
+      "pointingstick": false,
+      "tablet": false,
+      "readable": true
+    },
+    "agrees_with_udev": true
+  }
+]
