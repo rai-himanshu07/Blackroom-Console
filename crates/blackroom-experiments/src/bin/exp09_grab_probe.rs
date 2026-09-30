@@ -780,11 +780,23 @@ fn execute(
     if ok {
         announce(
             observer,
-            &format!(
-                "Phase B ({} s): the grab is ON. Keep typing letters on the EXTERNAL keyboard and moving the EXTERNAL mouse. Nothing should reach this page.",
-                args.phase_secs
-            ),
+            "Get ready: LIFT ALL fingers off the keyboard and mouse buttons now. The grab starts in a moment.",
         );
+        if !wait_until_released(
+            || {
+                isolation
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .grabber()
+                    .keys_still_down()
+            },
+            Duration::from_secs(15),
+            Duration::from_millis(500),
+        ) {
+            run.aborted =
+                Some("a key or mouse button stayed down, so the grab was not started".to_string());
+            ok = false;
+        }
         let specs: Vec<(DeviceId, Caps)> = isolation
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -806,6 +818,13 @@ fn execute(
             match grabbed {
                 Ok(ids) => {
                     run.grabbed_nodes_during_b = ids;
+                    announce(
+                        observer,
+                        &format!(
+                            "Phase B ({} s): the grab is ON. Keep typing letters on the EXTERNAL keyboard and moving the EXTERNAL mouse. Nothing should reach this page.",
+                            args.phase_secs
+                        ),
+                    );
                     // Armed after the grab so keys pressed just before it cannot count as leaks.
                     if !observer.arm(Duration::from_secs(10)) {
                         run.aborted =
@@ -1094,6 +1113,14 @@ fn hold_main(args: &Args) -> anyhow::Result<()> {
     let chord = if args.chord { emergency_chord() } else { None };
     let mut grab = EvdevGrab::new(devices, chord);
     grab.chord_nodes = args.chord_nodes.iter().copied().collect();
+    if !wait_until_released(
+        || grab.keys_still_down(),
+        Duration::from_secs(20),
+        Duration::from_millis(500),
+    ) {
+        println!("KEYS-HELD");
+        anyhow::bail!("a key or button is held down; not grabbing");
+    }
     let mut isolation = Isolation::new(grab);
     let specs: Vec<(DeviceId, Caps)> = isolation
         .grabber()
@@ -1147,6 +1174,7 @@ struct Helper {
     last_read: String,
     ended: Option<String>,
     grabbed: bool,
+    keys_held: bool,
 }
 
 impl Helper {
@@ -1173,11 +1201,14 @@ impl Helper {
             last_read: String::new(),
             ended: None,
             grabbed: false,
+            keys_held: false,
         })
     }
 
     fn note(&mut self, line: String) {
-        if line == "GRABBED" {
+        if line == "KEYS-HELD" {
+            self.keys_held = true;
+        } else if line == "GRABBED" {
             self.grabbed = true;
         } else if line.starts_with("READ") {
             self.last_read = line;
@@ -1429,6 +1460,52 @@ fn quiet_window(
     external + builtin.map_or(0, |builtin| builtin.key_presses + builtin.motions)
 }
 
+/// True once `down()` has reported nothing held for `stable`, false if `timeout` passes first.
+/// A key or button held when a grab starts never sends its release to the session, which then
+/// auto-repeats it (seen live in run 5), so every grab waits for this first.
+fn wait_until_released(
+    mut down: impl FnMut() -> usize,
+    timeout: Duration,
+    stable: Duration,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+    let mut clear_since: Option<Instant> = None;
+    while Instant::now() < deadline {
+        if down() == 0 {
+            if clear_since.get_or_insert_with(Instant::now).elapsed() >= stable {
+                return true;
+            }
+        } else {
+            clear_since = None;
+        }
+        sleep(Duration::from_millis(25));
+    }
+    false
+}
+
+/// Asks the operator to lift every finger and waits for the dongle and any extra nodes to report it.
+fn release_gate(
+    observer: &Observer,
+    stage: &mut StageResult,
+    mut down: impl FnMut() -> usize,
+) -> bool {
+    announce(
+        observer,
+        "Get ready: LIFT ALL fingers off every keyboard key and mouse button now. The grab starts in a moment.",
+    );
+    if wait_until_released(
+        &mut down,
+        Duration::from_secs(15),
+        Duration::from_millis(500),
+    ) {
+        return true;
+    }
+    stage
+        .gaps
+        .push("a key or mouse button stayed down, so the grab was not started".to_string());
+    false
+}
+
 fn fail_on(stage: &mut StageResult, result: Result<(), String>) -> bool {
     match result {
         Ok(()) => true,
@@ -1473,9 +1550,16 @@ fn start_helper(
         return None;
     }
     if !helper.wait_grabbed(Duration::from_secs(10)) {
-        stage
-            .failures
-            .push("helper did not report GRABBED (see its message above)".to_string());
+        if helper.keys_held {
+            stage.gaps.push(
+                "a key or button was held down when the helper checked, so it did not grab"
+                    .to_string(),
+            );
+        } else {
+            stage
+                .failures
+                .push("helper did not report GRABBED (see its message above)".to_string());
+        }
         return None;
     }
     Some(helper)
@@ -1496,7 +1580,8 @@ fn judge_stage(
             let leaked = held.physical_events(0);
             if leaked > 0 {
                 stage.failures.push(format!(
-                    "{leaked} physical-looking events reached the page while grabbed"
+                    "{leaked} physical-looking events reached the page while grabbed (key shape `{}`; all `r` means a key was down when the grab started)",
+                    held.key_shape
                 ));
             }
         }
@@ -1539,6 +1624,15 @@ fn stage_sigkill(
         name: "helper killed with SIGKILL".to_string(),
         ..StageResult::default()
     };
+    if !release_gate(observer, &mut stage, || {
+        isolation
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .grabber()
+            .keys_still_down()
+    }) {
+        return stage;
+    }
     let Some(mut helper) = start_helper(exe, args, &args.nodes, false, 60, KILL_COMM, &mut stage)
     else {
         return stage;
@@ -1610,6 +1704,15 @@ fn stage_stall(
             return stage;
         }
     };
+    if !release_gate(observer, &mut stage, || {
+        isolation
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .grabber()
+            .keys_still_down()
+    }) {
+        return stage;
+    }
     let Some(mut helper) =
         start_helper(&link, args, &args.nodes, false, 90, STALL_COMM, &mut stage)
     else {
@@ -1722,6 +1825,13 @@ fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> S
         .chain(&args.builtin_nodes)
         .copied()
         .collect();
+    let mut gate_nodes = open_counter(&nodes);
+    if !release_gate(observer, &mut stage, || {
+        gate_nodes.as_ref().map_or(0, EvdevGrab::keys_still_down)
+    }) {
+        return stage;
+    }
+    drop(gate_nodes.take());
     let Some(mut helper) = start_helper(exe, args, &nodes, true, 80, KILL_COMM, &mut stage) else {
         return stage;
     };
@@ -1833,7 +1943,8 @@ fn classify_run(run: &mut Run) -> ExperimentResult {
         let leaked = b.physical_events(injected);
         if leaked > 0 {
             run.violations.push(format!(
-                "{leaked} physical-looking events reached the page while grabbed"
+                "{leaked} physical-looking events reached the page while grabbed (key shape `{}`)",
+                b.key_shape
             ));
         }
         if injected == 1 && !(b.key_events == 2 && b.key_downs == 1 && b.shift_down == 1) {
@@ -2149,6 +2260,36 @@ mod tests {
             .is_some()
         );
         assert!(kill_command_problem("", KILL_COMM).is_some());
+    }
+
+    #[test]
+    fn a_grab_waits_for_every_key_to_be_up_and_stay_up() {
+        let stable = Duration::from_millis(60);
+        let mut polls = 0;
+        assert!(wait_until_released(
+            || {
+                polls += 1;
+                usize::from(polls < 4)
+            },
+            Duration::from_secs(2),
+            stable
+        ));
+        assert!(
+            !wait_until_released(|| 1, Duration::from_millis(150), stable),
+            "a key that stays down never passes the gate"
+        );
+        let mut flicker = 0;
+        assert!(
+            !wait_until_released(
+                || {
+                    flicker += 1;
+                    usize::from(flicker % 2 == 0)
+                },
+                Duration::from_millis(300),
+                Duration::from_millis(200)
+            ),
+            "a key that keeps coming back resets the stability window"
+        );
     }
 
     #[test]
