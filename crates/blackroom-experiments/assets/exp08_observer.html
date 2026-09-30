@@ -40,8 +40,8 @@
         && s.keys.some(k => k.type === 'down' && k.code === 'ControlRight' && k.shift),
       otherKeys: s.keys.filter(k => k.code !== 'ShiftLeft' && k.code !== 'ControlRight').length === 0,
       click: s.buttons.filter(b => b.type === 'click' && b.button === 0).length === 1 && s.buttons.every(b => b.button === 0),
-      pointer: s.pointer.positions.length === 2 && (() => {
-        const [a, b] = s.pointer.positions;
+      pointer: s.pointer.positions.length >= 2 && (() => {
+        const a = s.pointer.positions[0], b = s.pointer.positions[s.pointer.positions.length - 1];
         return Math.abs(b.x - a.x + 40) <= 4 && Math.abs(b.y - a.y) <= 2
           && a.x >= 2 && a.x <= innerWidth - 3 && a.y >= 2 && a.y <= innerHeight - 3;
       })(),

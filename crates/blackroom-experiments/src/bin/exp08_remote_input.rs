@@ -244,13 +244,15 @@ fn evaluate_tally(tally: &Value) -> (bool, Vec<String>) {
         number(&tally["viewport"]["h"]),
     );
     let pointer_ok = match (positions.first(), positions.last()) {
-        (Some(first), Some(last)) if positions.len() == 2 => {
+        (Some(first), Some(last)) if positions.len() >= 2 => {
             let (dx, dy) = (
                 number(&last["x"]) - number(&first["x"]),
                 number(&last["y"]) - number(&first["y"]),
             );
             // The +40 step must land inside the viewport (a clamped edge move
-            // also looks like a -40 return), and the -40 step must undo it.
+            // also looks like a -40 return) and the -40 step must undo it.
+            // Extra same-position moves are tolerated: browsers re-dispatch
+            // mousemove after a scroll or click.
             let inside = (2.0..=width - 3.0).contains(&number(&first["x"]))
                 && (2.0..=height - 3.0).contains(&number(&first["y"]));
             (dx + 40.0).abs() <= 4.0 && dy.abs() <= 2.0 && inside
@@ -1195,6 +1197,13 @@ mod tests {
         let mut drifted = good_tally();
         drifted["pointer"]["positions"][1]["x"] = json!(540);
         assert!(!evaluate_tally(&drifted).0);
+
+        let mut repeated = good_tally();
+        repeated["pointer"]["positions"]
+            .as_array_mut()
+            .expect("positions")
+            .push(json!({"x": 500, "y": 400}));
+        assert!(evaluate_tally(&repeated).0);
 
         // +40 clamped at the right edge still looks like a -40 return.
         drifted["pointer"]["positions"] = json!([{"x": 1919, "y": 400}, {"x": 1879, "y": 400}]);
