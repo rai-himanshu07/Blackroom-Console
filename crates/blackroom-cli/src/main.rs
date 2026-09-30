@@ -226,7 +226,7 @@ fn run(args: &[OsString]) -> Result<ExitCode, (u8, String)> {
         Verb::Enroll(account) => {
             let secret = totp::enroll(&directory, &account).map_err(refuse)?;
             println!("account: {account}");
-            println!("secret: {secret}");
+            println!("secret: {}", secret.as_str());
             println!("uri: {}", totp::otpauth_uri(&account, &secret));
             eprintln!(
                 "The secret is shown once and is not recoverable; add it to an authenticator app now."

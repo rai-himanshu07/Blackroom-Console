@@ -50,7 +50,7 @@ Source: `docs/plans/assessment-20260904-detailed-project-plan.md` §6.
 | Host identity | Ed25519 keypair (`ed25519-dalek`), private key `0600 remote-hostd`; fingerprint = SHA-256 of public key |
 | Remote Access Key | 256-bit CSPRNG, base64url; Argon2id verifier (m=64 MiB, t=3, p=1); rotation = new generation + epoch increment |
 | Recovery codes | 10 × 80-bit base32, Argon2id-hashed, single-use |
-| TOTP | RFC 6238 SHA-1/6 digits/30 s, `totp-rs`; ±1 step skew; reject (step, code) reuse |
+| TOTP | RFC 6238 SHA-1/6 digits/30 s, hand-rolled in `remote-hostd::totp` (checked against the RFC vectors; no extra crypto dependency); ±1 step skew; reject (step, code) reuse, persisted; secrets in an owner-only `totp-credentials` file guarded by a `totp-credentials.lock` flock, zeroised in memory |
 | Session credential | 256-bit opaque bearer, server-side SHA-256 hash bound to host/user/client/session/epoch/expiry. No JWT |
 | Control lease | `ControlLease` signed by the host identity key; `gnome-session-agent` verifies locally per event; `remote-hostd` can still revoke synchronously |
 | Trusted-device credential | Browser WebCrypto **non-extractable** `CryptoKey` (ECDSA P-256; Ed25519 when available), IndexedDB; never a bearer string in localStorage |
