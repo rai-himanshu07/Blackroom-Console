@@ -12,8 +12,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::ErrorKind;
-use std::process::Command;
+use std::io::{BufRead, BufReader, ErrorKind, Read};
+use std::os::unix::process::ExitStatusExt;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
@@ -34,8 +37,8 @@ use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use evdev::{BusType, Device, EventType};
 use reis::event::{DeviceCapability, DeviceResumed, EiEvent};
 use remote_input_helper::{
-    Caps, Classification, DeviceGrab, DeviceId, GrabError, Isolation, State as IsolationState,
-    classify,
+    Caps, Chord, ChordDetector, Classification, DeviceGrab, DeviceId, GrabError, Isolation,
+    State as IsolationState, classify,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -49,6 +52,16 @@ const KILL_TIMER: &str = "blackroom-exp09-kill";
 const KILL_COMM: &str = "exp09_grab_prob";
 /// The watchdog releases the grabs if the loop stops renewing for this long.
 const LEASE_MS: u64 = 4000;
+const HOLD_SECS: u64 = 10;
+const AFTER_SECS: u64 = 10;
+const CHORD_WAIT_SECS: u64 = 40;
+/// The stalled helper runs under this name (a symlink), so only its own timer can kill it.
+const STALL_COMM: &str = "exp09_grab_hold";
+const STALL_TIMER: &str = "blackroom-exp09-stall-kill";
+const STALL_KILL_SECS: u64 = 24;
+/// Experiment chord, not a product decision: Left Ctrl, Right Ctrl, Left Shift, Right Shift held 2 s.
+const EMERGENCY_CHORD_KEYS: [u16; 4] = [29, 97, 42, 54];
+const EMERGENCY_CHORD_HOLD_MS: u64 = 2000;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -77,12 +90,34 @@ struct Args {
     /// Seconds to wait for the operator to focus the observer page.
     #[arg(long, default_value_t = 180, value_parser = clap::value_parser!(u64).range(30..=600))]
     ready_timeout_secs: u64,
+    /// Also run the SIGKILL, stalled-helper and (with --builtin-nodes) emergency-chord stages.
+    #[arg(long, default_value_t = false)]
+    full: bool,
+    /// Built-in keyboard and touchpad nodes for the last stage, for example `2,3,4,5`.
+    #[arg(long, value_delimiter = ',', num_args = 1..=6)]
+    builtin_nodes: Vec<u32>,
+    /// Internal: run as the separate process that holds the grab.
+    #[arg(long, hide = true, default_value_t = false)]
+    hold_grab: bool,
+    /// Internal: the helper exits by itself after this many seconds.
+    #[arg(long, hide = true, default_value_t = 60)]
+    max_secs: u64,
+    /// Internal: the helper releases when the emergency chord is held.
+    #[arg(long, hide = true, default_value_t = false)]
+    chord: bool,
+    /// Internal: only keys from these nodes count towards the chord (the built-in keyboard).
+    #[arg(long, hide = true, value_delimiter = ',')]
+    chord_nodes: Vec<u32>,
 }
 
 struct EvdevGrab {
     devices: BTreeMap<DeviceId, Device>,
     key_presses: u64,
     motions: u64,
+    per_node: BTreeMap<DeviceId, u64>,
+    chord: Option<ChordDetector>,
+    chord_nodes: BTreeSet<DeviceId>,
+    chord_fired: bool,
 }
 
 impl DeviceGrab for EvdevGrab {
@@ -106,16 +141,43 @@ impl DeviceGrab for EvdevGrab {
 }
 
 impl EvdevGrab {
-    /// Counts pending events per node without keeping any code or coordinate.
-    fn drain(&mut self) -> Result<(), String> {
-        for device in self.devices.values_mut() {
+    fn new(devices: BTreeMap<DeviceId, Device>, chord: Option<ChordDetector>) -> Self {
+        Self {
+            devices,
+            key_presses: 0,
+            motions: 0,
+            per_node: BTreeMap::new(),
+            chord,
+            chord_nodes: BTreeSet::new(),
+            chord_fired: false,
+        }
+    }
+
+    /// Counts pending events per node without keeping any code or coordinate;
+    /// only the emergency chord keys are tracked, and only when a chord is set.
+    fn drain(&mut self, now_ms: u64) -> Result<(), String> {
+        for (id, device) in &mut self.devices {
             for _ in 0..64 {
                 match device.fetch_events() {
                     Ok(events) => {
                         for event in events {
                             match event.event_type() {
-                                EventType::KEY if event.value() == 1 => self.key_presses += 1,
-                                EventType::RELATIVE | EventType::ABSOLUTE => self.motions += 1,
+                                EventType::KEY => {
+                                    if event.value() == 1 {
+                                        self.key_presses += 1;
+                                        *self.per_node.entry(*id).or_default() += 1;
+                                    }
+                                    if let Some(chord) = &mut self.chord
+                                        && event.value() != 2
+                                        && self.chord_nodes.contains(id)
+                                    {
+                                        chord.key(event.code(), event.value() == 1, now_ms);
+                                    }
+                                }
+                                EventType::RELATIVE | EventType::ABSOLUTE => {
+                                    self.motions += 1;
+                                    *self.per_node.entry(*id).or_default() += 1;
+                                }
                                 _ => {}
                             }
                         }
@@ -125,7 +187,20 @@ impl EvdevGrab {
                 }
             }
         }
+        if let Some(chord) = &mut self.chord
+            && chord.poll(now_ms)
+        {
+            self.chord_fired = true;
+        }
         Ok(())
+    }
+
+    fn counts(&self) -> String {
+        self.per_node
+            .iter()
+            .map(|(id, n)| format!("e{id}={n}"))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     fn keys_still_down(&self) -> usize {
@@ -160,6 +235,7 @@ fn caps_of(device: &Device) -> Caps {
 #[derive(Debug, Default, Serialize, Clone)]
 struct PhaseTally {
     key_events: usize,
+    key_downs: usize,
     shift_down: usize,
     pointer_moves: u64,
     buttons: usize,
@@ -171,6 +247,7 @@ impl PhaseTally {
         let keys = tally["keys"].as_array().cloned().unwrap_or_default();
         Self {
             key_events: keys.len(),
+            key_downs: keys.iter().filter(|key| key["type"] == "down").count(),
             shift_down: keys
                 .iter()
                 .filter(|key| key["type"] == "down" && key["code"] == "ShiftLeft")
@@ -198,7 +275,10 @@ struct Run {
     aborted: Option<String>,
     phase_a: Option<PhaseTally>,
     phase_b: Option<PhaseTally>,
+    phase_c0: Option<PhaseTally>,
     phase_c: Option<PhaseTally>,
+    stages_requested: usize,
+    stages: Vec<StageResult>,
     probe_key_presses_in_b: u64,
     probe_motions_in_b: u64,
     injected_shift: Option<String>,
@@ -208,6 +288,19 @@ struct Run {
     grabbed_nodes_during_b: Vec<DeviceId>,
     violations: Vec<String>,
     notes: Vec<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct StageResult {
+    name: String,
+    held: Option<PhaseTally>,
+    after: Option<PhaseTally>,
+    helper_reads: String,
+    helper_end: String,
+    seconds_to_end: Option<u64>,
+    key_polls: u32,
+    failures: Vec<String>,
+    gaps: Vec<String>,
 }
 
 struct Authority {
@@ -348,9 +441,9 @@ fn udev_seat(node: u32) -> Option<String> {
     )
 }
 
-/// The timer must run `pkill -KILL -x exp09_grab_prob`; `show` is
+/// The timer must run `pkill -KILL -x <comm>`; `show` is
 /// `systemctl --user --no-pager show <unit>.service -p ExecStart`.
-fn kill_command_problem(show: &str) -> Option<String> {
+fn kill_command_problem(show: &str, comm: &str) -> Option<String> {
     let argv = show
         .split("argv[]=")
         .nth(1)
@@ -358,11 +451,19 @@ fn kill_command_problem(show: &str) -> Option<String> {
         .unwrap_or("");
     let tokens: Vec<&str> = argv.split_whitespace().collect();
     match tokens.as_slice() {
-        [program, "-KILL", "-x", KILL_COMM] if program.ends_with("pkill") => None,
+        [program, "-KILL", "-x", name] if program.ends_with("pkill") && *name == comm => None,
         _ => Some(format!(
-            "the timer must run `pkill -KILL -x {KILL_COMM}` (15-character process name), not `{argv}`"
+            "the timer must run `pkill -KILL -x {comm}` (15-character process name), not `{argv}`"
         )),
     }
+}
+
+/// A built-in node must pass the ordinary checks and must not be a USB node.
+fn builtin_problem(allow_listed: bool, seat: Option<&str>, phys: &str) -> Option<String> {
+    node_problem(allow_listed, seat, phys, None, true).or_else(|| {
+        phys.starts_with("usb-")
+            .then(|| format!("phys {phys} is a USB node, not a built-in one"))
+    })
 }
 
 /// The kill timer must be listed, have a next elapse, and fire after this run
@@ -404,6 +505,11 @@ fn preflight(args: &Args, run: &mut Run) -> anyhow::Result<BTreeMap<DeviceId, De
         locked == Some(false),
         "selected session is locked or unreadable"
     );
+    let comm = comm_of(std::process::id());
+    anyhow::ensure!(
+        comm.as_deref() == Some(KILL_COMM),
+        "this process is named {comm:?}; the external kill timer only matches `{KILL_COMM}`"
+    );
     run.shell_pid_before = command_line("pidof", &["gnome-shell"]);
     anyhow::ensure!(run.shell_pid_before.is_some(), "gnome-shell PID not found");
     anyhow::ensure!(
@@ -425,7 +531,12 @@ fn preflight(args: &Args, run: &mut Run) -> anyhow::Result<BTreeMap<DeviceId, De
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_micros(),
     )?;
-    if let Some(problem) = kill_timer_problem(&timers, now_us, 3 * args.phase_secs + 30) {
+    let need_secs = if args.full {
+        240
+    } else {
+        3 * args.phase_secs + 30
+    };
+    if let Some(problem) = kill_timer_problem(&timers, now_us, need_secs) {
         anyhow::bail!(
             "arm the external kill timer `{KILL_TIMER}` first (systemd-run --user --on-active=...): {problem}"
         );
@@ -442,7 +553,7 @@ fn preflight(args: &Args, run: &mut Run) -> anyhow::Result<BTreeMap<DeviceId, De
         ],
     )
     .unwrap_or_default();
-    if let Some(problem) = kill_command_problem(&exec) {
+    if let Some(problem) = kill_command_problem(&exec, KILL_COMM) {
         anyhow::bail!("external kill timer `{KILL_TIMER}` is not a working kill switch: {problem}");
     }
     let mut devices = BTreeMap::new();
@@ -465,6 +576,30 @@ fn preflight(args: &Args, run: &mut Run) -> anyhow::Result<BTreeMap<DeviceId, De
             .push((node, device.name().unwrap_or("").to_string(), phys));
         devices.insert(node, device);
     }
+    let mut builtin_keys: BTreeSet<u16> = BTreeSet::new();
+    for node in args.builtin_nodes.iter().copied().collect::<BTreeSet<_>>() {
+        anyhow::ensure!(
+            !devices.contains_key(&node),
+            "event{node} is in both --nodes and --builtin-nodes"
+        );
+        let device = Device::open(format!("/dev/input/event{node}"))
+            .with_context(|| format!("open /dev/input/event{node} (device access needed)"))?;
+        let phys = device.physical_path().unwrap_or("").to_string();
+        builtin_keys.extend(caps_of(&device).keys.iter().copied());
+        let allow_listed = matches!(classify(&caps_of(&device)), Classification::Grab(_));
+        if let Some(problem) = builtin_problem(allow_listed, udev_seat(node).as_deref(), &phys) {
+            anyhow::bail!("event{node} ({phys}): {problem}");
+        }
+        run.nodes
+            .push((node, device.name().unwrap_or("").to_string(), phys));
+    }
+    anyhow::ensure!(
+        args.builtin_nodes.is_empty()
+            || EMERGENCY_CHORD_KEYS
+                .iter()
+                .all(|key| builtin_keys.contains(key)),
+        "the built-in nodes lack a key of the emergency chord, so it could not release them"
+    );
     Ok(devices)
 }
 
@@ -493,7 +628,7 @@ fn wait_phase(
                 return false;
             }
             guard.renew(now_ms(origin));
-            if let Err(error) = guard.grabber_mut().drain() {
+            if let Err(error) = guard.grabber_mut().drain(now_ms(origin)) {
                 run.failure = Some(format!("reading grabbed nodes: {error}"));
                 return false;
             }
@@ -520,6 +655,7 @@ fn execute(
     observer: &Observer,
     devices: BTreeMap<DeviceId, Device>,
 ) -> anyhow::Result<()> {
+    println!("Emergency from SSH: pkill -KILL -f exp09_grab_");
     println!("Open in a browser, press F11, keep it focused; use ONLY the named external devices:");
     println!("  {}", observer.url());
     if !observer.wait_ready(
@@ -541,11 +677,7 @@ fn execute(
             anyhow::bail!("{error}");
         }
     };
-    let isolation = Arc::new(Mutex::new(Isolation::new(EvdevGrab {
-        devices,
-        key_presses: 0,
-        motions: 0,
-    })));
+    let isolation = Arc::new(Mutex::new(Isolation::new(EvdevGrab::new(devices, None))));
     let origin = Instant::now();
     let watchdog_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // Independent of the read loop, so a stalled loop still loses the lease.
@@ -654,6 +786,12 @@ fn execute(
     }
 
     if ok || run.phase_b.is_some() {
+        println!("Phase C0 (3 s): grab released. HANDS OFF both devices.");
+        sleep(Duration::from_millis(1500));
+        if observer.arm(Duration::from_secs(10)) {
+            wait_phase(observer, 3, "C0", run, None, origin);
+            run.phase_c0 = snapshot_tally(observer);
+        }
         println!(
             "Phase C ({} s): grab released; type and move the external devices again.",
             args.phase_secs
@@ -670,7 +808,826 @@ fn execute(
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .restore();
+    if args.full {
+        run_stages(args, run, observer, &isolation)?;
+    }
     Ok(())
+}
+
+fn run_stages(
+    args: &Args,
+    run: &mut Run,
+    observer: &Observer,
+    isolation: &Arc<Mutex<Isolation<EvdevGrab>>>,
+) -> anyhow::Result<()> {
+    let exe = std::env::current_exe().context("current_exe")?;
+    let mut go = can_continue(run);
+    for (index, min_secs) in [(2, 200_u64), (3, 130), (4, 90)] {
+        if !go || (index == 4 && args.builtin_nodes.is_empty()) {
+            break;
+        }
+        if let Some(problem) = timer_left_problem(min_secs) {
+            run.notes
+                .push(format!("stage {index} and later skipped: {problem}"));
+            break;
+        }
+        let stage = match index {
+            2 => stage_sigkill(args, run, observer, &exe),
+            3 => stage_stall(args, run, observer, &exe, isolation),
+            _ => stage_chord(args, run, observer, &exe),
+        };
+        go = stage.failures.is_empty() && stage.gaps.is_empty() && run.aborted.is_none();
+        run.stages.push(stage);
+    }
+    if run.stages.len() < run.stages_requested {
+        run.notes
+            .push("later stages were skipped because an earlier stage did not pass".to_string());
+    }
+    Ok(())
+}
+
+/// Stage 1 must fully pass before the riskier stages start.
+fn can_continue(run: &Run) -> bool {
+    run.failure.is_none()
+        && run.aborted.is_none()
+        && run.restore_failed.is_empty()
+        && run.injected_shift.as_deref() == Some("accepted")
+        && run.probe_key_presses_in_b + run.probe_motions_in_b > 0
+        && run.phase_a.as_ref().is_some_and(baseline_ok)
+        && run
+            .phase_b
+            .as_ref()
+            .is_some_and(|b| b.physical_events(1) == 0)
+        && run
+            .phase_c0
+            .as_ref()
+            .is_some_and(|c0| c0.physical_events(0) == 0)
+        && run
+            .phase_c
+            .as_ref()
+            .is_some_and(|c| c.physical_events(0) > 0)
+}
+
+/// The main kill timer is re-checked before each stage: it must still have this long to run.
+fn timer_left_problem(min_secs: u64) -> Option<String> {
+    let timers = command_line(
+        "systemctl",
+        &["--user", "list-timers", "--all", "--output=json"],
+    )
+    .unwrap_or_default();
+    let Ok(now) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) else {
+        return Some("clock is before the epoch".to_string());
+    };
+    let now_us = u64::try_from(now.as_micros()).unwrap_or(u64::MAX);
+    kill_timer_problem(&timers, now_us, min_secs)
+        .map(|problem| format!("external kill timer: {problem}"))
+}
+
+fn emergency_chord() -> Option<ChordDetector> {
+    Chord::new(&EMERGENCY_CHORD_KEYS, EMERGENCY_CHORD_HOLD_MS).map(ChordDetector::new)
+}
+
+fn describe_exit(status: ExitStatus) -> String {
+    status.signal().map_or_else(
+        || format!("exit {}", status.code().unwrap_or(-1)),
+        |signal| format!("signal {signal}"),
+    )
+}
+
+fn comm_of(pid: u32) -> Option<String> {
+    fs::read_to_string(format!("/proc/{pid}/comm"))
+        .ok()
+        .map(|text| text.trim().to_string())
+}
+
+/// State letter from `/proc/<pid>/stat`; the process name may contain spaces and parentheses.
+fn parse_proc_state(stat: &str) -> Option<char> {
+    stat.rsplit_once(')')?.1.trim_start().chars().next()
+}
+
+fn wait_state(pid: u32, wanted: char, timeout: Duration) -> bool {
+    let end = Instant::now() + timeout;
+    while Instant::now() < end {
+        let state = fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|stat| parse_proc_state(&stat));
+        if state == Some(wanted) {
+            return true;
+        }
+        sleep(Duration::from_millis(50));
+    }
+    false
+}
+
+/// Per-node event counts from a helper `READ e6=12 e7=300` line.
+fn parse_reads(line: &str) -> BTreeMap<DeviceId, u64> {
+    line.split_whitespace()
+        .skip(1)
+        .filter_map(|item| {
+            let (node, count) = item.strip_prefix('e')?.split_once('=')?;
+            Some((node.parse().ok()?, count.parse().ok()?))
+        })
+        .collect()
+}
+
+/// Events the helper read between two `READ` lines, optionally only on some nodes.
+fn reads_delta(
+    end: &BTreeMap<DeviceId, u64>,
+    base: &BTreeMap<DeviceId, u64>,
+    only: Option<&[u32]>,
+) -> u64 {
+    end.iter()
+        .filter(|(id, _)| only.is_none_or(|nodes| nodes.contains(id)))
+        .map(|(id, count)| count.saturating_sub(base.get(id).copied().unwrap_or(0)))
+        .sum()
+}
+
+fn helper_args(args: &Args, nodes: &[u32], builtin: bool, max_secs: u64) -> Vec<String> {
+    let join = |list: &[u32]| {
+        list.iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let mut out = vec![
+        "--operator-present".to_string(),
+        "--hold-grab".to_string(),
+        "--nodes".to_string(),
+        join(nodes),
+        "--max-secs".to_string(),
+        max_secs.to_string(),
+    ];
+    if builtin {
+        out.push("--include-builtin".to_string());
+        out.push("--chord".to_string());
+        out.push("--chord-nodes".to_string());
+        out.push(join(&args.builtin_nodes));
+    } else if let Some(prefix) = &args.expect_phys_prefix {
+        out.push("--expect-phys-prefix".to_string());
+        out.push(prefix.clone());
+    }
+    out
+}
+
+/// The separate process that holds the grab (the shape of the real emergency binary). It exits,
+/// releasing the grab, on the chord, when its parent goes away, or after `--max-secs`.
+fn hold_main(args: &Args) -> anyhow::Result<()> {
+    let mut devices = BTreeMap::new();
+    for node in args.nodes.iter().copied().collect::<BTreeSet<_>>() {
+        let device = Device::open(format!("/dev/input/event{node}"))
+            .with_context(|| format!("open /dev/input/event{node}"))?;
+        device.set_nonblocking(true)?;
+        let phys = device.physical_path().unwrap_or("").to_string();
+        let allow_listed = matches!(classify(&caps_of(&device)), Classification::Grab(_));
+        if let Some(problem) = node_problem(
+            allow_listed,
+            udev_seat(node).as_deref(),
+            &phys,
+            args.expect_phys_prefix.as_deref(),
+            args.include_builtin,
+        ) {
+            anyhow::bail!("event{node} ({phys}): {problem}");
+        }
+        devices.insert(node, device);
+    }
+    let chord = if args.chord { emergency_chord() } else { None };
+    let mut grab = EvdevGrab::new(devices, chord);
+    grab.chord_nodes = args.chord_nodes.iter().copied().collect();
+    let mut isolation = Isolation::new(grab);
+    let specs: Vec<(DeviceId, Caps)> = isolation
+        .grabber()
+        .devices
+        .iter()
+        .map(|(id, device)| (*id, caps_of(device)))
+        .collect();
+    let origin = Instant::now();
+    isolation
+        .isolate(&specs, 0, LEASE_MS)
+        .map_err(|error| anyhow::anyhow!("isolate: {error:?}"))?;
+    println!("GRABBED");
+    let parent_gone = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let flag = Arc::clone(&parent_gone);
+        std::thread::spawn(move || {
+            let _ = std::io::stdin().read_to_end(&mut Vec::new());
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        });
+    }
+    let mut last_report = Instant::now();
+    let reason = loop {
+        let now = now_ms(origin);
+        isolation.renew(now);
+        if isolation.grabber_mut().drain(now).is_err() {
+            break "read-error";
+        }
+        if isolation.grabber().chord_fired {
+            break "chord";
+        }
+        if parent_gone.load(std::sync::atomic::Ordering::Relaxed) {
+            break "parent-gone";
+        }
+        if origin.elapsed() >= Duration::from_secs(args.max_secs) {
+            break "deadline";
+        }
+        if last_report.elapsed() >= Duration::from_secs(1) {
+            println!("READ {}", isolation.grabber().counts());
+            last_report = Instant::now();
+        }
+        sleep(Duration::from_millis(20));
+    };
+    let outcome = isolation.restore();
+    println!("RELEASED {reason} clean={}", outcome.is_clean());
+    Ok(())
+}
+
+struct Helper {
+    child: Child,
+    lines: mpsc::Receiver<String>,
+    last_read: String,
+    ended: Option<String>,
+    grabbed: bool,
+}
+
+impl Helper {
+    fn spawn(program: &Path, args: &[String]) -> anyhow::Result<Self> {
+        let mut child = Command::new(program)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .with_context(|| format!("spawn {}", program.display()))?;
+        let stdout = child.stdout.take().context("helper stdout")?;
+        let (tx, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(Self {
+            child,
+            lines,
+            last_read: String::new(),
+            ended: None,
+            grabbed: false,
+        })
+    }
+
+    fn note(&mut self, line: String) {
+        if line == "GRABBED" {
+            self.grabbed = true;
+        } else if line.starts_with("READ") {
+            self.last_read = line;
+        } else if line.starts_with("RELEASED") {
+            self.ended = Some(line);
+        }
+    }
+
+    fn pump(&mut self) {
+        while let Ok(line) = self.lines.try_recv() {
+            self.note(line);
+        }
+    }
+
+    fn wait_grabbed(&mut self, timeout: Duration) -> bool {
+        let end = Instant::now() + timeout;
+        while Instant::now() < end && !self.grabbed {
+            match self.lines.recv_timeout(Duration::from_millis(100)) {
+                Ok(line) => self.note(line),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        self.grabbed
+    }
+
+    /// Reads what the helper printed before its pipe closed.
+    fn finish(&mut self) {
+        while let Ok(line) = self.lines.recv_timeout(Duration::from_secs(2)) {
+            self.note(line);
+        }
+    }
+
+    fn exited(&mut self) -> Option<ExitStatus> {
+        self.child.try_wait().ok().flatten()
+    }
+}
+
+impl Drop for Helper {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+struct TempDir(PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A symlink to this binary named `STALL_COMM`, so the process name differs from the main timer's.
+fn hold_link(exe: &Path) -> anyhow::Result<(TempDir, PathBuf)> {
+    let base = std::env::var_os("XDG_RUNTIME_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
+    let dir = TempDir(base.join(format!("blackroom-exp09-{}", std::process::id())));
+    fs::create_dir_all(&dir.0)?;
+    let link = dir.0.join(STALL_COMM);
+    std::os::unix::fs::symlink(exe, &link)?;
+    Ok((dir, link))
+}
+
+/// Armed by the probe before it stops the helper; stopped again on drop.
+struct StallTimer;
+
+impl StallTimer {
+    fn arm() -> Result<Self, String> {
+        let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
+        let output = Command::new("systemd-run")
+            .args([
+                "--user",
+                "--collect",
+                &format!("--on-active={STALL_KILL_SECS}"),
+                &format!("--unit={STALL_TIMER}"),
+                &format!("--working-directory={}", cwd.display()),
+                "pkill",
+                "-KILL",
+                "-x",
+                STALL_COMM,
+            ])
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !output.status.success() {
+            return Err(format!(
+                "systemd-run failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let timer = Self;
+        let exec = command_line(
+            "systemctl",
+            &[
+                "--user",
+                "--no-pager",
+                "show",
+                &format!("{STALL_TIMER}.service"),
+                "-p",
+                "ExecStart",
+            ],
+        )
+        .unwrap_or_default();
+        match kill_command_problem(&exec, STALL_COMM) {
+            Some(problem) => Err(problem),
+            None => Ok(timer),
+        }
+    }
+}
+
+impl Drop for StallTimer {
+    fn drop(&mut self) {
+        let _ = Command::new("systemctl")
+            .args(["--user", "stop", &format!("{STALL_TIMER}.timer")])
+            .status();
+    }
+}
+
+/// Waits `secs` while the page stays focused. `polls` counts samples with a key or button held
+/// down, but only after one sample with nothing held (so a key already down does not count).
+fn watch(
+    observer: &Observer,
+    secs: u64,
+    label: &str,
+    run: &mut Run,
+    mut helper: Option<&mut Helper>,
+    isolation: Option<&Arc<Mutex<Isolation<EvdevGrab>>>>,
+    mut polls: Option<&mut u32>,
+) -> Result<(), String> {
+    let end = Instant::now() + Duration::from_secs(secs);
+    let mut saw_up = false;
+    while Instant::now() < end {
+        if !observer.ready_now(FRESH) {
+            let message = format!("observer lost focus or fullscreen during {label}");
+            run.aborted = Some(message.clone());
+            return Err(message);
+        }
+        if let Some(helper) = helper.as_mut() {
+            helper.pump();
+            if let Some(status) = helper.exited() {
+                return Err(format!(
+                    "helper ended early during {label}: {}",
+                    describe_exit(status)
+                ));
+            }
+        }
+        if let (Some(isolation), Some(count)) = (isolation, polls.as_mut()) {
+            let down = isolation
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .grabber()
+                .keys_still_down()
+                > 0;
+            if !down {
+                saw_up = true;
+            } else if saw_up {
+                **count += 1;
+            }
+        }
+        sleep(Duration::from_millis(50));
+    }
+    Ok(())
+}
+
+/// Like `watch`, but drains un-grabbed devices so their event counts show the operator used them.
+fn watch_counting(
+    observer: &Observer,
+    secs: u64,
+    label: &str,
+    run: &mut Run,
+    mut counter: Option<&mut EvdevGrab>,
+) -> Result<(), String> {
+    let end = Instant::now() + Duration::from_secs(secs);
+    while Instant::now() < end {
+        if !observer.ready_now(FRESH) {
+            let message = format!("observer lost focus or fullscreen during {label}");
+            run.aborted = Some(message.clone());
+            return Err(message);
+        }
+        if let Some(counter) = counter.as_mut() {
+            let _ = counter.drain(0);
+        }
+        sleep(Duration::from_millis(20));
+    }
+    Ok(())
+}
+
+fn open_counter(nodes: &[u32]) -> Option<EvdevGrab> {
+    let mut devices = BTreeMap::new();
+    for node in nodes {
+        let device = Device::open(format!("/dev/input/event{node}")).ok()?;
+        device.set_nonblocking(true).ok()?;
+        devices.insert(*node, device);
+    }
+    Some(EvdevGrab::new(devices, None))
+}
+
+fn fail_on(stage: &mut StageResult, result: Result<(), String>) -> bool {
+    match result {
+        Ok(()) => true,
+        Err(message) => {
+            stage.failures.push(message);
+            false
+        }
+    }
+}
+
+fn arm_page(observer: &Observer, run: &mut Run, stage: &mut StageResult, what: &str) -> bool {
+    if observer.arm(Duration::from_secs(10)) {
+        return true;
+    }
+    let message = format!("observer did not acknowledge the {what} reset");
+    run.aborted = Some(message.clone());
+    stage.gaps.push(message);
+    false
+}
+
+fn start_helper(
+    program: &Path,
+    args: &Args,
+    nodes: &[u32],
+    builtin: bool,
+    max_secs: u64,
+    expect_comm: &str,
+    stage: &mut StageResult,
+) -> Option<Helper> {
+    let mut helper = match Helper::spawn(program, &helper_args(args, nodes, builtin, max_secs)) {
+        Ok(helper) => helper,
+        Err(error) => {
+            stage.failures.push(format!("spawn helper: {error:#}"));
+            return None;
+        }
+    };
+    let comm = comm_of(helper.child.id());
+    if comm.as_deref() != Some(expect_comm) {
+        stage.failures.push(format!(
+            "helper process name is {comm:?}, expected {expect_comm}: its kill timer would not match it"
+        ));
+        return None;
+    }
+    if !helper.wait_grabbed(Duration::from_secs(10)) {
+        stage
+            .failures
+            .push("helper did not report GRABBED (see its message above)".to_string());
+        return None;
+    }
+    Some(helper)
+}
+
+/// Verdict for one helper stage from what the page saw while the helper held the grab and after it ended.
+fn judge_stage(stage: &mut StageResult, operator_active: bool, end_problem: Option<String>) {
+    match &stage.held {
+        None => stage
+            .gaps
+            .push("no page tally while the helper held the grab".to_string()),
+        Some(held) => {
+            let leaked = held.physical_events(0);
+            if leaked > 0 {
+                stage.failures.push(format!(
+                    "{leaked} physical-looking events reached the page while grabbed"
+                ));
+            }
+        }
+    }
+    if !operator_active {
+        stage
+            .gaps
+            .push("no operator activity was observed while grabbed".to_string());
+    }
+    if let Some(problem) = end_problem {
+        stage.failures.push(problem);
+    }
+    match &stage.after {
+        None => stage
+            .gaps
+            .push("no page tally after the helper ended".to_string()),
+        Some(after) if after.physical_events(0) == 0 => stage
+            .failures
+            .push("no physical input reached the page after the grab ended".to_string()),
+        Some(after) if after.key_downs == 0 || after.pointer_moves == 0 => stage
+            .gaps
+            .push("after the grab ended the page saw only one kind of input".to_string()),
+        Some(_) => {}
+    }
+}
+
+fn stage_sigkill(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> StageResult {
+    let mut stage = StageResult {
+        name: "helper killed with SIGKILL".to_string(),
+        ..StageResult::default()
+    };
+    let Some(mut helper) = start_helper(exe, args, &args.nodes, false, 60, KILL_COMM, &mut stage)
+    else {
+        return stage;
+    };
+    if !arm_page(observer, run, &mut stage, "held") {
+        return stage;
+    }
+    helper.pump();
+    let base = parse_reads(&helper.last_read);
+    println!(
+        "Stage 2 ({HOLD_SECS} s): a separate helper process holds the grab. Type and move the EXTERNAL devices; nothing should reach the page."
+    );
+    let watched = watch(
+        observer,
+        HOLD_SECS,
+        "stage 2 held",
+        run,
+        Some(&mut helper),
+        None,
+        None,
+    );
+    if !fail_on(&mut stage, watched) {
+        return stage;
+    }
+    stage.held = snapshot_tally(observer);
+    helper.pump();
+    stage.helper_reads.clone_from(&helper.last_read);
+    let moved = reads_delta(&parse_reads(&stage.helper_reads), &base, None);
+    let _ = helper.child.kill();
+    stage.helper_end = helper
+        .child
+        .wait()
+        .map_or_else(|error| error.to_string(), describe_exit);
+    if arm_page(observer, run, &mut stage, "after") {
+        println!(
+            "Stage 2 after ({AFTER_SECS} s): the helper was killed. Type and move the external devices again."
+        );
+        let watched = watch(observer, AFTER_SECS, "stage 2 after", run, None, None, None);
+        fail_on(&mut stage, watched);
+        stage.after = snapshot_tally(observer);
+    }
+    let end_problem = (stage.helper_end != "signal 9")
+        .then(|| format!("the helper ended with {}, not SIGKILL", stage.helper_end));
+    judge_stage(&mut stage, moved > 0, end_problem);
+    stage
+}
+
+fn stage_stall(
+    args: &Args,
+    run: &mut Run,
+    observer: &Observer,
+    exe: &Path,
+    isolation: &Arc<Mutex<Isolation<EvdevGrab>>>,
+) -> StageResult {
+    let mut stage = StageResult {
+        name: "stalled helper killed by its own timer".to_string(),
+        ..StageResult::default()
+    };
+    let (_dir, link) = match hold_link(exe) {
+        Ok(pair) => pair,
+        Err(error) => {
+            stage.failures.push(format!("helper symlink: {error:#}"));
+            return stage;
+        }
+    };
+    let Some(mut helper) =
+        start_helper(&link, args, &args.nodes, false, 90, STALL_COMM, &mut stage)
+    else {
+        return stage;
+    };
+    let timer = match StallTimer::arm() {
+        Ok(timer) => timer,
+        Err(error) => {
+            stage.failures.push(format!("stall kill timer: {error}"));
+            return stage;
+        }
+    };
+    if !arm_page(observer, run, &mut stage, "stalled") {
+        return stage;
+    }
+    let pid = helper.child.id();
+    let stopped = Command::new("kill")
+        .args(["-STOP", &pid.to_string()])
+        .status()
+        .is_ok_and(|status| status.success());
+    if !stopped || !wait_state(pid, 'T', Duration::from_secs(2)) {
+        stage
+            .failures
+            .push("the helper did not enter the stopped state".to_string());
+        return stage;
+    }
+    let stopped_at = Instant::now();
+    println!(
+        "Stage 3 ({HOLD_SECS} s): the helper is FROZEN but still holds the grab, so the external devices stay dead until its own timer kills it (~{STALL_KILL_SECS} s). Release every key first, then HOLD one letter key down and keep moving the mouse."
+    );
+    let mut polls = 0_u32;
+    let watched = watch(
+        observer,
+        HOLD_SECS,
+        "stage 3 stalled",
+        run,
+        Some(&mut helper),
+        Some(isolation),
+        Some(&mut polls),
+    );
+    stage.key_polls = polls;
+    if !fail_on(&mut stage, watched) {
+        return stage;
+    }
+    stage.held = snapshot_tally(observer);
+    println!("Stage 3: keep holding; the helper is about to be killed.");
+    let deadline = Instant::now() + Duration::from_secs(45);
+    let status = loop {
+        if let Some(status) = helper.exited() {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            break None;
+        }
+        sleep(Duration::from_millis(100));
+    };
+    match status {
+        Some(status) => {
+            stage.helper_end = describe_exit(status);
+            stage.seconds_to_end = Some(stopped_at.elapsed().as_secs());
+        }
+        None => {
+            let _ = helper.child.kill();
+            let _ = helper.child.wait();
+            stage.helper_end = "still stopped after 45 s; killed by the probe".to_string();
+        }
+    }
+    drop(timer);
+    if arm_page(observer, run, &mut stage, "after") {
+        println!(
+            "Stage 3 after ({AFTER_SECS} s): release the held key, then type and move the external devices."
+        );
+        let watched = watch(observer, AFTER_SECS, "stage 3 after", run, None, None, None);
+        fail_on(&mut stage, watched);
+        stage.after = snapshot_tally(observer);
+    }
+    if stage.seconds_to_end.is_some_and(|secs| secs < HOLD_SECS) {
+        stage
+            .gaps
+            .push("the helper died before the stall window ended".to_string());
+    }
+    let end_problem = (stage.helper_end != "signal 9").then(|| {
+        format!(
+            "the helper ended with {}, so its own timer did not kill it",
+            stage.helper_end
+        )
+    });
+    let active = stage.key_polls >= 3;
+    judge_stage(&mut stage, active, end_problem);
+    stage
+}
+
+fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> StageResult {
+    let mut stage = StageResult {
+        name: "built-in devices released by the emergency chord".to_string(),
+        ..StageResult::default()
+    };
+    let nodes: Vec<u32> = args
+        .nodes
+        .iter()
+        .chain(&args.builtin_nodes)
+        .copied()
+        .collect();
+    let Some(mut helper) = start_helper(exe, args, &nodes, true, 80, KILL_COMM, &mut stage) else {
+        return stage;
+    };
+    if !arm_page(observer, run, &mut stage, "held") {
+        return stage;
+    }
+    helper.pump();
+    let base = parse_reads(&helper.last_read);
+    println!(
+        "Stage 4 ({HOLD_SECS} s): EVERYTHING is grabbed, including this laptop's own keyboard and touchpad. Type and move on BOTH the built-in and the external devices; nothing should reach the page."
+    );
+    let watched = watch(
+        observer,
+        HOLD_SECS,
+        "stage 4 held",
+        run,
+        Some(&mut helper),
+        None,
+        None,
+    );
+    if !fail_on(&mut stage, watched) {
+        return stage;
+    }
+    stage.held = snapshot_tally(observer);
+    helper.pump();
+    stage.helper_reads.clone_from(&helper.last_read);
+    let builtin_held = reads_delta(
+        &parse_reads(&stage.helper_reads),
+        &base,
+        Some(&args.builtin_nodes),
+    );
+    println!(
+        "Stage 4: now HOLD Left Ctrl + Right Ctrl + Left Shift + Right Shift together on the BUILT-IN keyboard for about 2 s until the grab releases (up to {CHORD_WAIT_SECS} s)."
+    );
+    let started = Instant::now();
+    let status = loop {
+        helper.pump();
+        if let Some(status) = helper.exited() {
+            break Some(status);
+        }
+        if started.elapsed() >= Duration::from_secs(CHORD_WAIT_SECS) {
+            break None;
+        }
+        sleep(Duration::from_millis(50));
+    };
+    let mut released_by_chord = false;
+    match status {
+        Some(status) => {
+            helper.finish();
+            stage.seconds_to_end = Some(started.elapsed().as_secs());
+            let line = helper.ended.clone().unwrap_or_default();
+            released_by_chord = status.code() == Some(0)
+                && line.starts_with("RELEASED chord")
+                && line.contains("clean=true");
+            stage.helper_end = format!("{}; {line}", describe_exit(status));
+        }
+        None => {
+            let _ = helper.child.kill();
+            let _ = helper.child.wait();
+            stage.helper_end =
+                format!("no release within {CHORD_WAIT_SECS} s; killed by the probe");
+        }
+    }
+    let mut counter = open_counter(&args.builtin_nodes);
+    if arm_page(observer, run, &mut stage, "after") {
+        println!(
+            "Stage 4 after ({AFTER_SECS} s): type and move on the BUILT-IN keyboard and touchpad ONLY; leave the external devices alone."
+        );
+        let watched = watch_counting(observer, AFTER_SECS, "stage 4 after", run, counter.as_mut());
+        fail_on(&mut stage, watched);
+        stage.after = snapshot_tally(observer);
+    }
+    let builtin_after: u64 = counter
+        .as_ref()
+        .map_or(0, |counter| counter.per_node.values().sum());
+    if builtin_after == 0 {
+        stage
+            .gaps
+            .push("no events from the built-in nodes after the release".to_string());
+    }
+    let end_problem = (!released_by_chord).then(|| {
+        format!(
+            "the grab was not released cleanly by the emergency chord ({})",
+            stage.helper_end
+        )
+    });
+    judge_stage(&mut stage, builtin_held > 0, end_problem);
+    stage
+}
+
+/// A baseline needs both keyboard and mouse activity on the page.
+fn baseline_ok(tally: &PhaseTally) -> bool {
+    tally.key_events > 0 && tally.pointer_moves + tally.buttons as u64 + tally.wheel_events > 0
 }
 
 fn classify_run(run: &mut Run) -> ExperimentResult {
@@ -695,6 +1652,19 @@ fn classify_run(run: &mut Run) -> ExperimentResult {
             ));
         }
     }
+    if let Some(c0) = &run.phase_c0 {
+        let ghost = c0.physical_events(0);
+        if ghost > 0 {
+            run.violations.push(format!(
+                "{ghost} events reached the page in the hands-off window after release"
+            ));
+        }
+    }
+    for stage in &run.stages {
+        for failure in &stage.failures {
+            run.violations.push(format!("{}: {failure}", stage.name));
+        }
+    }
     if !run.restore_failed.is_empty() {
         run.violations.push("a release failed".to_string());
     }
@@ -704,22 +1674,57 @@ fn classify_run(run: &mut Run) -> ExperimentResult {
     if !run.violations.is_empty() {
         return ExperimentResult::Fail;
     }
-    let a_seen = run
-        .phase_a
-        .as_ref()
-        .is_some_and(|a| a.physical_events(0) > 0);
+    let a_seen = run.phase_a.as_ref().is_some_and(baseline_ok);
+    if run.phase_c0.is_none() {
+        run.notes
+            .push("no hands-off tally after release, so ghost input was not checked".to_string());
+    }
+    if !a_seen {
+        run.notes
+            .push("phase A needs both keyboard and mouse activity as a baseline".to_string());
+    }
+    let mut stage_gaps = run.stages.len() < run.stages_requested;
+    for stage in &run.stages {
+        for gap in &stage.gaps {
+            run.notes.push(format!("{}: {gap}", stage.name));
+            stage_gaps = true;
+        }
+    }
     let c_seen = run
         .phase_c
         .as_ref()
         .is_some_and(|c| c.physical_events(0) > 0);
     let operator_active = run.probe_key_presses_in_b + run.probe_motions_in_b > 0;
-    if run.aborted.is_some() || !(a_seen && c_seen && operator_active && injected == 1) {
+    if run.aborted.is_some()
+        || stage_gaps
+        || run.phase_c0.is_none()
+        || !(a_seen && c_seen && operator_active && injected == 1)
+    {
         if !operator_active {
             run.notes.push("no events were read from the grabbed nodes: the operator did not use them in phase B".to_string());
         }
         return ExperimentResult::Partial;
     }
     ExperimentResult::Pass
+}
+
+fn stage_summary(run: &Run) -> String {
+    run.stages
+        .iter()
+        .map(|stage| {
+            format!(
+                "[{}: held={:?} after={:?} reads=`{}` end=`{}` failures={:?} gaps={:?}]",
+                stage.name,
+                stage.held,
+                stage.after,
+                stage.helper_reads,
+                stage.helper_end,
+                stage.failures,
+                stage.gaps
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn main() -> anyhow::Result<()> {
@@ -730,8 +1735,18 @@ fn main() -> anyhow::Result<()> {
         "refusing to grab input: pass --operator-present only after the safety preflight in \
          docs/ops/experiment-safety.md §7 and the plan's step 5a approval"
     );
+    if args.hold_grab {
+        return hold_main(&args);
+    }
     let now = OffsetDateTime::now_utc();
-    let mut run = Run::default();
+    let mut run = Run {
+        stages_requested: if args.full {
+            2 + usize::from(!args.builtin_nodes.is_empty())
+        } else {
+            0
+        },
+        ..Run::default()
+    };
     match preflight(&args, &mut run) {
         Err(error) => run.blocked = Some(format!("preflight: {error:#}")),
         Ok(devices) => {
@@ -747,20 +1762,23 @@ fn main() -> anyhow::Result<()> {
     run.shell_pid_after = command_line("pidof", &["gnome-shell"]);
     let result = classify_run(&mut run);
     let observed = format!(
-        "result={result}; blocked={:?}; failure={:?}; aborted={:?}; A={:?}; B={:?}; C={:?}; probe read {} key presses and {} motions in B; \
-         injected Shift={:?}; release failures={:?}; keys still down after release={:?}; violations={:?}",
+        "result={result}; blocked={:?}; failure={:?}; aborted={:?}; A={:?}; B={:?}; C0={:?}; C={:?}; probe read {} key presses and {} motions in B; \
+         injected Shift={:?}; release failures={:?}; keys still down after release={:?}; violations={:?}; notes={:?}; stages={}",
         run.blocked,
         run.failure,
         run.aborted,
         run.phase_a,
         run.phase_b,
+        run.phase_c0,
         run.phase_c,
         run.probe_key_presses_in_b,
         run.probe_motions_in_b,
         run.injected_shift,
         run.restore_failed,
         run.keys_still_down_after_release,
-        run.violations
+        run.violations,
+        run.notes,
+        stage_summary(&run)
     );
     println!("{observed}");
     let report = ExperimentReport {
@@ -775,7 +1793,13 @@ fn main() -> anyhow::Result<()> {
             .to_string(),
         procedure: "Preflight; observer page focused; open the nodes; open an EIS keyboard; phase A; isolate (grab all or none); \
                     phase B with one injected Shift tap; release; phase C. External kill timer armed."
-            .to_string(),
+            .to_string()
+            + if args.full {
+                " --full then runs: a separate helper process holds the grab and is SIGKILLed; a SIGSTOPped helper is killed by its own timer; \
+                  with --builtin-nodes the built-in devices are grabbed too and released by the emergency chord."
+            } else {
+                ""
+            },
         expected: "A and C show physical activity, B shows only the injected Shift, probe read events in B, release clean."
             .to_string(),
         observed,
@@ -788,7 +1812,7 @@ fn main() -> anyhow::Result<()> {
                 .to_string(),
         ),
         recommended_action: None,
-        follow_up: Some("A PASS here is one observation, not FEAS-E; release on SIGKILL is tested separately.".to_string()),
+        follow_up: Some("A PASS here is one observation, not FEAS-E; hotplug, LED/repeat state and repeated cycles are untested.".to_string()),
     };
     let dir = evidence_dir(EXP_ID, now)?;
     write_evidence(&dir, &report.render(now), "grab-findings.json", &run)?;
@@ -836,6 +1860,7 @@ mod tests {
         let mut run = Run {
             phase_a: Some(busy.clone()),
             phase_b: Some(quiet.clone()),
+            phase_c0: Some(PhaseTally::default()),
             phase_c: Some(busy.clone()),
             probe_key_presses_in_b: 5,
             injected_shift: Some("accepted".to_string()),
@@ -911,13 +1936,20 @@ mod tests {
                 "ExecStart={{ path=/usr/bin/pkill ; argv[]=/usr/bin/pkill -KILL -x {name} ; ignore_errors=no ; start_time=[n/a] }}"
             )
         };
-        assert_eq!(kill_command_problem(&show("exp09_grab_prob")), None);
-        assert!(kill_command_problem(&show("exp09_grab_probe")).is_some());
-        assert!(kill_command_problem(&show("exp09_grab_prob extra")).is_some());
-        assert!(
-            kill_command_problem("ExecStart={ path=/bin/true ; argv[]=/bin/true ; }").is_some()
+        assert_eq!(
+            kill_command_problem(&show("exp09_grab_prob"), KILL_COMM),
+            None
         );
-        assert!(kill_command_problem("").is_some());
+        assert!(kill_command_problem(&show("exp09_grab_probe"), KILL_COMM).is_some());
+        assert!(kill_command_problem(&show("exp09_grab_prob extra"), KILL_COMM).is_some());
+        assert!(
+            kill_command_problem(
+                "ExecStart={ path=/bin/true ; argv[]=/bin/true ; }",
+                KILL_COMM
+            )
+            .is_some()
+        );
+        assert!(kill_command_problem("", KILL_COMM).is_some());
     }
 
     #[test]
@@ -938,6 +1970,228 @@ mod tests {
         assert!(kill_timer_problem("not json", now, 10).is_some());
         let other = r#"[{"next":9999999999999999,"unit":"other.timer"}]"#;
         assert!(kill_timer_problem(other, now, 10).is_some());
+    }
+
+    #[test]
+    fn helper_reads_and_arguments_round_trip() {
+        let reads = parse_reads("READ e2=5 e6=12 bogus e7=x");
+        assert_eq!(reads.get(&2), Some(&5));
+        assert_eq!(reads.get(&6), Some(&12));
+        assert_eq!(reads.len(), 2);
+        assert!(parse_reads("READ").is_empty());
+
+        let args = Args::try_parse_from([
+            "exp09",
+            "--operator-present",
+            "--nodes",
+            "6,7",
+            "--expect-phys-prefix",
+            "usb-x/",
+            "--full",
+            "--builtin-nodes",
+            "2,3",
+        ])
+        .expect("parse");
+        assert!(args.full);
+        assert_eq!(args.builtin_nodes, vec![2, 3]);
+        let external = helper_args(&args, &args.nodes, false, 60);
+        assert!(external.contains(&"--expect-phys-prefix".to_string()));
+        assert!(!external.contains(&"--chord".to_string()));
+        let builtin = helper_args(&args, &[6, 7, 2, 3], true, 80);
+        assert!(builtin.contains(&"--chord".to_string()));
+        assert!(builtin.contains(&"6,7,2,3".to_string()));
+        assert!(
+            builtin.contains(&"2,3".to_string()),
+            "chord nodes are the built-in ones"
+        );
+        for helper in [&external, &builtin] {
+            let parsed = Args::try_parse_from(
+                std::iter::once("exp09".to_string()).chain(helper.iter().cloned()),
+            );
+            assert!(parsed.is_ok(), "helper arguments must parse: {parsed:?}");
+        }
+        assert!(!builtin.contains(&"--expect-phys-prefix".to_string()));
+    }
+
+    #[test]
+    fn built_in_nodes_must_not_be_usb_and_the_chord_needs_all_four_keys() {
+        assert_eq!(
+            builtin_problem(true, Some("seat0"), "isa0060/serio0/input0"),
+            None
+        );
+        assert!(builtin_problem(true, Some("seat0"), "usb-0000:00:14.0-1.1/input0").is_some());
+        assert!(builtin_problem(true, Some("seat1"), "isa0060/serio0/input0").is_some());
+        assert!(builtin_problem(false, Some("seat0"), "isa0060/serio0/input0").is_some());
+
+        let mut chord = emergency_chord().expect("chord");
+        for code in [29, 97, 42] {
+            chord.key(code, true, 0);
+        }
+        assert!(!chord.poll(5000), "three of four keys never fire");
+        chord.key(54, true, 100);
+        assert!(!chord.poll(1000), "not held long enough");
+        assert!(chord.poll(2200));
+        assert!(!chord.poll(2300), "fires once per hold");
+    }
+
+    #[test]
+    fn a_stage_passes_only_when_the_grab_holds_and_input_returns() {
+        let busy = PhaseTally {
+            key_events: 4,
+            key_downs: 2,
+            pointer_moves: 3,
+            ..PhaseTally::default()
+        };
+        let quiet = PhaseTally::default();
+        let stage = |held: Option<PhaseTally>, after: Option<PhaseTally>| StageResult {
+            held,
+            after,
+            ..StageResult::default()
+        };
+
+        let mut good = stage(Some(quiet.clone()), Some(busy.clone()));
+        judge_stage(&mut good, true, None);
+        assert!(good.failures.is_empty() && good.gaps.is_empty());
+
+        let mut leak = stage(Some(busy.clone()), Some(busy.clone()));
+        judge_stage(&mut leak, true, None);
+        assert_eq!(leak.failures.len(), 1);
+
+        let mut stuck = stage(Some(quiet.clone()), Some(quiet.clone()));
+        judge_stage(&mut stuck, true, None);
+        assert_eq!(stuck.failures.len(), 1);
+
+        let mut idle = stage(Some(quiet.clone()), Some(busy.clone()));
+        judge_stage(&mut idle, false, None);
+        assert!(idle.failures.is_empty() && idle.gaps.len() == 1);
+
+        let mut wrong_end = stage(Some(quiet), Some(busy));
+        judge_stage(&mut wrong_end, true, Some("ended early".to_string()));
+        assert_eq!(wrong_end.failures, vec!["ended early".to_string()]);
+
+        let mut missing = stage(None, None);
+        judge_stage(&mut missing, true, None);
+        assert_eq!(missing.gaps.len(), 2);
+    }
+
+    #[test]
+    fn a_failed_stage_fails_the_run_and_a_gap_only_makes_it_partial() {
+        let busy = PhaseTally {
+            key_events: 6,
+            pointer_moves: 4,
+            ..PhaseTally::default()
+        };
+        let quiet = PhaseTally {
+            key_events: 2,
+            shift_down: 1,
+            ..PhaseTally::default()
+        };
+        let base = || Run {
+            phase_a: Some(busy.clone()),
+            phase_b: Some(quiet.clone()),
+            phase_c0: Some(PhaseTally::default()),
+            phase_c: Some(busy.clone()),
+            probe_key_presses_in_b: 5,
+            injected_shift: Some("accepted".to_string()),
+            ..Run::default()
+        };
+        let mut run = base();
+        assert_eq!(classify_run(&mut run), ExperimentResult::Pass);
+
+        let mut failed = base();
+        failed.stages.push(StageResult {
+            name: "s".to_string(),
+            failures: vec!["x".to_string()],
+            ..StageResult::default()
+        });
+        assert_eq!(classify_run(&mut failed), ExperimentResult::Fail);
+
+        let mut gap = base();
+        gap.stages.push(StageResult {
+            name: "s".to_string(),
+            gaps: vec!["idle".to_string()],
+            ..StageResult::default()
+        });
+        assert_eq!(classify_run(&mut gap), ExperimentResult::Partial);
+
+        let mut skipped = base();
+        skipped.stages_requested = 2;
+        assert_eq!(classify_run(&mut skipped), ExperimentResult::Partial);
+
+        let mut ghost = base();
+        ghost.phase_c0 = Some(busy.clone());
+        assert_eq!(classify_run(&mut ghost), ExperimentResult::Fail);
+
+        let mut no_keyboard_baseline = base();
+        no_keyboard_baseline.phase_a = Some(PhaseTally {
+            pointer_moves: 3,
+            ..PhaseTally::default()
+        });
+        assert_eq!(
+            classify_run(&mut no_keyboard_baseline),
+            ExperimentResult::Partial
+        );
+    }
+
+    #[test]
+    fn helper_state_and_activity_helpers() {
+        assert_eq!(parse_proc_state("123 (exp09_grab_hold) T 1 2 3"), Some('T'));
+        assert_eq!(parse_proc_state("9 (a b) (c) S 1"), Some('S'));
+        assert_eq!(parse_proc_state("garbage"), None);
+        let end = parse_reads("READ e2=15 e6=30");
+        let base = parse_reads("READ e2=5 e6=30");
+        assert_eq!(reads_delta(&end, &base, None), 10);
+        assert_eq!(reads_delta(&end, &base, Some(&[6])), 0);
+        assert_eq!(reads_delta(&end, &base, Some(&[2])), 10);
+    }
+
+    #[test]
+    fn riskier_stages_need_a_fully_clean_first_stage() {
+        let busy = PhaseTally {
+            key_events: 6,
+            key_downs: 3,
+            pointer_moves: 4,
+            ..PhaseTally::default()
+        };
+        let quiet = PhaseTally {
+            key_events: 2,
+            shift_down: 1,
+            ..PhaseTally::default()
+        };
+        let clean = || Run {
+            phase_a: Some(busy.clone()),
+            phase_b: Some(quiet.clone()),
+            phase_c0: Some(PhaseTally::default()),
+            phase_c: Some(busy.clone()),
+            probe_key_presses_in_b: 5,
+            injected_shift: Some("accepted".to_string()),
+            ..Run::default()
+        };
+        assert!(can_continue(&clean()));
+        let mut run = clean();
+        run.injected_shift = Some("refused".to_string());
+        assert!(!can_continue(&run));
+        let mut run = clean();
+        run.probe_key_presses_in_b = 0;
+        assert!(!can_continue(&run));
+        let mut run = clean();
+        run.phase_c0 = None;
+        assert!(!can_continue(&run));
+        let mut run = clean();
+        run.phase_c0 = Some(busy.clone());
+        assert!(!can_continue(&run));
+        let mut run = clean();
+        run.phase_c = Some(PhaseTally::default());
+        assert!(!can_continue(&run));
+        let mut run = clean();
+        run.phase_a = Some(PhaseTally {
+            pointer_moves: 3,
+            ..PhaseTally::default()
+        });
+        assert!(!can_continue(&run));
+        let mut run = clean();
+        run.restore_failed.push("e".to_string());
+        assert!(!can_continue(&run));
     }
 
     #[test]
