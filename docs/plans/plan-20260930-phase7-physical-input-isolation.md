@@ -1,0 +1,155 @@
+# Plan: Phase 7 physical input isolation (Gate FEAS-E)
+
+**Created:** 2026-09-30
+**Status:** draft; offline research and code only, no live run approved
+**Approved by:** not yet approved (live steps need their own approval)
+**Task tier:** governed (live input mechanism, recovery)
+
+## Goal
+
+Decide, with evidence, which mechanism can keep physical keyboard and pointer
+input away from the local session while remote input still works, and what
+recovery and privilege it needs. Mutter `InputCapture` is rejected at source
+level (it captures injected input too); the plan moves to a minimal `EVIOCGRAB`
+helper, offline design first. Gate FEAS-E stays UNPROVEN until a supervised run
+observes it; an unsafe or failed mechanism is reported as STOP.
+
+## Acceptance Criteria
+
+- While isolated, physical keyboard and pointer produce no effect in the
+  session, observed by an independent page, and remote input still works.
+- Isolation fails closed: any ending of the grab (release, helper death, device
+  removal, emergency chord) is detected and revokes remote control.
+- Helper death or a failed release restores local input, and a local and a remote
+  recovery path are named and checked before any live grab is approved.
+- Privilege is minimal and stated; the helper is allow-listed and reviewed.
+
+## Non-Goals
+
+- No live grab, device open or privilege change in the offline steps.
+- No installed service, udev rule or distinct UID yet.
+- No FEAS-E, Gate C or Phase 10 claim from source reading.
+- Multi-monitor layouts, every device matrix row and 50-cycle loops only if a
+  specific failure or support claim requires them.
+
+## Evidence And Decisions
+
+- Evidence, Mutter 50.1 `src/backends/meta-input-capture-session.c` (read
+  2026-09-30, raw source):
+  - `meta_input_capture_session_process_event` consumes motion, button, scroll
+    and key press/release, and drops them when the receiver did not bind that
+    device type. So keyboard is isolated by an activated session, which closes
+    the earlier "keyboard path unverified" gap at source level only.
+  - Activation happens only in `on_barrier_hit`, i.e. a pointer crossing a
+    sticky barrier. `AddBarrier` accepts only an axis-aligned line contained in
+    exactly one logical-monitor edge; there is no direct "activate" call.
+  - `on_monitors_changed` calls `disable`: any monitor change clears barriers and
+    returns the session to INIT, so isolation silently ends (fail open) and only
+    a `ZonesChanged` signal tells the client.
+  - The EIS peer must be a Receiver, one client per session; devices are
+    "captured relative pointer" (pointer, button, scroll) and "captured
+    keyboard" (XKB keymap).
+  - Activation notifies the GNOME remote-access controller, so a shell
+    indicator with a Stop action exists (`handle_stop` closes the session).
+  - Cancel waits until all captured keys and buttons are released.
+- Evidence, this host: `org.gnome.mutter.keybindings cancel-input-capture`
+  is `['<Super><Shift>Escape']`, a compositor-level local end of capture (an
+  escape hatch and an isolation bypass).
+- Evidence, Mutter 50.1 (read-only review of `display.c`, `events.c`,
+  `meta-dbus-session-*.c`, `meta-seat-impl.c`, `meta-barrier-native.c`, 2026-09-30):
+  - Owner loss closes the session: the watcher's `name_vanished_callback`
+    closes every session of the vanished peer, which runs disable and restores
+    routing. A dead EIS socket with a live D-Bus peer does not: the session stays
+    ACTIVATED and keeps swallowing input.
+  - The event router is one flag set in `meta_display_new`; the clutter filter
+    `meta_display_handle_event` runs `meta_display_process_captured_input`
+    first. There is **no device or virtual-device check**, and RemoteDesktop/EIS
+    injected input takes the same `_clutter_event_push` path. So while a session
+    is ACTIVATED, injected remote input is captured too and never reaches the
+    desktop.
+  - Touch, touchpad gestures and tablet events are not consumed.
+  - The cancel chord works during capture (keypress, then all keys and buttons
+    released). VT switching (`Ctrl+Alt+Fn`) is captured and is **not** a recovery
+    path while activated. SysRq and the power button are outside Mutter
+    (unverified).
+  - Injected pointer motion triggers barrier hits like physical motion.
+- Evidence, this host: the user is not in group `input`; `/dev/input/event*`
+  are `root:input 0660` and `/dev/uinput` is `root` only, so an `EVIOCGRAB`
+  helper needs root or group `input` (keylogger-class privilege).
+- Decision: `InputCapture` cannot meet acceptance criterion 1 as designed
+  (remote input would be captured with the physical input), so candidate 1 is
+  rejected at source level and no live capture is planned for it. The next
+  candidate is a minimal `EVIOCGRAB` helper: the kernel releases a grab when the
+  fd closes, so helper death restores input, and the helper can see the grabbed
+  devices' events to detect the emergency chord itself. It needs a privilege and
+  hotplug design and its own review before any device is grabbed.
+- Unknown: whether SysRq and the power button still work under a grab; whether
+  a grab of the built-in keyboard and touchpad is enough on this laptop; udev
+  hotplug latency; how a non-root helper gets device access safely.
+
+## Risks
+
+- An `EVIOCGRAB` helper holds keylogger-class access (every key of the grabbed
+  keyboards) and needs root or group `input`; it must be tiny, allow-listed and
+  reviewed. A grab of the only keyboard and touchpad locks out the operator if
+  release fails; helper death must release (kernel behavior, to be observed).
+- Hotplugged devices are not covered unless the helper watches udev.
+- The local emergency chord, if implemented in the helper, is a bypass of
+  isolation by design and must be stated in the threat model.
+- Monitor and connector changes do not affect evdev grabs, but privacy of the
+  display (Gate C) is separate and still STOP.
+
+## Steps
+
+- [x] 1. Read Mutter 50.1 `meta-input-capture*.c`.
+  - Files: `docs/gnome/input-isolation-research.md`
+  - Depends on: none
+  - Verify: findings cite functions; unknowns listed.
+- [x] 2. Close the offline unknowns (owner loss, event router and virtual-device
+      exemption, VT switch and cancel chord, barrier trigger).
+  - Files: `docs/gnome/input-isolation-research.md`
+  - Depends on: step 1
+  - Verify: each answer cites source; InputCapture rejected at source level for
+    criterion 1. Gsettings default of the cancel chord was read on this host.
+- [ ] 3. Write the decision record and helper design: device allow-list and
+      classification, `ISOLATE_INPUT`/`RESTORE_INPUT` only, udev hotplug, in-helper
+      emergency chord, privilege model (distinct UID, group `input`, systemd
+      hardening), release-on-death.
+  - Files: `docs/security/input-isolation-decision.md`
+  - Depends on: step 2
+  - Verify: independent review of the design; threat-model bypasses named.
+- [ ] 4. Offline helper logic behind a fake evdev source: device classification,
+      grab state machine, chord detector, hotplug inheritance, release on error.
+  - Files: `crates/remote-input-helper/` (new), workspace `Cargo.toml`
+  - Depends on: step 3
+  - Verify: `cargo test -p remote-input-helper`; no `/dev/input` access in tests.
+- [ ] 5. Live, separate approval: read-only enumeration of input devices and
+      capabilities (no grab), then one bounded grab of the built-in keyboard and
+      touchpad with an auto-release timer and second-device SSH.
+  - Files: `crates/blackroom-experiments/src/bin/exp09_isolate_input.rs`
+  - Depends on: step 4 and a named privilege path
+  - Verify: physical input absent from the observer page while grabbed, remote
+    input still works, release on timer, on helper death and on chord.
+- [ ] 6. Independent review and FEAS-E decision or STOP-and-report.
+  - Files: `docs/gnome/capability-report.md`, `docs/HANDOFF.md`
+  - Depends on: step 5
+  - Verify: no promotion on source reading or unobserved assertions.
+
+## Final Verification
+
+- Focused tests per offline slice; one independent review before step 4 and
+  again before step 5; no broad workspace run unless crates integrate.
+
+## Blockers
+
+- Live steps need operator presence, a second-device SSH session and a named
+  recovery path. FEAS-C STOP and unproven FEAS-A/D do not block offline steps.
+
+## Execution Log
+
+- 2026-09-30: drafted from a read-only source review; nothing live was run.
+- 2026-09-30 (step 2): a read-only source review found InputCapture captures
+  injected remote input as well (no virtual-device exemption), so it cannot
+  satisfy criterion 1; candidate 3 (`EVIOCGRAB` helper) is next, offline design
+  first. Owner loss, cancel chord, VT-switch and barrier-trigger answers are in
+  Evidence. Nothing live was run.

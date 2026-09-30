@@ -18,3 +18,27 @@ restore the physical channel; failure to observe restoration produces
 `FAILED_SAFE`. This is a test contract, **not** evidence that any candidate
 actually provides those properties on GNOME. The real mechanism remains
 undecided until an approved, bounded, independently observed Gate E test.
+
+## Source review update (2026-09-30, read-only)
+
+Mutter 50.1 source (`meta-input-capture-session.c`, `display.c`, `events.c`,
+`meta-dbus-session-*.c`, `meta-seat-impl.c`, `meta-barrier-native.c`) changes the
+InputCapture row above:
+
+- An activated session consumes key, motion, button and scroll events; with no
+  receiver device bound they are dropped. Keyboard isolation therefore exists
+  once activated (touch, touchpad gestures and tablet events are not captured).
+- The router has no device filter: RemoteDesktop/EIS injected input takes the
+  same path and is captured as well. InputCapture cannot block physical input
+  while letting remote input through, so it is rejected for this project at
+  source level. A live run is not needed to decide this, but no run has
+  contradicted or confirmed it.
+- Other behaviors: activation needs a sticky-barrier hit (physical or injected
+  motion); owner loss closes the session but a dead EIS socket alone does not;
+  a monitor change silently disables it; `Super+Shift+Escape` cancels it; VT
+  switching is captured while activated.
+- Candidate 3 (minimal `EVIOCGRAB` helper) is next. On this host `/dev/input/event*`
+  are `root:input 0660`, the user is not in `input`, and `/dev/uinput` is
+  root-only, so the helper needs root or group `input`. Release-on-fd-close,
+  hotplug and SysRq/power-button behavior are unverified.
+FEAS-E stays UNPROVEN. Plan: `docs/plans/plan-20260930-phase7-physical-input-isolation.md`.
