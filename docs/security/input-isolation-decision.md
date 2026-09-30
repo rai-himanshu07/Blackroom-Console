@@ -69,6 +69,10 @@ own open gate.
   network namespace cannot receive, so `PrivateNetwork=yes` is **not** assumed.
   Use `RestrictAddressFamilies=AF_UNIX AF_NETLINK` or an inotify/rescan fallback;
   the exact unit semantics are an open review item, not a reviewed claim.
+- Software-created (uinput, `BUS_VIRTUAL`) devices are not grabbed, so a root-run
+  tool that injects through uinput (RustDesk is one example) keeps reaching the
+  local session while isolated. Root is already outside this threat model, but
+  the threat model must say so, and the inventory should flag such nodes.
 - A compromised helper is a keylogger for every grabbed keyboard. The helper
   must stay tiny, dependency-light and reviewed; this risk is accepted only if
   the gate needs it.

@@ -411,6 +411,55 @@ addition to a near-future experiment, no blocker; Document 10 Experiment 29
 
 ---
 
+## 10. Existing art: RustDesk on Linux Wayland
+
+**Question:** does a mature open-source remote-desktop app already solve local
+input or display isolation, or remote input, on Linux Wayland that we could reuse?
+
+**Sources:** RustDesk `master` source and its Linux docs, read 2026-10-01 by a
+web-fetch review (files: `libs/scrap/src/wayland/`, `src/server/wayland.rs`,
+`src/server/uinput.rs`, `src/server/input_service.rs`, `src/platform/linux.rs`,
+`src/privacy_mode*`, `res/rustdesk.service`). GitHub code search is not
+exhaustive, so a "not found" is weak evidence; `1.4.x` tags were not checked.
+
+**Findings:**
+- Capture: xdg-desktop-portal ScreenCast plus PipeWire in the existing seat0
+  session, with a human-granted prompt (up to 3 minutes) and a restore token
+  only with portal version 4 or higher. Unattended use therefore depends on a
+  prior grant; GNOME's behavior on restore is unverified.
+- Remote input: uinput virtual devices through a root `--service` (keyboard
+  "RustDesk UInput Keyboard", mouse on `BUS_VIRTUAL`), or the RemoteDesktop
+  portal when no user server runs. No `libei`, `ConnectToEIS` or `InputCapture`
+  use was found. Injected input looks like a physical libinput device.
+- Local input blocking: Windows only (`BlockInput`). The Linux `block_input`
+  is a no-op that returns success; no `EVIOCGRAB` was found.
+- Privacy mode (blank the physical screen): Windows and macOS only; empty on
+  Linux and Wayland.
+- Lock on disconnect: an injected Super+L with no verification; a source comment
+  says `loginctl lock-session` did not work from their service.
+- Session and privilege: it controls the existing logged-in session; a root
+  service launches the user-session server with the active seat0 user's
+  environment and checks the IPC peer uid and executable. Its headless mode was
+  X11 only (tag 1.3.0) and its status on `master` is unknown. The only local
+  takeover is a Disconnect button in its connection-manager window.
+- Documented Wayland limits: login screen needs X11, horizontal scroll is a
+  TODO in the uinput path, non-ASCII text goes through the clipboard, multi-monitor
+  uses position heuristics.
+
+**Project impact:** no prior art exists for Gate C (physical display privacy) or
+Gate E (physical input isolation) on Linux Wayland, so those gates stay open
+experiments. Reusable ideas: an executable check next to the peer-uid check on
+privileged IPC; `reis` text events (`TextKeysym`/`TextUtf8`) as a non-clipboard
+text path to try; and a threat-model note that software-created (uinput) devices
+are skipped by the grab classification and would keep injecting locally while
+isolated (root required). Our direct Mutter D-Bus path avoids the portal prompt
+that gates RustDesk's unattended use.
+
+**Confidence:** `LIKELY` for the absence of Linux isolation features (several
+independent code paths agree); `UNVERIFIED` for the listed unknowns.
+
+---
+
 ## Feasibility blockers
 
 None that block Phase 2 (state-machine core against the mock `GnomeBackend`,
@@ -422,9 +471,10 @@ which needs none of the above). Blockers that gate **later** phases:
    Experiment 6 (Physical Output Isolation) or Experiment 9 (Physical Input
    Isolation) may run — those are the first experiments that mutate display
    or input state. Does not block Phase 2–3.
-2. **Gate E mechanism gap (topic 6 above):** `InputCapture`'s keyboard-isolation
-   code path was not traced to a conclusion from the source read alone;
-   Experiment 9 must resolve this before Phase 7 can claim Gate E `PASS`.
+2. **Gate E mechanism gap (topic 6 above):** a 2026-09-30 source review found
+   `InputCapture` captures injected remote input too, so it is rejected; the
+   `EVIOCGRAB` design is in `docs/security/input-isolation-decision.md`. A
+   supervised observation (plan step 5) must still prove it before Gate E `PASS`.
 3. **Gate A/lock interaction (topic 4 above):** whether a RemoteDesktop session
    survives `ScreenSaver.Lock` is completely open; Experiment 11 (Phase 8) is
    the first phase allowed to test it.
