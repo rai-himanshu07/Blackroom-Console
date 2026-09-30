@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'">
+<title>Blackroom exp08 observer</title>
+<style>
+  html, body { margin: 0; background: #101418; color: #d8dee9; font: 18px/1.4 monospace; }
+  #bar { position: fixed; inset: 0 0 auto 0; padding: 12px 16px; background: #1b222b; border-bottom: 2px solid #4c566a; }
+  #tall { height: 300vh; padding-top: 220px; background: linear-gradient(#101418, #1f3b2d, #101418); }
+  h1 { margin: 0 0 6px; font-size: 20px; }
+  .ok { color: #a3be8c; } .bad { color: #bf616a; }
+  pre { margin: 6px 0 0; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>exp08 observer: press F11 for fullscreen, keep this window focused, then touch nothing</h1>
+  <div id="ready">checking focus...</div>
+  <div id="verdict">waiting for input...</div>
+  <pre id="out"></pre>
+</div>
+<div id="tall"></div>
+<script>
+(() => {
+  const t0 = performance.now();
+  const at = () => Math.round(performance.now() - t0);
+  const s = { keys: [], buttons: [], pointer: { moves: 0, netX: 0, netY: 0, absX: 0, absY: 0 },
+              wheel: { events: 0, deltaY: 0, scrollY: 0 }, untrusted: 0 };
+  const count = (type, code) => s.keys.filter(k => k.type === type && k.code === code).length;
+  // Same checks as the Rust side (evaluate_tally); the Rust result is the recorded one.
+  function verdict() {
+    s.wheel.scrollY = Math.round(window.scrollY);
+    const c = {
+      f13: count('down', 'F13') === 2 && count('up', 'F13') === 2,
+      shift: count('down', 'ShiftLeft') === 1 && count('up', 'ShiftLeft') === 1,
+      otherKeys: s.keys.filter(k => k.code !== 'F13' && k.code !== 'ShiftLeft').length === 0,
+      click: s.buttons.filter(b => b.type === 'click' && b.button === 0).length === 1 && s.buttons.every(b => b.button === 0),
+      pointer: s.pointer.moves > 0 && Math.abs(s.pointer.netX) <= 2 && Math.abs(s.pointer.netY) <= 2
+        && s.pointer.absX >= 20 && s.pointer.absX <= 200,
+      wheel: s.wheel.events > 0 && s.wheel.deltaY > 0 && s.wheel.deltaY <= 500 && s.wheel.scrollY > 0,
+      trusted: s.untrusted === 0,
+    };
+    return { c, all: Object.values(c).every(Boolean) };
+  }
+  function render() {
+    const { c, all } = verdict();
+    const v = document.getElementById('verdict');
+    v.textContent = Object.entries(c).map(([k, ok]) => `${k}:${ok ? 'ok' : '--'}`).join(' ')
+      + ` | F13 ${count('down', 'F13')}/${count('up', 'F13')} Shift ${count('down', 'ShiftLeft')}/${count('up', 'ShiftLeft')}`
+      + ` moves ${s.pointer.moves} net ${s.pointer.netX},${s.pointer.netY} wheel ${s.wheel.events}/${s.wheel.deltaY}`;
+    v.className = all ? 'ok' : 'bad';
+    document.getElementById('out').textContent = JSON.stringify(s);
+  }
+  const key = type => e => { if (!e.isTrusted) s.untrusted++; s.keys.push({ t: at(), type, code: e.code, shift: e.shiftKey, repeat: e.repeat }); render(); };
+  addEventListener('keydown', key('down'));
+  addEventListener('keyup', key('up'));
+  addEventListener('mousemove', e => {
+    if (!e.isTrusted) s.untrusted++;
+    s.pointer.moves++; s.pointer.netX += e.movementX; s.pointer.netY += e.movementY;
+    s.pointer.absX += Math.abs(e.movementX); s.pointer.absY += Math.abs(e.movementY); render();
+  });
+  for (const type of ['mousedown', 'mouseup', 'click']) {
+    addEventListener(type, e => { if (!e.isTrusted) s.untrusted++; s.buttons.push({ t: at(), type: type.replace('mouse', ''), button: e.button }); render(); });
+  }
+  addEventListener('wheel', e => { if (!e.isTrusted) s.untrusted++; s.wheel.events++; s.wheel.deltaY += e.deltaY; render(); }, { passive: true });
+  addEventListener('scroll', render, { passive: true });
+
+  // The run injects only while this page reports focus and fullscreen.
+  const state = () => ({ focus: document.hasFocus(),
+    fullscreen: innerWidth >= screen.width - 2 && innerHeight >= screen.height - 2 });
+  async function beat() {
+    const st = state();
+    const r = document.getElementById('ready');
+    r.textContent = `focus ${st.focus ? 'yes' : 'NO'} | fullscreen ${st.fullscreen ? 'yes' : 'NO (press F11)'}`;
+    r.className = st.focus && st.fullscreen ? 'ok' : 'bad';
+    verdict();
+    try { await fetch('beat', { method: 'POST', body: JSON.stringify({ ...st, tally: s }) }); } catch (_) { r.textContent += ' | run not reachable'; }
+  }
+  setInterval(beat, 250);
+  render();
+})();
+</script>
+</body>
+</html>

@@ -95,7 +95,7 @@ impl EiConnection {
     pub fn bind_seat(
         &mut self,
         added: &reis::event::SeatAdded,
-        capabilities: reis::event::DeviceCapability,
+        capabilities: impl Into<reis::enumflags2::BitFlags<reis::event::DeviceCapability>>,
     ) -> Result<(), BlackroomError> {
         if !self.is_ready() {
             return Err(BlackroomError::new(

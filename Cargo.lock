@@ -342,9 +342,13 @@ name = "blackroom-experiments"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blackroom-core",
  "blackroom-gnome",
  "clap",
+ "ed25519-dalek",
+ "getrandom 0.4.3",
  "pipewire",
+ "reis",
  "serde",
  "serde_json",
  "time",

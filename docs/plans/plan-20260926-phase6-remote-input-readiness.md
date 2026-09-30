@@ -145,6 +145,57 @@ activation; live FEAS-D proof requires a separate supervised approval.
   - Depends on: step 3
   - Verify: no gate promotion on source reading or unobserved assertions.
 
+### Step 3 exact-run design (Experiment 8; drafted 2026-09-30, NOT approved)
+
+**Question:** does a signed-lease-gated EIS Sender from
+`RemoteDesktop.Session.ConnectToEIS` deliver keyboard, pointer, click and scroll
+to the existing session, and does no input arrive after a revoke or after
+session stop? One run on the current single built-in display; no repeat without
+a named failure. Tool: `exp08_remote_input --operator-present`. It serves an
+observer page on loopback (random port, one-time token, Host check), which
+reports focus/fullscreen every 250 ms and tallies the events that reach it.
+`--observer-only` rehearses the page with no D-Bus session and no input.
+
+**Risk assessment (input injection is a new mechanism, safety §7):**
+- Only inert input: F13, Shift+F13, pointer +40/-40 px, one left click, a 15 px
+  scroll. Input is sent only while the page reported focus and fullscreen in the
+  last 1.2 s; otherwise the run stops injecting (inconclusive, exit 3).
+- Not touched: displays, topology, DPMS, ScreenCast, physical input (no grab),
+  lock state, hostd/gateway, services other than the §5 mask/unmask of
+  `gnome-remote-desktop`. No watchdog is needed because nothing is isolated.
+- Cleanup: `Drop` stops the session on normal and error exits. A signal kill
+  skips `Drop`; Mutter closed a ScreenCast session whose owner vanished (exp04),
+  assumed but unobserved for RemoteDesktop, so abort by defocusing the page, not
+  by killing the process.
+- Stuck input needs a socket-write failure between a queued press and its
+  release, which the helpers cannot rule out; a failed accepted stage sets a
+  warning to tap Shift and the left button once physically.
+- Unknowns that yield BLOCKED: input-only `Start` may be refused, Mutter may
+  expose fewer devices, F13 may map differently.
+
+**Result rule:** PASS only if every stage matches, the revoked tap is refused as
+`LeaseRevoked`, the page's own tally is exact (F13 2/2, ShiftLeft 1/1, one left
+click, net-zero pointer motion, positive scroll, 0 untrusted, nothing from the
+revoked or post-stop taps), the Shell PID is unchanged and the stale session
+path rejects `Stop`. The post-stop tap is judged by the tally alone, so it cannot
+say whether Mutter or the local client refused it; the closing events and
+`eis_ready_after_stop` are recorded. PASS is an Experiment 8 result, not FEAS-D.
+Exit codes: 0 PASS, 1 FAIL, 2 BLOCKED, 3 inconclusive.
+
+**Exact run, operator present:**
+1. Operator saves work and keeps a fresh second-device SSH session.
+2. Agent read-only preflight: unique active unlocked Wayland session, Shell PID,
+   `gnome-remote-desktop` inactive, no pending `blackroom-exp*` timer (also
+   enforced by the binary, which records git HEAD and dirty state).
+3. `systemctl --user mask --now gnome-remote-desktop.service`; agent runs
+   `target/debug/exp08_remote_input --operator-present` and prints the URL;
+   operator opens it in a browser, presses F11, keeps it focused and touches
+   nothing until the run ends (about 15 s after the 5 s settle); then `unmask`
+   (unit stays disabled as before).
+4. Agent reads `findings.json`, records `observation.md`, and stops.
+- FEAS-D decision is Step 4 after independent review; one run cannot promote it.
+  Approval must name this exact command, layout and the operator's presence.
+
 ## Final Verification
 
 - Run focused synthetic tests after each offline implementation slice; use one
@@ -366,3 +417,15 @@ activation; live FEAS-D proof requires a separate supervised approval.
   input. Failed relaunch remains locked and logs no input; real-process tests
   cover host death, agent death and missing replacement binary. No automatic
   product recovery or live input was enabled.
+- 2026-09-30 (offline exp08 prepared): added `exp08_remote_input` and its
+  observer page for the design above; `EiConnection::bind_seat` now accepts
+  several capabilities. An independent review found no focus proof, an
+  unverifiable post-stop refusal, a signal-kill abort path, weak tally checks
+  and overstated plan claims; the run now gates on page heartbeats, judges
+  delivery from the page tally and records the refusal layer evidence. Unit
+  tests cover the operator guard, classification, tally logic and the loopback
+  server; `--observer-only` was checked against a real browser (trusted
+  Shift/mouse/wheel; F13 is unavailable to the test driver, so only the F13
+  count was reported missing). Nothing was run against Mutter: no
+  CreateSession, ConnectToEIS or input. Step 3 stays open pending an exact-run
+  approval.
