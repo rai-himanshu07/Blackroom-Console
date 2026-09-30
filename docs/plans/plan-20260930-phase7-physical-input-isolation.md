@@ -130,17 +130,30 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   - Verify: `cargo test -p remote-input-helper` (16 tests), clippy `-D warnings`.
     Not done: the privileged binary, evdev/udev I/O, the watchdog wiring and the
     chord choice; those stay behind step 5's approval.
-- [ ] 5. Live, separate approval: read-only enumeration of input devices and
-      capabilities (no grab), then one bounded grab of the built-in keyboard and
-      touchpad with an external kill timer, a grab lease and second-device SSH.
+- [ ] 5a. Live, separate approval, lowest risk first: grab only the external
+      wireless keyboard and mouse nodes (`event6`, `event7` on this host) so the
+      built-in keyboard and touchpad stay usable for local recovery. One bounded
+      grab with an external kill timer, a grab lease and second-device SSH; the
+      operator types and moves the external devices while the observer page must
+      see nothing and remote input must still reach the page.
       Must observe: release on fd close and on SIGKILL, queued-event leakage,
-      stuck-modifier/LED/repeat state after release, a stalled helper, mixed
-      hotkey nodes, SysRq and power button, a USB combo plus internal devices,
-      hotplug latency. The 50-cycle target is not claimed.
-  - Files: `crates/blackroom-experiments/src/bin/exp09_isolate_input.rs`
-  - Depends on: step 4 and a named privilege path
-  - Verify: physical input absent from the observer page while grabbed, remote
-    input still works, release on timer, on helper death and on chord.
+      stuck-modifier/LED/repeat state after release, a stalled helper, hotplug of
+      the dongle. Needs: a device-access path (a temporary `setfacl` by the
+      operator, no group change), and an `EVIOCGRAB` I/O layer (the workspace
+      forbids `unsafe`, so either a reviewed dependency such as the `evdev` crate
+      or a minimal separately reviewed unsafe module; not chosen yet).
+  - Files: `crates/blackroom-experiments/src/bin/exp09_grab_probe.rs`
+  - Depends on: step 4 and the two items above
+  - Verify: physical input absent on the page while grabbed, remote input still
+    works, release on timer, SIGKILL and explicit restore; Shell PID unchanged.
+- [ ] 5b. Only if 5a passes and the built-in keyboard matters: one bounded grab of
+      the built-in keyboard and touchpad nodes (`event2`, `event3`, `event4`,
+      `event5`) with the same safeguards plus the emergency chord. SysRq is
+      expected to stop while the keyboard is grabbed and is not a recovery path.
+      The 50-cycle target is not claimed.
+  - Files: `crates/blackroom-experiments/src/bin/exp09_grab_probe.rs`
+  - Depends on: 5a and a new approval
+  - Verify: as 5a, plus chord release and lock-out recovery by SSH.
 - [ ] 6. Independent review and FEAS-E decision or STOP-and-report.
   - Files: `docs/gnome/capability-report.md`, `docs/HANDOFF.md`
   - Depends on: step 5
