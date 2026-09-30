@@ -328,6 +328,7 @@ dependencies = [
 name = "blackroom-cli"
 version = "0.1.0"
 dependencies = [
+ "remote-emergencyd",
  "remote-hostd",
  "rustix",
  "serde_json",

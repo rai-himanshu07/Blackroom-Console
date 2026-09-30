@@ -59,6 +59,17 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   Input, dead with the session) instead of the gateway in SEPARATE mode; the
   control protocol gained that field. In-process modes keep gateway-issued IDs.
 
+- [x] Phase 12 credential adapter (2026-10-01, not wired into the simulation service):
+  `remote-hostd::totp` is a `CredentialVerifier` for RFC 6238 TOTP (HMAC-SHA1 checked against the
+  RFC vectors, 6 digits, 30 s, one step of skew) with replay protection persisted across restarts,
+  per-(account, client) failure lockout with doubling delay, a per-account lockout across clients,
+  uniform refusals for unknown accounts, and an owner-only `totp-credentials` file (0600, no
+  symlinks, unknown fields refused). `blackroom enroll --account <name>` adds an account and prints
+  the secret once; `blackroom accounts` lists names. Not done: wiring this into the hostd service
+  and gateway login flow, PAM, device keys, and any real enrollment on this host.
+- [x] Phase 10 component (2026-10-01): `remote-emergencyd` (see
+  `docs/security/emergency-daemon.md`), with `blackroom emergency-status --socket <path>`.
+
 ## Open Dependencies
 
 - [ ] Phase 12: product credential verification (PAM/TOTP/device key),

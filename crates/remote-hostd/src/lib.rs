@@ -19,6 +19,7 @@ pub mod auth;
 pub mod offline_control;
 pub mod service;
 pub mod store;
+pub mod totp;
 
 pub const SIMULATED_SESSION_ID: &str = "simulated-session-only";
 

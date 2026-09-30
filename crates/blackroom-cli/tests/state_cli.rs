@@ -195,3 +195,54 @@ fn doctor_reports_sound_state_and_fails_on_loose_permissions() {
     assert!(uninitialised.status.success());
     assert!(text(&uninitialised.stdout).contains("WARN host-identity.key missing"));
 }
+
+#[test]
+fn enroll_writes_one_private_credential_file_prints_the_secret_once_and_accounts_lists_names_only()
+{
+    let directory = initialised();
+    let output = blackroom(directory.path(), &["enroll", "--account", "alice"]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    let shown = text(&output.stdout);
+    let secret = shown
+        .lines()
+        .find_map(|line| line.strip_prefix("secret: "))
+        .expect("secret line");
+    assert_eq!(secret.len(), 32, "a 20-byte secret is 32 base32 characters");
+    assert!(shown.contains("otpauth://totp/"));
+    assert!(!text(&output.stderr).contains(secret));
+    let mode = std::fs::metadata(directory.path().join("totp-credentials"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o600);
+
+    let again = blackroom(directory.path(), &["enroll", "--account", "alice"]);
+    assert!(!again.status.success());
+    assert!(!text(&again.stdout).contains("secret"));
+    let bad = blackroom(directory.path(), &["enroll", "--account", "Bad Name"]);
+    assert!(!bad.status.success());
+
+    let listed = blackroom(directory.path(), &["accounts"]);
+    assert!(listed.status.success());
+    assert_eq!(text(&listed.stdout), "alice\n");
+    assert!(!text(&listed.stdout).contains(secret));
+    assert!(!text(&listed.stderr).contains(secret));
+}
+
+#[test]
+fn emergency_status_needs_an_absolute_socket_and_reports_a_missing_daemon() {
+    let relative = Command::new(env!("CARGO_BIN_EXE_blackroom"))
+        .args(["emergency-status", "--socket", "relative.sock"])
+        .output()
+        .unwrap();
+    assert_eq!(relative.status.code(), Some(2));
+    let missing = Command::new(env!("CARGO_BIN_EXE_blackroom"))
+        .args([
+            "emergency-status",
+            "--socket",
+            "/nonexistent/emergency.sock",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+}

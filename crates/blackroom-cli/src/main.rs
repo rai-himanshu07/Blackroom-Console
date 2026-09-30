@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
-//! Read-only operator CLI, reduced to the offline simulation state directory
-//! (roadmap Phase 11 first verbs). It never creates, locks or changes state,
-//! and never prints key material, proofs or input grants.
+//! Operator CLI for the offline simulation state directory (roadmap Phase 11 first verbs).
+//! `status`, `logs`, `doctor`, `accounts` and `emergency-status` never create, lock or change
+//! anything and never print key material, proofs, input grants or credential secrets.
+//! `enroll` is the one verb that writes: it adds a TOTP account to the credential file and prints
+//! the new secret exactly once.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -10,23 +12,42 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use remote_emergencyd::client::Client;
 use remote_hostd::audit::AUDIT_FILE;
 use remote_hostd::store::{PersistentHostAuthority, open_state_directory};
+use remote_hostd::totp;
 use rustix::fs::{Mode, OFlags};
 
 const DEFAULT_TAIL: usize = 20;
 const MAX_TAIL: usize = 1000;
 const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
-const USAGE: &str =
-    "usage: blackroom --state-dir <absolute path> status | logs [--tail <1-1000>] | doctor";
+const USAGE: &str = "usage: blackroom --state-dir <absolute path> status | logs [--tail <1-1000>] | doctor | accounts | enroll --account <name>\n       blackroom emergency-status --socket <absolute path>";
 
 enum Verb {
     Status,
     Logs(usize),
     Doctor,
+    Accounts,
+    Enroll(String),
 }
 
-fn parse(args: &[OsString]) -> Result<(PathBuf, Verb), String> {
+enum Command {
+    State(PathBuf, Verb),
+    EmergencyStatus(PathBuf),
+}
+
+fn parse(args: &[OsString]) -> Result<Command, String> {
+    if let [verb, flag, socket] = args
+        && verb == OsStr::new("emergency-status")
+        && flag == OsStr::new("--socket")
+    {
+        let socket = PathBuf::from(socket);
+        return if socket.is_absolute() {
+            Ok(Command::EmergencyStatus(socket))
+        } else {
+            Err(USAGE.into())
+        };
+    }
     let [flag, path, verb, rest @ ..] = args else {
         return Err(USAGE.into());
     };
@@ -36,6 +57,10 @@ fn parse(args: &[OsString]) -> Result<(PathBuf, Verb), String> {
     let verb = match (verb.to_str(), rest) {
         (Some("status"), []) => Verb::Status,
         (Some("doctor"), []) => Verb::Doctor,
+        (Some("accounts"), []) => Verb::Accounts,
+        (Some("enroll"), [account_flag, account]) if account_flag == OsStr::new("--account") => {
+            Verb::Enroll(account.to_str().ok_or(USAGE)?.to_string())
+        }
         (Some("logs"), []) => Verb::Logs(DEFAULT_TAIL),
         (Some("logs"), [tail, count]) if tail == OsStr::new("--tail") => {
             let count = count
@@ -47,7 +72,7 @@ fn parse(args: &[OsString]) -> Result<(PathBuf, Verb), String> {
         }
         _ => return Err(USAGE.into()),
     };
-    Ok((PathBuf::from(path), verb))
+    Ok(Command::State(PathBuf::from(path), verb))
 }
 
 fn status(directory: &File) -> io::Result<String> {
@@ -112,12 +137,13 @@ fn doctor(directory: &Path) -> (Vec<String>, bool) {
             format!("state directory unreadable: {}", error.kind()),
         ),
     }
-    let files: [(&str, Option<u64>, bool); 5] = [
+    let files: [(&str, Option<u64>, bool); 6] = [
         ("host-identity.key", Some(32), true),
         ("security-epoch", Some(8), true),
         ("audit.log", None, false),
         ("emergency-stop", Some(8), false),
         ("recovery-pending", Some(8), false),
+        ("totp-credentials", None, false),
     ];
     let mut warnings = Vec::new();
     for (name, length, required) in files {
@@ -160,9 +186,26 @@ fn doctor(directory: &Path) -> (Vec<String>, bool) {
     (report, failed)
 }
 
+fn emergency_status(socket: &Path) -> io::Result<String> {
+    let mut client = Client::connect(socket, std::time::Duration::from_secs(3))?;
+    let status = client.status()?;
+    Ok(serde_json::json!({
+        "phase": status.phase,
+        "held": status.held,
+        "grabs_enabled": status.grabs_enabled,
+    })
+    .to_string())
+}
+
 fn run(args: &[OsString]) -> Result<ExitCode, (u8, String)> {
-    let (path, verb) = parse(args).map_err(|message| (2, message))?;
     let refuse = |error: io::Error| (1, format!("refused: {error}"));
+    let (path, verb) = match parse(args).map_err(|message| (2, message))? {
+        Command::EmergencyStatus(socket) => {
+            println!("{}", emergency_status(&socket).map_err(refuse)?);
+            return Ok(ExitCode::SUCCESS);
+        }
+        Command::State(path, verb) => (path, verb),
+    };
     let directory = open_state_directory(&path).map_err(refuse)?;
     match verb {
         Verb::Status => println!("{}", status(&directory).map_err(refuse)?),
@@ -174,6 +217,20 @@ fn run(args: &[OsString]) -> Result<ExitCode, (u8, String)> {
             if invalid > 0 {
                 return Err((1, format!("audit log has {invalid} invalid line(s)")));
             }
+        }
+        Verb::Accounts => {
+            for account in totp::enrolled_accounts(&directory).map_err(refuse)? {
+                println!("{account}");
+            }
+        }
+        Verb::Enroll(account) => {
+            let secret = totp::enroll(&directory, &account).map_err(refuse)?;
+            println!("account: {account}");
+            println!("secret: {secret}");
+            println!("uri: {}", totp::otpauth_uri(&account, &secret));
+            eprintln!(
+                "The secret is shown once and is not recoverable; add it to an authenticator app now."
+            );
         }
         Verb::Doctor => {
             let (report, failed) = doctor(&path);
