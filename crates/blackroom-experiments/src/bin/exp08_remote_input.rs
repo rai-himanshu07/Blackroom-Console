@@ -5,8 +5,8 @@
 //! then checks input stops after an authorization revoke and after session
 //! stop. It never touches displays, grabs physical input, or opens a ScreenCast.
 //!
-//! Only keys with no default effect are sent (F13, Shift) and pointer motion
-//! nets to zero. The run serves a local observer page (loopback, one-time
+//! Only modifier keys are sent (Shift tap; Shift+Right Ctrl chord) and pointer
+//! motion nets to zero; no key with a GNOME or Firefox binding is used. The run serves a local observer page (loopback, one-time
 //! token); the page reports focus/fullscreen every 250 ms and tallies the
 //! events that actually reach it. Input is sent only while the page is focused
 //! and fullscreen, and the recorded result comes from the page's own tally.
@@ -41,8 +41,9 @@ use serde_json::Value;
 use time::OffsetDateTime;
 
 const EXP_ID: &str = "exp08";
-const KEY_F13: u32 = 183;
+// F13 is evdev 183 = XF86Tools, which GNOME binds to Settings: not inert (2026-09-30 run).
 const KEY_LEFTSHIFT: u32 = 42;
+const KEY_RIGHTCTRL: u32 = 97;
 const BTN_LEFT: u32 = 272;
 const OBSERVER_PAGE: &str = include_str!("../../assets/exp08_observer.html");
 /// A heartbeat older than this no longer proves the page is focused.
@@ -117,6 +118,7 @@ struct Run {
     eis_ready_after_stop: Option<bool>,
     stuck_input_suspect: bool,
     stale_session_call: Option<String>,
+    observer_at_abort: Option<String>,
     observer_beats: u64,
     observer_tally: Option<Value>,
     tally_matches: Option<bool>,
@@ -183,9 +185,10 @@ fn require_operator(args: &Args) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Judges the page's own tally against the exact sequence sent: F13 twice
-/// (tap, then inside Shift), one left click, net-zero pointer motion, a
-/// positive scroll, nothing from the revoked or post-stop attempts.
+/// Judges the page's own tally (cleared at arming) against the exact sequence
+/// sent: Shift twice (tap, chord), Right Ctrl once while Shift is held, one left
+/// click, net-zero pointer motion, a positive scroll, and nothing from the
+/// revoked or post-stop attempts.
 fn evaluate_tally(tally: &Value) -> (bool, Vec<String>) {
     let mut notes = Vec::new();
     let keys = tally["keys"].as_array().cloned().unwrap_or_default();
@@ -200,20 +203,26 @@ fn evaluate_tally(tally: &Value) -> (bool, Vec<String>) {
         }
     };
     check(
-        key_count("down", "F13") == 2 && key_count("up", "F13") == 2,
+        key_count("down", "ShiftLeft") == 2 && key_count("up", "ShiftLeft") == 2,
         format!(
-            "F13 down/up {}/{} (expected 2/2)",
-            key_count("down", "F13"),
-            key_count("up", "F13")
+            "ShiftLeft down/up {}/{} (expected 2/2)",
+            key_count("down", "ShiftLeft"),
+            key_count("up", "ShiftLeft")
         ),
     );
     check(
-        key_count("down", "ShiftLeft") == 1 && key_count("up", "ShiftLeft") == 1,
-        "ShiftLeft not 1/1".to_string(),
+        key_count("down", "ControlRight") == 1 && key_count("up", "ControlRight") == 1,
+        "ControlRight not 1/1".to_string(),
+    );
+    check(
+        keys.iter().any(|key| {
+            key["type"] == "down" && key["code"] == "ControlRight" && key["shift"] == true
+        }),
+        "Right Ctrl did not arrive while Shift was held".to_string(),
     );
     let other = keys
         .iter()
-        .filter(|key| key["code"] != "F13" && key["code"] != "ShiftLeft")
+        .filter(|key| key["code"] != "ControlRight" && key["code"] != "ShiftLeft")
         .count();
     check(other == 0, format!("{other} unexpected key events"));
     let buttons = tally["buttons"].as_array().cloned().unwrap_or_default();
@@ -262,6 +271,8 @@ struct ObserverState {
     fullscreen: bool,
     tally: Option<Value>,
     beats: u64,
+    /// Tally generation the page is asked to reset to before injection.
+    epoch: u64,
 }
 
 #[derive(Deserialize)]
@@ -354,6 +365,45 @@ impl Observer {
             sleep(Duration::from_millis(100));
         }
         false
+    }
+
+    /// Asks the page to clear its tally (dropping pre-run F11, mouse and focus
+    /// noise) and waits until a fresh focused beat carries the new epoch.
+    fn arm(&self, timeout: Duration) -> bool {
+        let epoch = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.epoch += 1;
+            state.epoch
+        };
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            let acknowledged = self.snapshot(|state| {
+                state
+                    .tally
+                    .as_ref()
+                    .is_some_and(|tally| tally["epoch"] == epoch)
+                    && state.focus
+                    && state.fullscreen
+                    && state.beat_at.is_some_and(|at| at.elapsed() <= FRESH)
+            });
+            if acknowledged {
+                return true;
+            }
+            sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    fn describe(&self) -> String {
+        self.snapshot(|state| {
+            format!(
+                "focus={} fullscreen={} last_beat_ms_ago={:?} beats={}",
+                state.focus,
+                state.fullscreen,
+                state.beat_at.map(|at| at.elapsed().as_millis()),
+                state.beats
+            )
+        })
     }
 
     fn wait_beats(&self, extra: u64, timeout: Duration) {
@@ -456,7 +506,8 @@ fn route(request: &Request, state: &Mutex<ObserverState>, token: &str, port: u16
                     state.fullscreen = beat.fullscreen;
                     state.tally = Some(beat.tally);
                     state.beats += 1;
-                    response("204 No Content", "text/plain", b"")
+                    let reply = format!("{{\"epoch\":{}}}", state.epoch);
+                    response("200 OK", "application/json", reply.as_bytes())
                 }
                 Err(_) => response("400 Bad Request", "text/plain", b""),
             }
@@ -748,6 +799,11 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
         return Ok(());
     }
 
+    if !observer.arm(Duration::from_secs(10)) {
+        run.aborted =
+            Some("observer did not acknowledge the tally reset while focused".to_string());
+        return Ok(());
+    }
     let t0 = Instant::now();
     let auth = authority.authorization(false);
     macro_rules! stage {
@@ -775,15 +831,20 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
                         "observer not focused and fullscreen before {}",
                         $name
                     ));
+                    run.observer_at_abort = Some(observer.describe());
                 }
             }
         }};
     }
-    stage!("key_tap_f13", keyboard, Expect::Accept, |d| eis
-        .send_key_tap(&auth, &d, KEY_F13));
-    stage!("key_chord_shift_f13", keyboard, Expect::Accept, |d| {
-        eis.send_key_chord(&auth, &d, KEY_LEFTSHIFT, KEY_F13)
+    stage!("key_tap_shift", keyboard, Expect::Accept, |d| {
+        eis.send_key_tap(&auth, &d, KEY_LEFTSHIFT)
     });
+    stage!(
+        "key_chord_shift_right_ctrl",
+        keyboard,
+        Expect::Accept,
+        |d| { eis.send_key_chord(&auth, &d, KEY_LEFTSHIFT, KEY_RIGHTCTRL) }
+    );
     stage!("pointer_right_40", pointer, Expect::Accept, |d| {
         eis.send_pointer_motion(&auth, &d, 40.0, 0.0)
     });
@@ -802,7 +863,7 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
         "key_tap_after_authorization_revoked",
         keyboard,
         Expect::Refuse(&[ErrorCode::LeaseRevoked]),
-        |d| eis.send_key_tap(&revoked, &d, KEY_F13)
+        |d| eis.send_key_tap(&revoked, &d, KEY_LEFTSHIFT)
     );
 
     let keyboard_before_teardown = devices.keyboard.clone();
@@ -830,7 +891,7 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
     if run.aborted.is_none() && observer.ready_now(FRESH) {
         let valid = authority.authorization(false);
         let result = match keyboard_before_teardown {
-            Some(device) => eis.send_key_tap(&valid, &device, KEY_F13),
+            Some(device) => eis.send_key_tap(&valid, &device, KEY_LEFTSHIFT),
             None => Err(BlackroomError::new(
                 ErrorCode::MutterUnavailable,
                 "no keyboard device was active before teardown",
@@ -857,6 +918,12 @@ fn rehearse(args: &Args) -> anyhow::Result<()> {
         Duration::from_secs(args.settle_secs),
     );
     println!("focused and fullscreen for {} s: {ready}", args.settle_secs);
+    if ready {
+        println!(
+            "tally reset acknowledged by the page: {}",
+            observer.arm(Duration::from_secs(10))
+        );
+    }
     for _ in 0..15 {
         sleep(Duration::from_secs(1));
         let (focus, fullscreen, tally) =
@@ -968,13 +1035,13 @@ fn main() -> anyhow::Result<()> {
             .to_string(),
         procedure: format!(
             "Preflight; serve the observer page on loopback; wait for a focused fullscreen page ({} s settle); \
-             CreateSession; Start; ConnectToEIS; bind seat; F13 tap, Shift+F13 chord, pointer +40/-40, left \
+             CreateSession; Start; ConnectToEIS; bind seat; Shift tap, Shift+Right Ctrl chord, pointer +40/-40, left \
              click, scroll 15; revoked-authorization tap (must be refused); Stop; valid-authorization tap \
              after Stop (delivery judged by the page); stale-path Stop call; Shell PID unchanged.",
             args.settle_secs
         ),
         expected: "Every injected stage accepted; the revoked stage refused as LeaseRevoked; observer tally: \
-                   F13 2/2, ShiftLeft 1/1, one left click, net-zero pointer motion, positive scroll, no \
+                   ShiftLeft 2/2, ControlRight 1/1 (with Shift held), one left click, net-zero pointer motion, positive scroll, no \
                    untrusted events and nothing from the revoked or post-stop attempts."
             .to_string(),
         observed,
@@ -1013,9 +1080,12 @@ mod tests {
     fn good_tally() -> Value {
         json!({
             "keys": [
-                {"type": "down", "code": "F13"}, {"type": "up", "code": "F13"},
-                {"type": "down", "code": "ShiftLeft"}, {"type": "down", "code": "F13"},
-                {"type": "up", "code": "F13"}, {"type": "up", "code": "ShiftLeft"},
+                {"type": "down", "code": "ShiftLeft", "shift": true},
+                {"type": "up", "code": "ShiftLeft", "shift": false},
+                {"type": "down", "code": "ShiftLeft", "shift": true},
+                {"type": "down", "code": "ControlRight", "shift": true},
+                {"type": "up", "code": "ControlRight", "shift": true},
+                {"type": "up", "code": "ShiftLeft", "shift": false},
             ],
             "buttons": [
                 {"type": "down", "button": 0}, {"type": "up", "button": 0}, {"type": "click", "button": 0},
@@ -1103,7 +1173,7 @@ mod tests {
         leaked["keys"]
             .as_array_mut()
             .expect("keys")
-            .push(json!({"type": "down", "code": "F13"}));
+            .push(json!({"type": "down", "code": "ShiftLeft", "shift": true}));
         assert!(!evaluate_tally(&leaked).0);
 
         let mut drifted = good_tally();
@@ -1150,16 +1220,55 @@ mod tests {
                 body.len()
             )
         };
-        assert!(http(port, &post(&body)).starts_with("HTTP/1.1 204"));
+        let reply = http(port, &post(&body));
+        assert!(reply.starts_with("HTTP/1.1 200") && reply.ends_with("{\"epoch\":0}"));
         assert!(observer.ready_now(FRESH));
         assert!(http(port, &post("not json")).starts_with("HTTP/1.1 400"));
         let blurred = json!({"focus": false, "fullscreen": true, "tally": {}}).to_string();
-        assert!(http(port, &post(&blurred)).starts_with("HTTP/1.1 204"));
+        assert!(http(port, &post(&blurred)).starts_with("HTTP/1.1 200"));
         assert!(!observer.ready_now(FRESH));
         let oversized = format!(
             "POST /{token}/beat HTTP/1.1\r\n{host}Content-Length: {}\r\n\r\n",
             MAX_BODY + 1
         );
         assert_eq!(http(port, &oversized), "");
+    }
+
+    #[test]
+    fn arming_waits_for_a_focused_beat_that_carries_the_new_epoch() {
+        let observer = Observer::start().expect("observer");
+        let (port, token) = (observer.port, observer.token.clone());
+        let host = format!("Host: 127.0.0.1:{port}\r\n");
+        let beat = |epoch: u64| {
+            let body =
+                json!({"focus": true, "fullscreen": true, "tally": {"epoch": epoch}}).to_string();
+            http(
+                port,
+                &format!(
+                    "POST /{token}/beat HTTP/1.1\r\n{host}Content-Length: {}\r\n\r\n{body}",
+                    body.len()
+                ),
+            )
+        };
+        assert!(
+            !observer.arm(Duration::from_millis(300)),
+            "no beat carries the epoch"
+        );
+        let page = std::thread::scope(|scope| {
+            let arming = scope.spawn(|| observer.arm(Duration::from_secs(3)));
+            // A page that follows the reply epoch, like the real one.
+            let mut epoch = 0;
+            while !arming.is_finished() {
+                let reply = beat(epoch);
+                epoch = reply
+                    .rsplit("\"epoch\":")
+                    .next()
+                    .and_then(|rest| rest.trim_end_matches('}').parse().ok())
+                    .unwrap_or(0);
+                sleep(Duration::from_millis(50));
+            }
+            arming.join().expect("arm thread")
+        });
+        assert!(page);
     }
 }

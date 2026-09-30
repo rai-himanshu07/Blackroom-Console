@@ -25,16 +25,19 @@
 (() => {
   const t0 = performance.now();
   const at = () => Math.round(performance.now() - t0);
-  const s = { keys: [], buttons: [], pointer: { moves: 0, netX: 0, netY: 0, absX: 0, absY: 0 },
-              wheel: { events: 0, deltaY: 0, scrollY: 0 }, untrusted: 0 };
+  const fresh = () => ({ keys: [], buttons: [], pointer: { moves: 0, netX: 0, netY: 0, absX: 0, absY: 0 },
+                         wheel: { events: 0, deltaY: 0, scrollY: 0 }, untrusted: 0 });
+  // epoch: the run clears the tally right before injecting; transitions: focus history for diagnosis.
+  let s = { ...fresh(), epoch: 0, transitions: [] };
   const count = (type, code) => s.keys.filter(k => k.type === type && k.code === code).length;
   // Same checks as the Rust side (evaluate_tally); the Rust result is the recorded one.
   function verdict() {
     s.wheel.scrollY = Math.round(window.scrollY);
     const c = {
-      f13: count('down', 'F13') === 2 && count('up', 'F13') === 2,
-      shift: count('down', 'ShiftLeft') === 1 && count('up', 'ShiftLeft') === 1,
-      otherKeys: s.keys.filter(k => k.code !== 'F13' && k.code !== 'ShiftLeft').length === 0,
+      shift: count('down', 'ShiftLeft') === 2 && count('up', 'ShiftLeft') === 2,
+      ctrl: count('down', 'ControlRight') === 1 && count('up', 'ControlRight') === 1
+        && s.keys.some(k => k.type === 'down' && k.code === 'ControlRight' && k.shift),
+      otherKeys: s.keys.filter(k => k.code !== 'ShiftLeft' && k.code !== 'ControlRight').length === 0,
       click: s.buttons.filter(b => b.type === 'click' && b.button === 0).length === 1 && s.buttons.every(b => b.button === 0),
       pointer: s.pointer.moves > 0 && Math.abs(s.pointer.netX) <= 2 && Math.abs(s.pointer.netY) <= 2
         && s.pointer.absX >= 20 && s.pointer.absX <= 200,
@@ -47,7 +50,7 @@
     const { c, all } = verdict();
     const v = document.getElementById('verdict');
     v.textContent = Object.entries(c).map(([k, ok]) => `${k}:${ok ? 'ok' : '--'}`).join(' ')
-      + ` | F13 ${count('down', 'F13')}/${count('up', 'F13')} Shift ${count('down', 'ShiftLeft')}/${count('up', 'ShiftLeft')}`
+      + ` | Shift ${count('down', 'ShiftLeft')}/${count('up', 'ShiftLeft')} RCtrl ${count('down', 'ControlRight')}/${count('up', 'ControlRight')}`
       + ` moves ${s.pointer.moves} net ${s.pointer.netX},${s.pointer.netY} wheel ${s.wheel.events}/${s.wheel.deltaY}`;
     v.className = all ? 'ok' : 'bad';
     document.getElementById('out').textContent = JSON.stringify(s);
@@ -69,13 +72,26 @@
   // The run injects only while this page reports focus and fullscreen.
   const state = () => ({ focus: document.hasFocus(),
     fullscreen: innerWidth >= screen.width - 2 && innerHeight >= screen.height - 2 });
+  let last = '';
+  function transition(st) {
+    const now = `${st.focus}/${st.fullscreen}/${document.visibilityState}`;
+    if (now !== last) {
+      last = now;
+      s.transitions.push({ t: at(), focus: st.focus, fullscreen: st.fullscreen, visibility: document.visibilityState });
+      if (s.transitions.length > 50) s.transitions.shift();
+    }
+  }
   async function beat() {
     const st = state();
+    transition(st);
     const r = document.getElementById('ready');
     r.textContent = `focus ${st.focus ? 'yes' : 'NO'} | fullscreen ${st.fullscreen ? 'yes' : 'NO (press F11)'}`;
     r.className = st.focus && st.fullscreen ? 'ok' : 'bad';
     verdict();
-    try { await fetch('beat', { method: 'POST', body: JSON.stringify({ ...st, tally: s }) }); } catch (_) { r.textContent += ' | run not reachable'; }
+    try {
+      const reply = await (await fetch('beat', { method: 'POST', body: JSON.stringify({ ...st, tally: s }) })).json();
+      if (reply.epoch > s.epoch) { s = { ...fresh(), epoch: reply.epoch, transitions: s.transitions }; scrollTo(0, 0); render(); }
+    } catch (_) { r.textContent += ' | run not reachable'; }
   }
   setInterval(beat, 250);
   render();

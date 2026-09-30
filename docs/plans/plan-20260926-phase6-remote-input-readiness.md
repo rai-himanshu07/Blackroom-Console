@@ -157,8 +157,10 @@ reports focus/fullscreen every 250 ms and tallies the events that reach it.
 `--observer-only` rehearses the page with no D-Bus session and no input.
 
 **Risk assessment (input injection is a new mechanism, safety §7):**
-- Only inert input: F13, Shift+F13, pointer +40/-40 px, one left click, a 15 px
-  scroll. Input is sent only while the page reported focus and fullscreen in the
+- Only modifier keys (Shift tap, Shift + Right Ctrl chord), pointer +40/-40 px,
+  one left click and a 15 px scroll. Run 1 showed F13 is NOT inert here (it is
+  XF86Tools, which opens GNOME Settings), so every key must be checked against
+  `gsettings`/xkb bindings first. Input is sent only while the page reported focus and fullscreen in the
   last 1.2 s; otherwise the run stops injecting (inconclusive, exit 3).
 - Not touched: displays, topology, DPMS, ScreenCast, physical input (no grab),
   lock state, hostd/gateway, services other than the §5 mask/unmask of
@@ -174,9 +176,10 @@ reports focus/fullscreen every 250 ms and tallies the events that reach it.
   expose fewer devices, F13 may map differently.
 
 **Result rule:** PASS only if every stage matches, the revoked tap is refused as
-`LeaseRevoked`, the page's own tally is exact (F13 2/2, ShiftLeft 1/1, one left
-click, net-zero pointer motion, positive scroll, 0 untrusted, nothing from the
-revoked or post-stop taps), the Shell PID is unchanged and the stale session
+`LeaseRevoked`, the page's own tally, cleared right before injection, is exact
+(ShiftLeft 2/2, ControlRight 1/1 with Shift held, one left click, net-zero
+pointer motion, positive scroll, 0 untrusted, nothing from the revoked or
+post-stop taps), the Shell PID is unchanged and the stale session
 path rejects `Stop`. The post-stop tap is judged by the tally alone, so it cannot
 say whether Mutter or the local client refused it; the closing events and
 `eis_ready_after_stop` are recorded. PASS is an Experiment 8 result, not FEAS-D.
@@ -429,3 +432,16 @@ Exit codes: 0 PASS, 1 FAIL, 2 BLOCKED, 3 inconclusive.
   count was reported missing). Nothing was run against Mutter: no
   CreateSession, ConnectToEIS or input. Step 3 stays open pending an exact-run
   approval.
+- 2026-09-30 (Experiment 8 run 1, operator-approved, PARTIAL): Mutter accepted
+  `CreateSession`/`Start`/`ConnectToEIS` and the Sender handshake on an
+  input-only session and resumed a virtual keyboard and a virtual pointer
+  (pointer, scroll, button). The F13 tap and Shift+F13 chord were accepted, then
+  the focus gate aborted before pointer, click and scroll: F13 is `XF86Tools`,
+  bound to GNOME Settings, which took focus. Stop produced `DeviceRemoved`,
+  `SeatRemoved`, `Disconnected` and a closed socket; the old session path
+  rejected `Stop`; Shell PID unchanged; `gnome-remote-desktop` restored to
+  inactive/disabled. Delivery, revoke and post-stop non-delivery remain
+  unproven, FEAS-D stays UNPROVEN. Evidence and correction in
+  `docs/experiments/evidence/exp08/2026-09-30/observation.md`. Fixes: modifier-only
+  keys, tally reset before injection, focus-transition log. A second run needs
+  its own approval.

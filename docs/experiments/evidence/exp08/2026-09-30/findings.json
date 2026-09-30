@@ -1,0 +1,142 @@
+{
+  "selected_session_id": "2",
+  "git_head": "8b06546",
+  "git_dirty": false,
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "gnome_remote_desktop_before": "inactive",
+  "gnome_remote_desktop_after": "inactive",
+  "remote_desktop_session_path": "/org/gnome/Mutter/RemoteDesktop/Session/u3",
+  "blocked": null,
+  "failure": null,
+  "aborted": "observer not focused and fullscreen before pointer_right_40",
+  "devices_seen": [
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "removed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": []
+    },
+    {
+      "event": "removed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": []
+    }
+  ],
+  "stages": [
+    {
+      "name": "key_tap_f13",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 53,
+      "violation": false
+    },
+    {
+      "name": "key_chord_shift_f13",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 506,
+      "violation": false
+    },
+    {
+      "name": "session_stop",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 908,
+      "violation": false
+    }
+  ],
+  "post_teardown_events": [
+    "KeyboardModifiers(KeyboardModifiers { device: Device(\"Blackroom Console virtual ",
+    "KeyboardModifiers(KeyboardModifiers { device: Device(\"Blackroom Console virtual ",
+    "DeviceRemoved(DeviceRemoved { device: Device(\"Blackroom Console virtual pointer\"",
+    "DeviceRemoved(DeviceRemoved { device: Device(\"Blackroom Console virtual keyboard",
+    "SeatRemoved(SeatRemoved { seat: Seat(\"mutter default seat\") })",
+    "Disconnected(Disconnected { last_serial: 3, reason: Disconnected, explanation: N",
+    "socket_closed: MUTTER_UNAVAILABLE (diag_01M3SJTP7JQ5X5ANC0DQP4KBQN): EIS device socket closed"
+  ],
+  "eis_ready_after_stop": false,
+  "stuck_input_suspect": false,
+  "stale_session_call": "org.freedesktop.DBus.Error.UnknownMethod: Object does not exist at path “/org/gnome/Mutter/RemoteDesktop/Session/u3”",
+  "observer_beats": 95,
+  "observer_tally": {
+    "buttons": [],
+    "keys": [
+      {
+        "code": "F11",
+        "repeat": false,
+        "shift": false,
+        "t": 14712,
+        "type": "down"
+      },
+      {
+        "code": "F11",
+        "repeat": false,
+        "shift": false,
+        "t": 14817,
+        "type": "up"
+      },
+      {
+        "code": "F13",
+        "repeat": false,
+        "shift": false,
+        "t": 22685,
+        "type": "up"
+      }
+    ],
+    "pointer": {
+      "absX": 9216,
+      "absY": 4911,
+      "moves": 927,
+      "netX": -358,
+      "netY": 747
+    },
+    "untrusted": 0,
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "tally_matches": false,
+  "tally_notes": [
+    "F13 down/up 0/1 (expected 2/2)",
+    "ShiftLeft not 1/1",
+    "2 unexpected key events",
+    "0 left clicks or a non-left button seen",
+    "pointer motion not net-zero or missing (net -358,747 abs 9216)",
+    "scroll missing or out of range (deltaY 0)"
+  ],
+  "violations": []
+}
