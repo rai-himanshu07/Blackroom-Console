@@ -195,6 +195,13 @@ impl EvdevGrab {
         Ok(())
     }
 
+    /// Forgets counts so far; the kernel queue is drained first so earlier events are not attributed to a later phase.
+    fn reset_counts(&mut self) {
+        self.key_presses = 0;
+        self.motions = 0;
+        self.per_node.clear();
+    }
+
     fn counts(&self) -> String {
         self.per_node
             .iter()
@@ -277,6 +284,7 @@ struct Run {
     phase_b: Option<PhaseTally>,
     phase_c0: Option<PhaseTally>,
     phase_c: Option<PhaseTally>,
+    c0_device_events: u64,
     stages_requested: usize,
     stages: Vec<StageResult>,
     probe_key_presses_in_b: u64,
@@ -724,6 +732,11 @@ fn execute(
             .map(|(id, device)| (*id, caps_of(device)))
             .collect();
         if ok {
+            {
+                let mut guard = isolation.lock().unwrap_or_else(PoisonError::into_inner);
+                let _ = guard.grabber_mut().drain(now_ms(origin));
+                guard.grabber_mut().reset_counts();
+            }
             let grabbed = isolation
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
@@ -788,8 +801,10 @@ fn execute(
     if ok || run.phase_b.is_some() {
         println!("Phase C0 (3 s): grab released. HANDS OFF both devices.");
         sleep(Duration::from_millis(1500));
+        let mut builtin_counter = open_counter(&args.builtin_nodes);
         if observer.arm(Duration::from_secs(10)) {
-            wait_phase(observer, 3, "C0", run, None, origin);
+            run.c0_device_events =
+                quiet_window(observer, 3, run, &isolation, builtin_counter.as_mut());
             run.phase_c0 = snapshot_tally(observer);
         }
         println!(
@@ -852,7 +867,8 @@ fn can_continue(run: &Run) -> bool {
         && run.aborted.is_none()
         && run.restore_failed.is_empty()
         && run.injected_shift.as_deref() == Some("accepted")
-        && run.probe_key_presses_in_b + run.probe_motions_in_b > 0
+        && run.probe_key_presses_in_b > 0
+        && run.probe_motions_in_b > 0
         && run.phase_a.as_ref().is_some_and(baseline_ok)
         && run
             .phase_b
@@ -861,7 +877,7 @@ fn can_continue(run: &Run) -> bool {
         && run
             .phase_c0
             .as_ref()
-            .is_some_and(|c0| c0.physical_events(0) == 0)
+            .is_some_and(|c0| c0.physical_events(0) == 0 || run.c0_device_events > 0)
         && run
             .phase_c
             .as_ref()
@@ -1273,6 +1289,48 @@ fn open_counter(nodes: &[u32]) -> Option<EvdevGrab> {
     Some(EvdevGrab::new(devices, None))
 }
 
+/// Waits `secs` counting what the un-grabbed devices produce, so page events in the same window
+/// can be told apart from ghost input. Returns the number of device events seen.
+fn quiet_window(
+    observer: &Observer,
+    secs: u64,
+    run: &mut Run,
+    isolation: &Arc<Mutex<Isolation<EvdevGrab>>>,
+    mut builtin: Option<&mut EvdevGrab>,
+) -> u64 {
+    {
+        let mut guard = isolation.lock().unwrap_or_else(PoisonError::into_inner);
+        let _ = guard.grabber_mut().drain(0);
+        guard.grabber_mut().reset_counts();
+    }
+    if let Some(builtin) = builtin.as_mut() {
+        let _ = builtin.drain(0);
+        builtin.reset_counts();
+    }
+    let end = Instant::now() + Duration::from_secs(secs);
+    while Instant::now() < end {
+        if !observer.ready_now(FRESH) {
+            run.aborted =
+                Some("observer lost focus or fullscreen in the hands-off window".to_string());
+            break;
+        }
+        let _ = isolation
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .grabber_mut()
+            .drain(0);
+        if let Some(builtin) = builtin.as_mut() {
+            let _ = builtin.drain(0);
+        }
+        sleep(Duration::from_millis(20));
+    }
+    let external = {
+        let guard = isolation.lock().unwrap_or_else(PoisonError::into_inner);
+        guard.grabber().key_presses + guard.grabber().motions
+    };
+    external + builtin.map_or(0, |builtin| builtin.key_presses + builtin.motions)
+}
+
 fn fail_on(stage: &mut StageResult, result: Result<(), String>) -> bool {
     match result {
         Ok(()) => true,
@@ -1652,12 +1710,19 @@ fn classify_run(run: &mut Run) -> ExperimentResult {
             ));
         }
     }
+    let mut c0_touched = false;
     if let Some(c0) = &run.phase_c0 {
-        let ghost = c0.physical_events(0);
-        if ghost > 0 {
+        let page = c0.physical_events(0);
+        if page > 0 && run.c0_device_events == 0 {
             run.violations.push(format!(
-                "{ghost} events reached the page in the hands-off window after release"
+                "{page} events reached the page in the hands-off window although no device produced any (ghost input)"
             ));
+        } else if page > 0 {
+            run.notes.push(
+                "a device was touched in the hands-off window, so ghost input was not checked"
+                    .to_string(),
+            );
+            c0_touched = true;
         }
     }
     for stage in &run.stages {
@@ -1690,18 +1755,16 @@ fn classify_run(run: &mut Run) -> ExperimentResult {
             stage_gaps = true;
         }
     }
-    let c_seen = run
-        .phase_c
-        .as_ref()
-        .is_some_and(|c| c.physical_events(0) > 0);
-    let operator_active = run.probe_key_presses_in_b + run.probe_motions_in_b > 0;
+    let c_seen = run.phase_c.as_ref().is_some_and(baseline_ok);
+    let operator_active = run.probe_key_presses_in_b > 0 && run.probe_motions_in_b > 0;
     if run.aborted.is_some()
         || stage_gaps
         || run.phase_c0.is_none()
+        || c0_touched
         || !(a_seen && c_seen && operator_active && injected == 1)
     {
         if !operator_active {
-            run.notes.push("no events were read from the grabbed nodes: the operator did not use them in phase B".to_string());
+            run.notes.push("the operator did not use both a keyboard and a pointing device on the grabbed nodes in phase B".to_string());
         }
         return ExperimentResult::Partial;
     }
@@ -1863,6 +1926,7 @@ mod tests {
             phase_c0: Some(PhaseTally::default()),
             phase_c: Some(busy.clone()),
             probe_key_presses_in_b: 5,
+            probe_motions_in_b: 50,
             injected_shift: Some("accepted".to_string()),
             ..Run::default()
         };
@@ -1878,6 +1942,7 @@ mod tests {
                 phase_a: Some(busy.clone()),
                 phase_c: Some(busy.clone()),
                 probe_key_presses_in_b: 5,
+                probe_motions_in_b: 50,
                 injected_shift: Some("accepted".to_string()),
                 ..Run::default()
             }
@@ -2092,6 +2157,7 @@ mod tests {
             phase_c0: Some(PhaseTally::default()),
             phase_c: Some(busy.clone()),
             probe_key_presses_in_b: 5,
+            probe_motions_in_b: 50,
             injected_shift: Some("accepted".to_string()),
             ..Run::default()
         };
@@ -2121,6 +2187,25 @@ mod tests {
         let mut ghost = base();
         ghost.phase_c0 = Some(busy.clone());
         assert_eq!(classify_run(&mut ghost), ExperimentResult::Fail);
+
+        let mut touched = base();
+        touched.phase_c0 = Some(busy.clone());
+        touched.c0_device_events = 12;
+        assert_eq!(classify_run(&mut touched), ExperimentResult::Partial);
+
+        let mut no_keyboard_after = base();
+        no_keyboard_after.phase_c = Some(PhaseTally {
+            pointer_moves: 9,
+            ..PhaseTally::default()
+        });
+        assert_eq!(
+            classify_run(&mut no_keyboard_after),
+            ExperimentResult::Partial
+        );
+
+        let mut keys_only_in_b = base();
+        keys_only_in_b.probe_motions_in_b = 0;
+        assert_eq!(classify_run(&mut keys_only_in_b), ExperimentResult::Partial);
 
         let mut no_keyboard_baseline = base();
         no_keyboard_baseline.phase_a = Some(PhaseTally {
@@ -2164,6 +2249,7 @@ mod tests {
             phase_c0: Some(PhaseTally::default()),
             phase_c: Some(busy.clone()),
             probe_key_presses_in_b: 5,
+            probe_motions_in_b: 50,
             injected_shift: Some("accepted".to_string()),
             ..Run::default()
         };

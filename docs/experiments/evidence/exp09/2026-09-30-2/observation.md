@@ -21,10 +21,14 @@ The probe's own rule gives PASS (`grab-findings.json`, counts only, no key codes
 | B, grabbed | 2 | 1 | 0 | 0 | 0 |
 | C, after release | 8 | 1 | 41 | 0 | 0 |
 
-- During B the probe itself read 7 physical key presses and 327 pointer motions from the grabbed nodes, yet the page saw none of them. Its only input was the injected Shift (press and release).
+- During B the probe itself read 7 physical key presses (and 327 pointer motions, see the correction below) from the grabbed nodes, yet the page saw none of them. Its only input was the injected Shift (press and release).
 - The injected EIS Shift was accepted while the grab was held, so a remote tap and the physical grab coexisted.
 - Release of both nodes succeeded, no release failures, and no key was still down afterwards.
 - No violations, no abort, no failure.
+
+## Correction (2026-10-01, found after run 2)
+
+The probe did not drain the grabbed nodes' queues before grabbing, so its phase B read counts can include events the operator produced in phase A. The 7 key presses are still B-only, because phase A had no key events. The 327 pointer motions are not attributable to B. Keyboard isolation in B therefore stands; pointer isolation rests only on the page seeing 0 moves, buttons and wheel events in B.
 
 ## Not shown by this run
 
