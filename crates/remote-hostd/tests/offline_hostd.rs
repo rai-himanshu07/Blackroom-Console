@@ -779,3 +779,107 @@ fn offline_hostd_renews_only_for_the_holder_of_the_active_grant() {
     let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
     assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
 }
+
+#[test]
+fn malformed_control_frames_stop_hostd_without_any_grant_or_state_change() {
+    let oversized = (blackroom_core::limits::MAX_MESSAGE_SIZE_BYTES as u32 + 1)
+        .to_be_bytes()
+        .to_vec();
+    let frame = |json: &str| {
+        let mut bytes = (json.len() as u32).to_be_bytes().to_vec();
+        bytes.extend_from_slice(json.as_bytes());
+        bytes
+    };
+    let cases: Vec<(&str, Vec<u8>)> = vec![
+        ("zero length", vec![0, 0, 0, 0]),
+        ("oversized length", oversized),
+        (
+            "truncated body",
+            [vec![0, 0, 0, 40], b"{\"command\":".to_vec()].concat(),
+        ),
+        ("not json", frame("not json at all")),
+        ("unknown command", frame(r#"{"command":"grant"}"#)),
+        (
+            "unknown field",
+            frame(r#"{"command":"status","authenticated":true}"#),
+        ),
+        (
+            "wrong types",
+            frame(r#"{"command":"input","epoch":-1,"sequence":"x","grant_id":7}"#),
+        ),
+        (
+            "nested overflow",
+            frame(&format!("{}1{}", "[".repeat(200), "]".repeat(200))),
+        ),
+        (
+            "invalid utf8",
+            [vec![0, 0, 0, 3], vec![0xff, 0xfe, 0xfd]].concat(),
+        ),
+    ];
+    for (name, bytes) in cases {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(runtime.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let agent_socket = runtime.path().join("agent.sock");
+        let control_socket = runtime.path().join("control.sock");
+        let listener = UnixListener::bind(&agent_socket).unwrap();
+        let peer = std::thread::spawn(move || {
+            let (mut agent, _) = listener.accept().unwrap();
+            agent
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let mut byte = [0_u8; 1];
+            agent.read(&mut byte).unwrap_or(0)
+        });
+        let mut child = Command::new(env!("CARGO_BIN_EXE_remote-hostd"))
+            .args(["--offline-sim-service", "--state-dir"])
+            .arg(directory.path())
+            .arg("--runtime-dir")
+            .arg(runtime.path())
+            .arg("--agent-socket")
+            .arg(&agent_socket)
+            .arg("--control-socket")
+            .arg(&control_socket)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut bootstrap = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut bootstrap)
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut gateway = loop {
+            match UnixStream::connect(&control_socket) {
+                Ok(stream) => break stream,
+                Err(_) if Instant::now() < deadline => std::thread::yield_now(),
+                Err(error) => panic!("{name}: offline host did not listen: {error}"),
+            }
+        };
+        gateway.write_all(&bytes).unwrap();
+        let status = child.wait().unwrap();
+        assert!(!status.success(), "{name}: malformed frame must stop hostd");
+        drop(gateway);
+        assert_eq!(
+            peer.join().unwrap(),
+            0,
+            "{name}: agent must receive nothing"
+        );
+
+        assert!(
+            !directory.path().join("recovery-pending").exists(),
+            "{name}"
+        );
+        assert!(!directory.path().join("emergency-stop").exists(), "{name}");
+        let audit = std::fs::read_to_string(directory.path().join("audit.log")).unwrap();
+        assert_eq!(
+            audit.lines().count(),
+            1,
+            "{name}: only host_started expected"
+        );
+        let dirfd = File::open(directory.path()).unwrap();
+        let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
+        assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
+    }
+}
