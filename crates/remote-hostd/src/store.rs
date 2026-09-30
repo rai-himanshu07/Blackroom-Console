@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use blackroom_core::epoch::SecurityEpoch;
 use blackroom_core::error::{BlackroomError, ErrorCode};
 use blackroom_core::lease::ControlLease;
+use blackroom_core::limits::CONTROL_LEASE_TTL;
 use blackroom_core::protocol::AuthorityUpdate;
 use blackroom_core::state::State;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
@@ -332,7 +333,14 @@ impl PersistentHostAuthority {
     ) -> Result<(ControlLease, Signature), BlackroomError> {
         let now = SystemTime::now();
         self.inner.check_session(session, now)?;
-        self.begin(|inner| inner.issue(session.principal(), Some(session.expires_at()), now))
+        self.begin(|inner| {
+            inner.issue(
+                session.principal(),
+                Some(session.expires_at()),
+                CONTROL_LEASE_TTL,
+                now,
+            )
+        })
     }
 
     fn begin(
@@ -377,6 +385,24 @@ impl PersistentHostAuthority {
         session: &AuthSession,
     ) -> Result<AuthorityUpdate, BlackroomError> {
         let (lease, signature) = self.start_for(session)?;
+        Ok(AuthorityUpdate::Grant {
+            lease,
+            signature: signature.to_bytes().to_vec(),
+        })
+    }
+
+    /// Re-signs the active grant; the recovery marker and epoch are untouched.
+    pub fn renew_update_for(
+        &mut self,
+        session: &AuthSession,
+    ) -> Result<AuthorityUpdate, BlackroomError> {
+        if self.emergency_required() {
+            return Err(BlackroomError::new(
+                ErrorCode::RecoveryFailed,
+                "host authority state cannot be trusted",
+            ));
+        }
+        let (lease, signature) = self.inner.renew_for(session)?;
         Ok(AuthorityUpdate::Grant {
             lease,
             signature: signature.to_bytes().to_vec(),

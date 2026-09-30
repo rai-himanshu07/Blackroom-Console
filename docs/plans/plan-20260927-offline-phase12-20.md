@@ -39,9 +39,13 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   fake demo-code/rotating-proof one. `start_for` takes the lease user/client
   from the session, caps expiry at the session's and refuses stale-epoch or
   expired sessions before any recovery marker is written. Revoke, agent-refused
-  input and the abuse limit end the session. Session revocation/expiry is a
-  unit-tested `expire_grant` seam with no control command yet, and the 120 s
-  lease expires before the 300 s session. The session credential never leaves
+  input and the abuse limit end the session. Session-bound leases last the
+  documented 30 s (`CONTROL_LEASE_TTL`); a `Renew` control command re-signs
+  the active lease for the same epoch and session only for the grant holder,
+  the gateway forwards a browser heartbeat every 10 s (separated mode only),
+  and silence lets the lease lapse (real-process test, ~70 s). Session
+  revocation/expiry stays a unit-tested `expire_grant` seam with no logout
+  command yet. The session credential never leaves
   hostd. Hostd also mints the input grant (returned on Start, echoed on every
   Input, dead with the session) instead of the gateway in SEPARATE mode; the
   control protocol gained that field. In-process modes keep gateway-issued IDs.
@@ -49,7 +53,7 @@ a feasibility, security, Go/No-Go or release gate from simulation.
 ## Open Dependencies
 
 - [ ] Phase 12: product credential verification (PAM/TOTP/device key),
-  per-account rate limits, session renewal/device revocation commands,
+  per-account rate limits, device revocation commands,
   privilege separation, hardened LAN HTTPS/WebSocket/IPC and CSRF/origin
   enforcement. In-process, persisted and one-shot `--offline-sim-host` paths
   still issue a fixed synthetic lease without a session. The public demo code
@@ -73,8 +77,8 @@ a feasibility, security, Go/No-Go or release gate from simulation.
 Run focused gateway/web checks per change; one workspace checkpoint only for
 cross-crate integration and one independent review for a new high-risk
 mechanism. Live system tests stay ignored. Next independent code work is
-session logout/renewal (heartbeat) commands and per-(client, account) rate
-limits in the hostd registry, before any
+an explicit session logout command and per-(client, account) rate limits in
+the hostd registry, before any
 LAN/real-media implementation. FEAS-C remains
 STOP after the HDMI connector-loss incident; no unattended live experiment is
 authorized by this plan.

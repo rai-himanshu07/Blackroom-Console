@@ -167,6 +167,25 @@ impl HostSessions {
         self.grant = Some((token.clone(), input_grant));
     }
 
+    /// The live session behind the active grant, but only for its own input grant.
+    pub fn session_for_grant(
+        &self,
+        presented: &str,
+        epoch: SecurityEpoch,
+        now: SystemTime,
+    ) -> Result<&AuthSession, BlackroomError> {
+        let (token, input_grant) = self.grant.as_ref().ok_or_else(|| {
+            BlackroomError::new(ErrorCode::SessionNotFound, "no active grant session")
+        })?;
+        if !same_bytes(input_grant.as_bytes(), presented.as_bytes()) {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "input grant does not match the active grant",
+            ));
+        }
+        self.resolve(token, epoch, now)
+    }
+
     /// True only for the active grant's binding while its session is live.
     pub fn input_grant_valid(
         &self,
@@ -174,10 +193,7 @@ impl HostSessions {
         epoch: SecurityEpoch,
         now: SystemTime,
     ) -> bool {
-        self.grant.as_ref().is_some_and(|(token, input_grant)| {
-            self.resolve(token, epoch, now).is_ok()
-                && same_bytes(input_grant.as_bytes(), presented.as_bytes())
-        })
+        self.session_for_grant(presented, epoch, now).is_ok()
     }
 
     pub fn revoke(&mut self, token: &SessionToken) -> bool {

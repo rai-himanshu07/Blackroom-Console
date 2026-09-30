@@ -71,6 +71,16 @@ impl SimulationBackend {
             Self::Separated(host) => host.input(event, sequence, grant_id),
         }
     }
+
+    fn renew(&mut self, grant_id: &str) -> Result<(), BlackroomError> {
+        match self {
+            Self::InProcess(_) => Err(BlackroomError::new(
+                ErrorCode::HostUnsupported,
+                "lease renewal needs the separated hostd",
+            )),
+            Self::Separated(host) => host.renew(grant_id),
+        }
+    }
 }
 
 struct OfflineConsole {
@@ -149,6 +159,20 @@ impl OfflineConsole {
         self.backend.input(command.event, command.sequence, grant)?;
         self.last_sequence = command.sequence;
         Ok(())
+    }
+
+    /// Heartbeat from the cookie holder; without it the lease expires.
+    fn renew(&mut self, presented: Option<&str>) -> Result<(), BlackroomError> {
+        let current = self.snapshot();
+        let held =
+            presented.filter(|value| holds_grant(current.input_grant.as_deref(), Some(value)));
+        let Some(grant) = held.filter(|_| current.state == State::RemoteActive.as_str()) else {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "stale offline input grant",
+            ));
+        };
+        self.backend.renew(grant)
     }
 
     /// Browser-facing view: only the holder of the matching cookie sees a sequence.
@@ -583,6 +607,18 @@ async fn revoke(
     ))
 }
 
+async fn renew(
+    ExtractState(host): ExtractState<SharedHost>,
+    headers: HeaderMap,
+    Json(_command): Json<EmptyCommand>,
+) -> ApiResult<Snapshot> {
+    check_origin(&headers)?;
+    let presented = input_cookie(&headers);
+    let mut host = host.lock().expect("simulation lock poisoned");
+    host.renew(presented.as_deref()).map_err(error_response)?;
+    Ok(Json(host.view(presented.as_deref())))
+}
+
 async fn input(
     ExtractState(host): ExtractState<SharedHost>,
     headers: HeaderMap,
@@ -627,6 +663,7 @@ fn with_backend(host: SimulationBackend) -> Router {
         .route("/api/simulation", get(status))
         .route("/api/simulation/start", post(start))
         .route("/api/simulation/revoke", post(revoke))
+        .route("/api/simulation/renew", post(renew))
         .route(
             "/api/simulation/input",
             post(input).layer(DefaultBodyLimit::max(MAX_INPUT_EVENT_SIZE_BYTES)),
@@ -988,6 +1025,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn in_process_hosts_refuse_renewal_and_stay_unchanged() {
+        let router = router();
+        let renew = |cookie: Option<String>| {
+            let router = router.clone();
+            async move {
+                call_as(
+                    &router,
+                    "/api/simulation/renew",
+                    Some("{}"),
+                    cookie.as_deref(),
+                )
+                .await
+            }
+        };
+        assert_eq!(renew(None).await.0, StatusCode::CONFLICT);
+        call_start(&router).await;
+        let grant = jar().unwrap();
+        assert_eq!(renew(None).await.0, StatusCode::CONFLICT);
+        assert_eq!(renew(Some("0".repeat(32))).await.0, StatusCode::CONFLICT);
+        let (status, error) = renew(Some(grant)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(error["code"], "HOST_UNSUPPORTED");
+        let (_, current) = call(&router, "/api/simulation", None).await;
+        assert_eq!(current["state"], "REMOTE_ACTIVE");
+        assert_eq!(
+            call_input(&router, r#"{"kind":"key","code":30}"#).await.0,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
     async fn oversized_fake_commands_do_not_mutate_authority_or_consume_input_sequence() {
         let router = router();
         let start = serde_json::json!({"demo_code": "X".repeat(MAX_MESSAGE_SIZE_BYTES)});
@@ -1197,6 +1265,66 @@ mod tests {
         assert_eq!(call_start(&router).await.0, StatusCode::CONFLICT);
         drop(router);
         assert!(persisted_router(&directory_fd).is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "about 70 s; run with built offline agent/hostd binaries in BLACKROOM_TEST_AGENT_BIN and BLACKROOM_TEST_HOSTD_BIN"]
+    async fn separated_heartbeat_keeps_the_lease_and_silence_expires_it() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let agent = std::env::var_os("BLACKROOM_TEST_AGENT_BIN").unwrap();
+        let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
+        let router =
+            separated_router(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(3200));
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
+        let cookie = jar().unwrap();
+        let key = r#"{"kind":"key","code":30}"#;
+
+        assert_eq!(
+            call_as(&router, "/api/simulation/renew", Some("{}"), None)
+                .await
+                .0,
+            StatusCode::CONFLICT
+        );
+        let (_, still_active) = call(&router, "/api/simulation", None).await;
+        assert_eq!(still_active["state"], "REMOTE_ACTIVE");
+        assert_eq!(call_input(&router, key).await.0, StatusCode::OK);
+
+        // Four heartbeats span 36 s, longer than the 30 s lease.
+        for _ in 0..4 {
+            std::thread::sleep(std::time::Duration::from_secs(9));
+            assert_eq!(
+                call(&router, "/api/simulation/renew", Some("{}")).await.0,
+                StatusCode::OK
+            );
+        }
+        assert_eq!(call_input(&router, key).await.0, StatusCode::OK);
+        let (_, renewed) = call(&router, "/api/simulation", None).await;
+        assert_eq!(renewed["state"], "REMOTE_ACTIVE");
+        assert_eq!(renewed["events"].as_array().unwrap().len(), 2);
+
+        // Silence: the lease lapses and control fails closed.
+        std::thread::sleep(std::time::Duration::from_secs(34));
+        let (_, lapsed) = call(&router, "/api/simulation", None).await;
+        assert_ne!(lapsed["state"], "REMOTE_ACTIVE");
+        assert_ne!(
+            call_as(
+                &router,
+                "/api/simulation/input",
+                Some(r#"{"sequence":3,"event":{"kind":"key","code":30}}"#),
+                Some(&cookie)
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
+        assert_ne!(
+            call_as(&router, "/api/simulation/renew", Some("{}"), Some(&cookie))
+                .await
+                .0,
+            StatusCode::OK
+        );
     }
 
     #[tokio::test]

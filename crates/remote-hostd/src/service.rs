@@ -145,6 +145,17 @@ fn issue_session_grant(
     }
 }
 
+/// Re-signs the active grant for the session that owns `grant_id`.
+fn renew_session_grant(
+    host: &mut PersistentHostAuthority,
+    sessions: &HostSessions,
+    grant_id: &str,
+    now: SystemTime,
+) -> Result<AuthorityUpdate, BlackroomError> {
+    let session = sessions.session_for_grant(grant_id, host.epoch(), now)?;
+    host.renew_update_for(session)
+}
+
 /// Revokes a grant whose lease expired or whose authentication session ended.
 fn expire_grant(
     host: &mut PersistentHostAuthority,
@@ -358,6 +369,32 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 Some(_) => reply(&host, false, Some("LEASE_INVALID")),
                 None => reply(&host, false, Some("AUTH_INVALID")),
             },
+            OfflineCommand::Renew { epoch, grant_id } => match current_grant.as_ref() {
+                Some(AuthorityUpdate::Grant { lease, .. })
+                    if lease.security_epoch.value() == epoch =>
+                {
+                    match renew_session_grant(&mut host, &sessions, &grant_id, SystemTime::now()) {
+                        Ok(update) => {
+                            let stream = agent
+                                .as_mut()
+                                .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
+                            if acknowledged(stream, &update, directory)? {
+                                current_grant = Some(update);
+                                reply(&host, true, None)
+                            } else {
+                                current_grant = None;
+                                input_sequence = 0;
+                                sessions.clear();
+                                host.revoke_update()?;
+                                reply(&host, false, Some("LEASE_INVALID"))
+                            }
+                        }
+                        Err(_) => reply(&host, false, Some("LEASE_INVALID")),
+                    }
+                }
+                Some(_) => reply(&host, false, Some("LEASE_INVALID")),
+                None => reply(&host, false, Some("AUTH_INVALID")),
+            },
             OfflineCommand::Status {} => reply(&host, true, None),
         };
         if host.emergency_required() {
@@ -440,6 +477,42 @@ mod tests {
             assert_eq!(sessions.live(), 1);
         }
         assert_eq!(host.state(), State::RemoteActive);
+    }
+
+    #[test]
+    fn renewal_needs_the_live_grant_session_and_its_own_input_grant() {
+        let (_directory, dirfd) = private_dir();
+        let mut host = PersistentHostAuthority::open(&dirfd).unwrap();
+        let mut sessions = HostSessions::default();
+        let mut verifier = DemoCredentialVerifier::new("c".repeat(64));
+        let now = SystemTime::now();
+        let credential = presented(&verifier);
+        let (update, input_grant) =
+            issue_session_grant(&mut host, &mut sessions, &mut verifier, credential, now).unwrap();
+        let AuthorityUpdate::Grant { lease: first, .. } = update else {
+            panic!("expected a grant");
+        };
+
+        for wrong in [String::new(), "0".repeat(32), input_grant[1..].to_owned()] {
+            let error = renew_session_grant(&mut host, &sessions, &wrong, now).unwrap_err();
+            assert_eq!(error.code, ErrorCode::LeaseInvalid);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+        let AuthorityUpdate::Grant { lease: renewed, .. } =
+            renew_session_grant(&mut host, &sessions, &input_grant, SystemTime::now()).unwrap()
+        else {
+            panic!("expected a renewed grant");
+        };
+        assert!(renewed.expires_at > first.expires_at);
+        assert_eq!(renewed.security_epoch, first.security_epoch);
+        assert_eq!(renewed.client_id, first.client_id);
+        assert_eq!(host.state(), State::RemoteActive);
+
+        assert_eq!(sessions.revoke_client("synthetic-client"), 1);
+        let error = renew_session_grant(&mut host, &sessions, &input_grant, now).unwrap_err();
+        assert_eq!(error.code, ErrorCode::SessionNotFound);
+        sessions.clear();
+        assert!(renew_session_grant(&mut host, &sessions, &input_grant, now).is_err());
     }
 
     #[test]

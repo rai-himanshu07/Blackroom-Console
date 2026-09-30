@@ -64,6 +64,10 @@ pub enum OfflineCommand {
         sequence: u64,
         grant_id: String,
     },
+    Renew {
+        epoch: u64,
+        grant_id: String,
+    },
     Status {},
 }
 

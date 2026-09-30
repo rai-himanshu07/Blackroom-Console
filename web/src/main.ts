@@ -239,3 +239,25 @@ void refresh().catch(() => {});
 window.setInterval(() => {
   if (!pending) void refresh().catch(() => {});
 }, 1500);
+
+// Hostd leases last 30 s; only the separated hostd renews them (every 10 s).
+async function heartbeat(): Promise<void> {
+  if (pending || snapshot?.state !== 'REMOTE_ACTIVE' || !snapshot.input_bound
+    || snapshot.authority_store !== 'SEPARATE') return;
+  const generation = refreshGeneration;
+  try {
+    const response = await fetch('/api/simulation/renew', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const current = await response.json() as Snapshot;
+    if (!pending && generation === refreshGeneration) render(current);
+  } catch {
+    await refresh(true).catch(() => {});
+  }
+}
+
+window.setInterval(() => { void heartbeat(); }, 10_000);

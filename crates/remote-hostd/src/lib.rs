@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime};
 use blackroom_core::epoch::SecurityEpoch;
 use blackroom_core::error::{BlackroomError, ErrorCode};
 use blackroom_core::lease::{Capability, ControlLease};
-use blackroom_core::limits::MAX_MESSAGE_SIZE_BYTES;
+use blackroom_core::limits::{CONTROL_LEASE_TTL, MAX_MESSAGE_SIZE_BYTES};
 use blackroom_core::protocol::AuthorityUpdate;
 use blackroom_core::state::State;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
@@ -56,19 +56,53 @@ impl OfflineHostAuthority {
     }
 
     /// Issues a lease for the fixed synthetic principal, without any session.
+    /// It keeps a fixed 120 s simulation lifetime and cannot be renewed.
     pub fn start(&mut self) -> Result<(ControlLease, Signature), BlackroomError> {
-        self.issue(&Principal::synthetic(), None, SystemTime::now())
+        self.issue(
+            &Principal::synthetic(),
+            None,
+            Duration::from_secs(120),
+            SystemTime::now(),
+        )
     }
 
     /// Issues a lease for an authenticated hostd session; it never outlives
-    /// that session, and the session must belong to the current epoch.
+    /// that session, and the session must belong to the current epoch. It
+    /// lasts `CONTROL_LEASE_TTL` unless renewed with [`Self::renew_for`].
     pub fn start_for(
         &mut self,
         session: &AuthSession,
     ) -> Result<(ControlLease, Signature), BlackroomError> {
         let now = SystemTime::now();
         self.check_session(session, now)?;
-        self.issue(session.principal(), Some(session.expires_at()), now)
+        self.issue(
+            session.principal(),
+            Some(session.expires_at()),
+            CONTROL_LEASE_TTL,
+            now,
+        )
+    }
+
+    /// Re-signs the active grant for the same epoch and session, without any
+    /// state change; the caller must have verified the session binding.
+    pub fn renew_for(
+        &mut self,
+        session: &AuthSession,
+    ) -> Result<(ControlLease, Signature), BlackroomError> {
+        if self.state != State::RemoteActive {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "no active grant to renew",
+            ));
+        }
+        let now = SystemTime::now();
+        self.check_session(session, now)?;
+        Ok(self.sign_lease(
+            session.principal(),
+            Some(session.expires_at()),
+            CONTROL_LEASE_TTL,
+            now,
+        ))
     }
 
     fn check_session(&self, session: &AuthSession, now: SystemTime) -> Result<(), BlackroomError> {
@@ -91,6 +125,7 @@ impl OfflineHostAuthority {
         &mut self,
         principal: &Principal,
         not_after: Option<SystemTime>,
+        ttl: Duration,
         now: SystemTime,
     ) -> Result<(ControlLease, Signature), BlackroomError> {
         if self.state != State::LocalLocked {
@@ -99,7 +134,19 @@ impl OfflineHostAuthority {
                 "simulation is already active",
             ));
         }
-        let mut expires_at = now + Duration::from_secs(120);
+        let signed = self.sign_lease(principal, not_after, ttl, now);
+        self.state = State::RemoteActive;
+        Ok(signed)
+    }
+
+    fn sign_lease(
+        &self,
+        principal: &Principal,
+        not_after: Option<SystemTime>,
+        ttl: Duration,
+        now: SystemTime,
+    ) -> (ControlLease, Signature) {
+        let mut expires_at = now + ttl;
         if let Some(limit) = not_after {
             expires_at = expires_at.min(limit);
         }
@@ -114,8 +161,7 @@ impl OfflineHostAuthority {
             capabilities: vec![Capability::Control],
         };
         let signature = lease.sign(&self.signing_key);
-        self.state = State::RemoteActive;
-        Ok((lease, signature))
+        (lease, signature)
     }
 
     pub fn grant_update(&mut self) -> Result<AuthorityUpdate, BlackroomError> {
@@ -189,7 +235,7 @@ mod tests {
     fn session_bound_lease_takes_principal_and_never_outlives_session() {
         let mut host = OfflineHostAuthority::new();
         let mut sessions = HostSessions::default();
-        let issued = SystemTime::now() - Duration::from_secs(250);
+        let issued = SystemTime::now() - Duration::from_secs(285);
         let token = sessions
             .authenticate(&mut Named, (), host.epoch(), issued)
             .unwrap();
@@ -201,7 +247,57 @@ mod tests {
         assert_eq!(lease.user_id, "user-x");
         assert_eq!(lease.client_id, "client-x");
         assert_eq!(lease.expires_at, session.expires_at());
-        assert!(lease.expires_at < lease.issued_at + Duration::from_secs(120));
+        assert!(lease.expires_at < lease.issued_at + CONTROL_LEASE_TTL);
+    }
+
+    #[test]
+    fn renewal_resigns_only_an_active_grant_for_a_live_same_epoch_session() {
+        let mut host = OfflineHostAuthority::new();
+        let mut sessions = HostSessions::default();
+        let now = SystemTime::now();
+        let token = sessions
+            .authenticate(&mut Named, (), host.epoch(), now)
+            .unwrap();
+        let session = sessions.resolve(&token, host.epoch(), now).unwrap();
+        assert_eq!(
+            host.renew_for(session).unwrap_err().code,
+            ErrorCode::LeaseInvalid
+        );
+        let (first, _) = host.start_for(session).unwrap();
+        assert_eq!(
+            first.expires_at.duration_since(first.issued_at).unwrap(),
+            CONTROL_LEASE_TTL
+        );
+
+        std::thread::sleep(Duration::from_millis(5));
+        let (renewed, signature) = host.renew_for(session).unwrap();
+        renewed.verify(&host.verifying_key(), &signature).unwrap();
+        assert!(renewed.expires_at > first.expires_at);
+        assert_eq!(renewed.security_epoch, first.security_epoch);
+        assert_eq!(renewed.user_id, "user-x");
+        assert_eq!(renewed.client_id, "client-x");
+        assert_eq!(host.state(), State::RemoteActive);
+
+        let foreign = sessions
+            .authenticate(&mut Named, (), host.epoch().next(), now)
+            .unwrap();
+        let foreign = sessions
+            .resolve(&foreign, host.epoch().next(), now)
+            .unwrap();
+        assert_eq!(
+            host.renew_for(foreign).unwrap_err().code,
+            ErrorCode::SessionEpochMismatch
+        );
+        let issued = now - AUTH_SESSION_TTL - Duration::from_secs(1);
+        let old = sessions
+            .authenticate(&mut Named, (), host.epoch(), issued)
+            .unwrap();
+        let old = sessions.resolve(&old, host.epoch(), issued).unwrap();
+        assert_eq!(
+            host.renew_for(old).unwrap_err().code,
+            ErrorCode::AuthInvalid
+        );
+        assert_eq!(host.state(), State::RemoteActive);
     }
 
     #[test]

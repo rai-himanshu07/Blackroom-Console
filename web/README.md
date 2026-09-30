@@ -68,8 +68,13 @@ and hostd revokes the grant if the session ends (unit-tested; no control
 command ends a session yet). The session credential is not
 sent to the gateway or browser. Hostd also mints the random input grant
 returned to the browser and requires it, with the epoch and next sequence, on
-every input; it dies with the session. It is an opaque label still shown by
-the unauthenticated status endpoint, not a credential. Each acknowledged
+every input; it dies with the session. It is an opaque label carried only in
+the HttpOnly cookie, not a credential. Separate-mode leases last 30 s; the
+browser renews them every 10 s (`POST /api/simulation/renew`, cookie
+required) and hostd re-signs the lease for the same epoch and session. Closing
+the tab lets the lease lapse and control fails closed; the 5-minute session
+end also revokes it. In-process modes refuse renewal and keep a fixed 120 s
+lease. Each acknowledged
 Start rotates the proof in the private control reply; an earlier proof cannot
 restart after revoke. Five invalid or replayed Starts block further Starts
 until hostd restarts and revoke an active fake grant. An unverified revoke

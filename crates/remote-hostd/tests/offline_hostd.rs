@@ -603,3 +603,129 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
     assert_eq!(restarted.epoch().value(), 4);
     assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
 }
+
+#[test]
+fn offline_hostd_renews_only_for_the_holder_of_the_active_grant() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let runtime = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(runtime.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let agent_socket = runtime.path().join("agent.sock");
+    let control_socket = runtime.path().join("control.sock");
+    let listener = UnixListener::bind(&agent_socket).unwrap();
+    let peer = std::thread::spawn(move || {
+        let (mut agent, _) = listener.accept().unwrap();
+        agent
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut updates = Vec::new();
+        for _ in 0..4 {
+            let mut header = [0_u8; 4];
+            agent.read_exact(&mut header).unwrap();
+            let mut bytes = vec![0; u32::from_be_bytes(header) as usize];
+            agent.read_exact(&mut bytes).unwrap();
+            let update: AuthorityUpdate = serde_json::from_slice(&bytes).unwrap();
+            agent
+                .write_all(&[u8::from(matches!(update, AuthorityUpdate::Grant { .. }))])
+                .unwrap();
+            updates.push(update);
+        }
+        updates
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-hostd"))
+        .args(["--offline-sim-service", "--state-dir"])
+        .arg(directory.path())
+        .arg("--runtime-dir")
+        .arg(runtime.path())
+        .arg("--agent-socket")
+        .arg(&agent_socket)
+        .arg("--control-socket")
+        .arg(&control_socket)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut bootstrap = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut bootstrap)
+        .unwrap();
+    let bootstrap: OfflineBootstrap = serde_json::from_str(&bootstrap).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut gateway = loop {
+        match UnixStream::connect(&control_socket) {
+            Ok(stream) => break stream,
+            Err(_) if Instant::now() < deadline => std::thread::yield_now(),
+            Err(error) => panic!("offline host did not listen: {error}"),
+        }
+    };
+    gateway
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let mut send = |command: OfflineCommand| {
+        write_frame(&mut gateway, &command).unwrap();
+        read_frame::<OfflineReply>(&mut gateway).unwrap()
+    };
+
+    let renew = |epoch: u64, grant_id: &str| OfflineCommand::Renew {
+        epoch,
+        grant_id: grant_id.into(),
+    };
+    let none = send(renew(0, &"0".repeat(32)));
+    assert!(!none.accepted);
+    assert_eq!(none.code.as_deref(), Some("AUTH_INVALID"));
+
+    let started = send(OfflineCommand::Start {
+        proof: bootstrap.simulation_proof,
+        demo_code: DEMO_CODE.into(),
+    });
+    assert!(started.accepted);
+    let grant = started.input_grant.unwrap();
+    for (epoch, grant_id) in [
+        (0, "0".repeat(32)),
+        (0, String::new()),
+        (0, grant[1..].to_owned()),
+        (9, grant.clone()),
+    ] {
+        let refused = send(renew(epoch, &grant_id));
+        assert!(!refused.accepted, "{epoch} {grant_id}");
+        assert_eq!(refused.code.as_deref(), Some("LEASE_INVALID"));
+    }
+    std::thread::sleep(Duration::from_millis(1100));
+    let renewed = send(renew(0, &grant));
+    assert!(renewed.accepted);
+    assert_eq!(renewed.state, "REMOTE_ACTIVE");
+    assert!(renewed.next_proof.is_none() && renewed.input_grant.is_none());
+    let input = send(OfflineCommand::Input {
+        epoch: 0,
+        sequence: 1,
+        grant_id: grant.clone(),
+    });
+    assert!(input.accepted);
+    assert!(send(OfflineCommand::Revoke {}).accepted);
+    let after = send(renew(0, &grant));
+    assert!(!after.accepted);
+    assert_eq!(after.code.as_deref(), Some("AUTH_INVALID"));
+    drop(gateway);
+    assert!(child.wait().unwrap().success());
+
+    let updates = peer.join().unwrap();
+    let [
+        AuthorityUpdate::Grant { lease: first, .. },
+        AuthorityUpdate::Grant {
+            lease: second,
+            signature,
+        },
+        AuthorityUpdate::Grant { lease: third, .. },
+        AuthorityUpdate::Revoke { .. },
+    ] = &updates[..]
+    else {
+        panic!("unexpected update sequence: {updates:?}");
+    };
+    let dirfd = File::open(directory.path()).unwrap();
+    assert_eq!(second.security_epoch, first.security_epoch);
+    assert!(second.expires_at > first.expires_at);
+    assert_eq!(third, second);
+    assert_eq!(signature.len(), 64);
+    let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
+    assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
+}

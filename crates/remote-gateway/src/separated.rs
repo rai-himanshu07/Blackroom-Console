@@ -54,7 +54,9 @@ fn checked_reply(
         ));
     }
     let expected = match command {
-        OfflineCommand::Start { .. } | OfflineCommand::Input { .. } => State::RemoteActive,
+        OfflineCommand::Start { .. }
+        | OfflineCommand::Input { .. }
+        | OfflineCommand::Renew { .. } => State::RemoteActive,
         OfflineCommand::Revoke {} => State::LocalLocked,
         OfflineCommand::Status {} => match response.state.as_str() {
             "LOCAL_LOCKED" => State::LocalLocked,
@@ -73,10 +75,11 @@ fn checked_reply(
             "invalid offline authority response",
         ));
     }
-    if matches!(command, OfflineCommand::Input { epoch, .. } if *epoch != response.epoch) {
+    if matches!(command, OfflineCommand::Input { epoch, .. } | OfflineCommand::Renew { epoch, .. } if *epoch != response.epoch)
+    {
         return Err(BlackroomError::new(
             ErrorCode::HostUnavailable,
-            "offline input epoch changed",
+            "offline authority epoch changed",
         ));
     }
     match (command, response.next_proof.as_deref()) {
@@ -366,6 +369,21 @@ impl SeparatedHost {
             State::LocalLocked
         };
         self.request(OfflineCommand::Revoke {}).map(|_| ())
+    }
+
+    /// Heartbeat: asks hostd to re-sign the active lease for the grant holder.
+    pub fn renew(&mut self, grant_id: &str) -> Result<(), BlackroomError> {
+        if self.state != State::RemoteActive {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "offline renewal requires an active session",
+            ));
+        }
+        self.request(OfflineCommand::Renew {
+            epoch: self.epoch,
+            grant_id: grant_id.to_owned(),
+        })
+        .map(|_| ())
     }
 
     pub fn input(
