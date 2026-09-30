@@ -138,10 +138,13 @@ observes it; an unsafe or failed mechanism is reported as STOP.
       see nothing and remote input must still reach the page.
       Must observe: release on fd close and on SIGKILL, queued-event leakage,
       stuck-modifier/LED/repeat state after release, a stalled helper, hotplug of
-      the dongle. Needs: a device-access path (a temporary `setfacl` by the
-      operator, no group change), and an `EVIOCGRAB` I/O layer (the workspace
-      forbids `unsafe`, so either a reviewed dependency such as the `evdev` crate
-      or a minimal separately reviewed unsafe module; not chosen yet).
+      the dongle. The `EVIOCGRAB` layer is the `evdev` crate (chosen by the operator
+      2026-10-01; cargo deny and audit green). Still needed at run time: a
+      temporary device-access `setfacl` run by the operator on the two nodes (no
+      group change), an armed external kill timer `blackroom-exp09-kill` (the
+      probe refuses unless it is pending and outlasts the run), masked
+      `gnome-remote-desktop`, and the exact `--nodes` and `--expect-phys-prefix`
+      from the inventory (a replug or typo is refused).
   - Files: `crates/blackroom-experiments/src/bin/exp09_grab_probe.rs`
   - Depends on: step 4 and the two items above
   - Verify: physical input absent on the page while grabbed, remote input still
@@ -188,3 +191,12 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   from udev tags; Fn-row hotkeys are on separate nodes; the grabbed keyboard node
   carries the kernel `sysrq` handler. The live grab part of step 5 is not done and
   needs approval and a privilege path.
+- 2026-10-01 (step 5a prepared, offline): built `exp09_grab_probe` (three phases:
+  physical input before, during and after the grab, plus one injected EIS Shift
+  tap during it) on the `evdev` crate behind the `DeviceGrab` trait, and moved the
+  observer server into a shared module. An independent review found that nodes
+  were not bound to the inventoried path or seat, the kill timer was only
+  substring-matched, and a lapsed lease was not a failure; all fixed with tests.
+  The timer check was corrected against real systemd output (monotonic timers
+  have no realtime field, so the JSON timer list is used). Nothing was opened or
+  grabbed; the probe refuses without `--operator-present`.

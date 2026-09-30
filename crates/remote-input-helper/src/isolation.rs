@@ -102,6 +102,10 @@ impl<G: DeviceGrab> Isolation<G> {
         &self.grabber
     }
 
+    pub fn grabber_mut(&mut self) -> &mut G {
+        &mut self.grabber
+    }
+
     fn release_held(&mut self) -> RestoreOutcome {
         let mut outcome = RestoreOutcome::default();
         for id in self.held.keys().copied().collect::<Vec<_>>() {

@@ -7,6 +7,7 @@
 pub mod cli;
 pub mod evidence;
 pub mod introspect;
+pub mod observer;
 pub mod session;
 
 pub use cli::CommonArgs;
