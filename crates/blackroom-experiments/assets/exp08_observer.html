@@ -96,7 +96,7 @@
     try {
       const reply = await (await fetch('beat', { method: 'POST', body: JSON.stringify({ ...st, tally: s }) })).json();
       if (reply.epoch > s.epoch) { s = { ...fresh(), epoch: reply.epoch, transitions: s.transitions }; scrollTo(0, 0); render(); }
-    } catch (_) { r.textContent += ' | run not reachable'; }
+    } catch (_) { r.textContent += ' | run ended or unreachable: nothing is recorded now'; r.className = 'bad'; }
   }
   setInterval(beat, 250);
   render();
