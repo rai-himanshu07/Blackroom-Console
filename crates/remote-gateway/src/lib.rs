@@ -34,7 +34,7 @@ const MAX_INVALID_DEMO_CODES: u8 = 5;
 
 enum SimulationBackend {
     InProcess(Box<SimulatedHost>),
-    Separated(SeparatedHost),
+    Separated(Box<SeparatedHost>),
 }
 
 impl SimulationBackend {
@@ -532,9 +532,9 @@ pub fn separated_router(
     hostd_binary: &Path,
     agent_binary: &Path,
 ) -> io::Result<Router> {
-    Ok(with_backend(SimulationBackend::Separated(
+    Ok(with_backend(SimulationBackend::Separated(Box::new(
         SeparatedHost::launch(state_directory, hostd_binary, agent_binary)?,
-    )))
+    ))))
 }
 
 fn with_backend(host: SimulationBackend) -> Router {

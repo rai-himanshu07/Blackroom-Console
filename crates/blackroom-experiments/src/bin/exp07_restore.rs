@@ -694,7 +694,9 @@ mod tests {
             }],
             primary_output: Some((identity.connector.clone(), identity.serial.clone())),
             hash_version: Some(display_config::CONFIGURATION_HASH_VERSION),
-            configuration_hash: Some(display_config::compute_hash(&[expected.clone()])),
+            configuration_hash: Some(display_config::compute_hash(std::slice::from_ref(
+                &expected,
+            ))),
         };
         let mut monitors = vec![MonitorEntry {
             connector_info: identity.clone(),

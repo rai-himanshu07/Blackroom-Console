@@ -175,12 +175,13 @@ pub fn run(args: &[OsString]) -> io::Result<()> {
                 ))
             };
         }
-        if service_mode && lifecycle.state() == State::RemoteActive {
-            if lifecycle.confirm_active(&mut authority).is_err() {
-                println!("{}", lifecycle.state());
-                finish_recovery(state_directory.as_ref(), &authority, &lifecycle)?;
-                return Ok(());
-            }
+        if service_mode
+            && lifecycle.state() == State::RemoteActive
+            && lifecycle.confirm_active(&mut authority).is_err()
+        {
+            println!("{}", lifecycle.state());
+            finish_recovery(state_directory.as_ref(), &authority, &lifecycle)?;
+            return Ok(());
         }
         if service_mode {
             let mut fds = [rustix::event::PollFd::new(
