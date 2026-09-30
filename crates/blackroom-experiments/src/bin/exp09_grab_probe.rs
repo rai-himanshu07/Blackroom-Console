@@ -316,6 +316,8 @@ struct StageResult {
     name: String,
     held: Option<PhaseTally>,
     after: Option<PhaseTally>,
+    /// Events the un-grabbed devices produced in the after window (told apart from an idle operator).
+    after_device_events: u64,
     helper_reads: String,
     helper_end: String,
     seconds_to_end: Option<u64>,
@@ -487,6 +489,30 @@ fn builtin_problem(allow_listed: bool, seat: Option<&str>, phys: &str) -> Option
     })
 }
 
+/// `show` is `systemctl --user --no-pager show <unit>.timer -p AccuracyUSec`. systemd defaults to
+/// 1 min, which lets a timer fire that much late.
+fn accuracy_problem(show: &str) -> Option<String> {
+    let value = show
+        .lines()
+        .find_map(|line| line.strip_prefix("AccuracyUSec="))
+        .unwrap_or("")
+        .trim();
+    let split = value
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(value.len());
+    let (number, unit) = value.split_at(split);
+    let ok = match (number.parse::<u64>(), unit) {
+        (Ok(_), "us" | "ms") => true,
+        (Ok(seconds), "s") => seconds <= 5,
+        _ => false,
+    };
+    (!ok).then(|| {
+        format!(
+            "timer accuracy is `{value}`, so it can fire that late (arm it with --timer-property=AccuracySec=1s)"
+        )
+    })
+}
+
 /// The kill timer must be listed, have a next elapse, and fire after this run
 /// could plausibly end. `json` is `systemctl --user list-timers --all --output=json`.
 fn kill_timer_problem(json: &str, now_unix_us: u64, min_remaining_secs: u64) -> Option<String> {
@@ -576,6 +602,21 @@ fn preflight(args: &Args, run: &mut Run) -> anyhow::Result<BTreeMap<DeviceId, De
     .unwrap_or_default();
     if let Some(problem) = kill_command_problem(&exec, KILL_COMM) {
         anyhow::bail!("external kill timer `{KILL_TIMER}` is not a working kill switch: {problem}");
+    }
+    let accuracy = command_line(
+        "systemctl",
+        &[
+            "--user",
+            "--no-pager",
+            "show",
+            &format!("{KILL_TIMER}.timer"),
+            "-p",
+            "AccuracyUSec",
+        ],
+    )
+    .unwrap_or_default();
+    if let Some(problem) = accuracy_problem(&accuracy) {
+        anyhow::bail!("external kill timer `{KILL_TIMER}` is not precise enough: {problem}");
     }
     let mut devices = BTreeMap::new();
     for node in args.nodes.iter().copied().collect::<BTreeSet<_>>() {
@@ -891,7 +932,7 @@ fn run_stages(
             break;
         }
         let stage = match index {
-            2 => stage_sigkill(args, run, observer, &exe),
+            2 => stage_sigkill(args, run, observer, &exe, isolation),
             3 => stage_stall(args, run, observer, &exe, isolation),
             _ => stage_chord(args, run, observer, &exe),
         };
@@ -1210,6 +1251,7 @@ impl StallTimer {
             .args([
                 "--user",
                 "--collect",
+                "--timer-property=AccuracySec=1s",
                 &format!("--on-active={STALL_KILL_SECS}"),
                 &format!("--unit={STALL_TIMER}"),
                 &format!("--working-directory={}", cwd.display()),
@@ -1239,7 +1281,19 @@ impl StallTimer {
             ],
         )
         .unwrap_or_default();
-        match kill_command_problem(&exec, STALL_COMM) {
+        let accuracy = command_line(
+            "systemctl",
+            &[
+                "--user",
+                "--no-pager",
+                "show",
+                &format!("{STALL_TIMER}.timer"),
+                "-p",
+                "AccuracyUSec",
+            ],
+        )
+        .unwrap_or_default();
+        match kill_command_problem(&exec, STALL_COMM).or_else(|| accuracy_problem(&accuracy)) {
             Some(problem) => Err(problem),
             None => Ok(timer),
         }
@@ -1428,7 +1482,12 @@ fn start_helper(
 }
 
 /// Verdict for one helper stage from what the page saw while the helper held the grab and after it ended.
-fn judge_stage(stage: &mut StageResult, operator_active: bool, end_problem: Option<String>) {
+fn judge_stage(
+    stage: &mut StageResult,
+    operator_active: bool,
+    after_active: bool,
+    end_problem: Option<String>,
+) {
     match &stage.held {
         None => stage
             .gaps
@@ -1454,9 +1513,14 @@ fn judge_stage(stage: &mut StageResult, operator_active: bool, end_problem: Opti
         None => stage
             .gaps
             .push("no page tally after the helper ended".to_string()),
-        Some(after) if after.physical_events(0) == 0 => stage
-            .failures
-            .push("no physical input reached the page after the grab ended".to_string()),
+        Some(after) if after.physical_events(0) == 0 && after_active => stage.failures.push(
+            "the devices produced events after the grab ended but none reached the page"
+                .to_string(),
+        ),
+        Some(after) if after.physical_events(0) == 0 => stage.gaps.push(
+            "the devices produced no events after the grab ended, so they may not have been used"
+                .to_string(),
+        ),
         Some(after) if after.key_downs == 0 || after.pointer_moves == 0 => stage
             .gaps
             .push("after the grab ended the page saw only one kind of input".to_string()),
@@ -1464,7 +1528,13 @@ fn judge_stage(stage: &mut StageResult, operator_active: bool, end_problem: Opti
     }
 }
 
-fn stage_sigkill(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> StageResult {
+fn stage_sigkill(
+    args: &Args,
+    run: &mut Run,
+    observer: &Observer,
+    exe: &Path,
+    isolation: &Arc<Mutex<Isolation<EvdevGrab>>>,
+) -> StageResult {
     let mut stage = StageResult {
         name: "helper killed with SIGKILL".to_string(),
         ..StageResult::default()
@@ -1512,13 +1582,13 @@ fn stage_sigkill(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) ->
                 "Stage 2 after ({AFTER_SECS} s): the helper was killed. Type and move the external devices again."
             ),
         );
-        let watched = watch(observer, AFTER_SECS, "stage 2 after", run, None, None, None);
-        fail_on(&mut stage, watched);
+        stage.after_device_events = quiet_window(observer, AFTER_SECS, run, isolation, None);
         stage.after = snapshot_tally(observer);
     }
     let end_problem = (stage.helper_end != "signal 9")
         .then(|| format!("the helper ended with {}, not SIGKILL", stage.helper_end));
-    judge_stage(&mut stage, moved > 0, end_problem);
+    let after_active = stage.after_device_events > 0;
+    judge_stage(&mut stage, moved > 0, after_active, end_problem);
     stage
 }
 
@@ -1570,7 +1640,7 @@ fn stage_stall(
     announce(
         observer,
         &format!(
-            "Stage 3 ({HOLD_SECS} s): the helper is FROZEN but still holds the grab, so the external devices stay dead until its own timer kills it (~{STALL_KILL_SECS} s). Release every key first, then HOLD one letter key down and keep moving the mouse."
+            "Stage 3 ({HOLD_SECS} s): the helper is FROZEN but still holds the grab, so the external devices stay dead until its own timer kills it (about {STALL_KILL_SECS} s). Release every key first, then HOLD one letter key down and keep moving the mouse."
         ),
     );
     let mut polls = 0_u32;
@@ -1590,7 +1660,7 @@ fn stage_stall(
     stage.held = snapshot_tally(observer);
     announce(
         observer,
-        "Stage 3: keep holding; the helper is about to be killed.",
+        "Stage 3: the devices are still dead (expected). Keep the key held and keep moving the mouse until this text changes.",
     );
     let deadline = Instant::now() + Duration::from_secs(45);
     let status = loop {
@@ -1621,8 +1691,7 @@ fn stage_stall(
                 "Stage 3 after ({AFTER_SECS} s): release the held key, then type and move the external devices."
             ),
         );
-        let watched = watch(observer, AFTER_SECS, "stage 3 after", run, None, None, None);
-        fail_on(&mut stage, watched);
+        stage.after_device_events = quiet_window(observer, AFTER_SECS, run, isolation, None);
         stage.after = snapshot_tally(observer);
     }
     if stage.seconds_to_end.is_some_and(|secs| secs < HOLD_SECS) {
@@ -1637,7 +1706,8 @@ fn stage_stall(
         )
     });
     let active = stage.key_polls >= 3;
-    judge_stage(&mut stage, active, end_problem);
+    let after_active = stage.after_device_events > 0;
+    judge_stage(&mut stage, active, after_active, end_problem);
     stage
 }
 
@@ -1736,18 +1806,13 @@ fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> S
     let builtin_after: u64 = counter
         .as_ref()
         .map_or(0, |counter| counter.per_node.values().sum());
-    if builtin_after == 0 {
-        stage
-            .gaps
-            .push("no events from the built-in nodes after the release".to_string());
-    }
     let end_problem = (!released_by_chord).then(|| {
         format!(
             "the grab was not released cleanly by the emergency chord ({})",
             stage.helper_end
         )
     });
-    judge_stage(&mut stage, builtin_held > 0, end_problem);
+    judge_stage(&mut stage, builtin_held > 0, builtin_after > 0, end_problem);
     stage
 }
 
@@ -2087,6 +2152,15 @@ mod tests {
     }
 
     #[test]
+    fn a_timer_left_at_the_default_accuracy_is_refused() {
+        assert_eq!(accuracy_problem("AccuracyUSec=1s"), None);
+        assert_eq!(accuracy_problem("AccuracyUSec=250ms"), None);
+        assert!(accuracy_problem("AccuracyUSec=1min").is_some());
+        assert!(accuracy_problem("AccuracyUSec=6s").is_some());
+        assert!(accuracy_problem("").is_some());
+    }
+
+    #[test]
     fn the_kill_timer_must_be_pending_and_outlast_the_run() {
         let listed = |next: u64| {
             format!(
@@ -2184,27 +2258,34 @@ mod tests {
         };
 
         let mut good = stage(Some(quiet.clone()), Some(busy.clone()));
-        judge_stage(&mut good, true, None);
+        judge_stage(&mut good, true, true, None);
         assert!(good.failures.is_empty() && good.gaps.is_empty());
 
         let mut leak = stage(Some(busy.clone()), Some(busy.clone()));
-        judge_stage(&mut leak, true, None);
+        judge_stage(&mut leak, true, true, None);
         assert_eq!(leak.failures.len(), 1);
 
         let mut stuck = stage(Some(quiet.clone()), Some(quiet.clone()));
-        judge_stage(&mut stuck, true, None);
+        judge_stage(&mut stuck, true, true, None);
         assert_eq!(stuck.failures.len(), 1);
 
+        let mut silent = stage(Some(quiet.clone()), Some(quiet.clone()));
+        judge_stage(&mut silent, true, false, None);
+        assert!(
+            silent.failures.is_empty() && silent.gaps.len() == 1,
+            "an idle operator after the grab is a gap, not a failure"
+        );
+
         let mut idle = stage(Some(quiet.clone()), Some(busy.clone()));
-        judge_stage(&mut idle, false, None);
+        judge_stage(&mut idle, false, true, None);
         assert!(idle.failures.is_empty() && idle.gaps.len() == 1);
 
         let mut wrong_end = stage(Some(quiet), Some(busy));
-        judge_stage(&mut wrong_end, true, Some("ended early".to_string()));
+        judge_stage(&mut wrong_end, true, true, Some("ended early".to_string()));
         assert_eq!(wrong_end.failures, vec!["ended early".to_string()]);
 
         let mut missing = stage(None, None);
-        judge_stage(&mut missing, true, None);
+        judge_stage(&mut missing, true, true, None);
         assert_eq!(missing.gaps.len(), 2);
     }
 

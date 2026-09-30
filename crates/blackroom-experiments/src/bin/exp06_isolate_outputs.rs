@@ -1228,6 +1228,8 @@ fn arm_watchdog(
     let status = Command::new("systemd-run")
         .args([
             "--user".to_string(),
+            // systemd's default 1 min accuracy lets this timer fire up to a minute late.
+            "--timer-property=AccuracySec=1s".to_string(),
             format!("--unit={unit_name}"),
             format!("--on-active={seconds}s"),
             format!("--working-directory={}", cwd.display()),
