@@ -14,6 +14,7 @@ use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 
 use auth::{AuthSession, Principal};
 
+pub mod audit;
 pub mod auth;
 pub mod offline_control;
 pub mod service;

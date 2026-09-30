@@ -599,6 +599,32 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
     drop(gateway);
     assert!(child.wait().unwrap().success());
     peer.join().unwrap();
+    let audit = std::fs::read_to_string(directory.path().join("audit.log")).unwrap();
+    let events: Vec<serde_json::Value> = audit
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let names: Vec<&str> = events
+        .iter()
+        .map(|event| event["event"].as_str().unwrap())
+        .collect();
+    assert_eq!(names.first(), Some(&"host_started"));
+    assert!(names.contains(&"grant_issued") && names.contains(&"auth_refused"));
+    let causes: Vec<&str> = events
+        .iter()
+        .filter(|event| event["event"] == "grant_revoked")
+        .map(|event| event["cause"].as_str().unwrap())
+        .collect();
+    assert!(causes.contains(&"revoked") && causes.contains(&"abuse_limit"));
+    for secret in [
+        bootstrap.simulation_proof.as_str(),
+        current_proof.as_str(),
+        current_grant.as_str(),
+        first_grant.as_str(),
+        DEMO_CODE,
+    ] {
+        assert!(!audit.contains(secret), "audit log leaked a secret");
+    }
     let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
     assert_eq!(restarted.epoch().value(), 4);
     assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
@@ -726,6 +752,30 @@ fn offline_hostd_renews_only_for_the_holder_of_the_active_grant() {
     assert!(second.expires_at > first.expires_at);
     assert_eq!(third, second);
     assert_eq!(signature.len(), 64);
+    let audit = std::fs::read_to_string(directory.path().join("audit.log")).unwrap();
+    let events: Vec<serde_json::Value> = audit
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let names: Vec<&str> = events
+        .iter()
+        .map(|event| event["event"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "host_started",
+            "grant_issued",
+            "renew_refused",
+            "renew_refused",
+            "renew_refused",
+            "renew_refused",
+            "grant_revoked"
+        ]
+    );
+    assert_eq!(events[1]["client_id"], "synthetic-client");
+    assert_eq!(events[6]["cause"], "revoked");
+    assert!(!audit.contains(&grant) && !audit.contains(DEMO_CODE));
     let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
     assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
 }

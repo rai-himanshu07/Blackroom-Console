@@ -10,6 +10,7 @@ use blackroom_core::state::State;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    audit::{AuditEvent, AuditLog, RevokeCause},
     auth::{HostSessions, mint_input_grant},
     offline_control::{
         DemoCredential, DemoCredentialVerifier, OfflineCommand, OfflineReply, read_frame,
@@ -162,6 +163,7 @@ fn expire_grant(
     agent: &mut UnixStream,
     grant: &mut Option<AuthorityUpdate>,
     sessions: &mut HostSessions,
+    audit: &mut AuditLog,
     directory: &File,
     now: SystemTime,
 ) -> io::Result<()> {
@@ -183,6 +185,15 @@ fn expire_grant(
         ));
     }
     host.complete_recovery(lease.security_epoch)?;
+    let cause = if lease_expired {
+        RevokeCause::LeaseExpired
+    } else {
+        RevokeCause::SessionEnded
+    };
+    let _ = audit.record(&AuditEvent::GrantRevoked {
+        epoch: lease.security_epoch.value(),
+        cause,
+    });
     Ok(())
 }
 
@@ -192,6 +203,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
     if host.emergency_required() {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
+    let mut audit = AuditLog::open(directory)?;
+    audit.record(&AuditEvent::HostStarted {
+        epoch: host.epoch().value(),
+    })?;
     let listener = UnixListener::bind(control_socket)?;
     let mut verifier = DemoCredentialVerifier::new(new_proof()?);
     let mut sessions = HostSessions::default();
@@ -221,6 +236,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 agent,
                 &mut current_grant,
                 &mut sessions,
+                &mut audit,
                 directory,
                 SystemTime::now(),
             )?;
@@ -250,6 +266,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 agent,
                 &mut current_grant,
                 &mut sessions,
+                &mut audit,
                 directory,
                 SystemTime::now(),
             )?;
@@ -271,7 +288,15 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 ) {
                     Err(error) if error.code == ErrorCode::AuthInvalid => {
                         invalid_start_attempts += 1;
-                        if invalid_start_attempts == MAX_INVALID_START_ATTEMPTS {
+                        let limited = invalid_start_attempts == MAX_INVALID_START_ATTEMPTS;
+                        let _ = audit.record(&AuditEvent::AuthRefused {
+                            code: if limited {
+                                "AUTH_RATE_LIMITED"
+                            } else {
+                                "AUTH_INVALID"
+                            },
+                        });
+                        if limited {
                             if host.state() == State::RemoteActive {
                                 current_grant = None;
                                 input_sequence = 0;
@@ -288,6 +313,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                                     ));
                                 }
                                 host.complete_recovery(granted_epoch)?;
+                                let _ = audit.record(&AuditEvent::GrantRevoked {
+                                    epoch: granted_epoch.value(),
+                                    cause: RevokeCause::AbuseLimit,
+                                });
                             }
                             reply(&host, false, Some("AUTH_RATE_LIMITED"))
                         } else {
@@ -296,6 +325,18 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                     }
                     Err(error) => reply(&host, false, Some(error.code.as_str())),
                     Ok((update, input_grant)) => {
+                        if let AuthorityUpdate::Grant { lease, .. } = &update
+                            && audit
+                                .record(&AuditEvent::GrantIssued {
+                                    epoch: lease.security_epoch.value(),
+                                    user_id: &lease.user_id,
+                                    client_id: &lease.client_id,
+                                })
+                                .is_err()
+                        {
+                            host.revoke_update()?;
+                            return Err(io::Error::other("audit log unavailable"));
+                        }
                         if agent.is_none() {
                             agent = Some(connect_agent(agent_socket)?);
                         }
@@ -310,6 +351,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                             response.input_grant = Some(input_grant);
                             response
                         } else {
+                            let _ = audit.record(&AuditEvent::GrantRevoked {
+                                epoch: host.epoch().value(),
+                                cause: RevokeCause::AgentRefused,
+                            });
                             host.revoke_update()?;
                             return Err(io::Error::from(io::ErrorKind::PermissionDenied));
                         }
@@ -335,6 +380,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                     ));
                 }
                 host.complete_recovery(granted_epoch)?;
+                let _ = audit.record(&AuditEvent::GrantRevoked {
+                    epoch: granted_epoch.value(),
+                    cause: RevokeCause::Revoked,
+                });
                 reply(&host, true, None)
             }
             OfflineCommand::Input {
@@ -362,6 +411,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                         current_grant = None;
                         input_sequence = 0;
                         sessions.clear();
+                        let _ = audit.record(&AuditEvent::GrantRevoked {
+                            epoch: host.epoch().value(),
+                            cause: RevokeCause::AgentRefused,
+                        });
                         host.revoke_update()?;
                         reply(&host, false, Some("LEASE_INVALID"))
                     }
@@ -385,14 +438,28 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                                 current_grant = None;
                                 input_sequence = 0;
                                 sessions.clear();
+                                let _ = audit.record(&AuditEvent::GrantRevoked {
+                                    epoch: host.epoch().value(),
+                                    cause: RevokeCause::AgentRefused,
+                                });
                                 host.revoke_update()?;
                                 reply(&host, false, Some("LEASE_INVALID"))
                             }
                         }
-                        Err(_) => reply(&host, false, Some("LEASE_INVALID")),
+                        Err(_) => {
+                            let _ = audit.record(&AuditEvent::RenewRefused {
+                                epoch: host.epoch().value(),
+                            });
+                            reply(&host, false, Some("LEASE_INVALID"))
+                        }
                     }
                 }
-                Some(_) => reply(&host, false, Some("LEASE_INVALID")),
+                Some(_) => {
+                    let _ = audit.record(&AuditEvent::RenewRefused {
+                        epoch: host.epoch().value(),
+                    });
+                    reply(&host, false, Some("LEASE_INVALID"))
+                }
                 None => reply(&host, false, Some("AUTH_INVALID")),
             },
             OfflineCommand::Status {} => reply(&host, true, None),
@@ -409,6 +476,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
             && let Ok(false) = acknowledged(stream, &update, directory)
         {
             host.complete_recovery(granted_epoch)?;
+            let _ = audit.record(&AuditEvent::GrantRevoked {
+                epoch: granted_epoch.value(),
+                cause: RevokeCause::PeerClosed,
+            });
         }
     }
     Ok(())
@@ -519,6 +590,7 @@ mod tests {
     fn ended_session_revokes_its_grant_and_ends_all_sessions() {
         let (_directory, dirfd) = private_dir();
         let mut host = PersistentHostAuthority::open(&dirfd).unwrap();
+        let mut audit = AuditLog::open(&dirfd).unwrap();
         let mut sessions = HostSessions::default();
         let mut verifier = DemoCredentialVerifier::new("b".repeat(64));
         let now = SystemTime::now();
@@ -532,6 +604,7 @@ mod tests {
             &mut host_wire,
             &mut grant,
             &mut sessions,
+            &mut audit,
             &dirfd,
             now,
         )
@@ -552,6 +625,7 @@ mod tests {
             &mut host_wire,
             &mut grant,
             &mut sessions,
+            &mut audit,
             &dirfd,
             now,
         )
@@ -569,6 +643,7 @@ mod tests {
     fn expiry_revokes_without_input_and_persists_epoch() {
         let (_directory, dirfd) = private_dir();
         let mut host = PersistentHostAuthority::open(&dirfd).unwrap();
+        let mut audit = AuditLog::open(&dirfd).unwrap();
         let mut sessions = HostSessions::default();
         let mut grant = Some(host.grant_update().unwrap());
         let Some(AuthorityUpdate::Grant { lease, .. }) = grant.as_mut() else {
@@ -581,6 +656,7 @@ mod tests {
             &mut host_wire,
             &mut grant,
             &mut sessions,
+            &mut audit,
             &dirfd,
             expiry - Duration::from_secs(1),
         )
@@ -599,6 +675,7 @@ mod tests {
             &mut host_wire,
             &mut grant,
             &mut sessions,
+            &mut audit,
             &dirfd,
             expiry,
         )
