@@ -33,6 +33,12 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   reports current logind/GNOME capability tiers and the Phase 3 session gate
   while always leaving product remote mode disabled. This does not measure
   display privacy, real input, recovery or compatibility matrix support.
+- [x] Phase 11/15 observability slice: hostd writes an append-only, owner-only
+  `audit.log` (host start, refused auth, grant issued, renew refused, grant
+  revoked with cause) with no secret-bearing fields; grant issuance fails
+  closed when it cannot be logged. Tests grep the log for proofs, demo code and
+  input grants. A read-only `blackroom` CLI (`status`, `logs`, `doctor`) reads
+  the offline state directory without creating or locking anything.
 - [x] Phase 12 slice: separated hostd owns an in-memory, epoch-bound, 5-minute
   authentication-session registry (`remote-hostd::auth`). Only a
   `CredentialVerifier` adapter can open a session; the sole adapter is the

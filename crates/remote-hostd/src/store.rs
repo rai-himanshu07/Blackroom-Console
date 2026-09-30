@@ -110,6 +110,32 @@ fn next_epoch(current: SecurityEpoch) -> io::Result<SecurityEpoch> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "security epoch exhausted"))
 }
 
+/// Read-only snapshot of the persisted host state; takes no lock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostStatus {
+    pub epoch: u64,
+    pub emergency_pending: bool,
+    pub recovery_pending: bool,
+}
+
+/// Opens an absolute state directory without following symlinks.
+pub fn open_state_directory(path: &std::path::Path) -> io::Result<File> {
+    if !path.is_absolute() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "state directory must be an absolute path",
+        ));
+    }
+    let fd = rustix::fs::openat2(
+        rustix::fs::CWD,
+        path,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+        rustix::fs::ResolveFlags::NO_SYMLINKS | rustix::fs::ResolveFlags::NO_MAGICLINKS,
+    )?;
+    Ok(File::from(fd))
+}
+
 /// Offline file-backed authority, scoped to an already-opened trusted state
 /// directory. No system paths or installed agent socket are accessed here.
 pub struct PersistentHostAuthority {
@@ -119,6 +145,23 @@ pub struct PersistentHostAuthority {
 }
 
 impl PersistentHostAuthority {
+    /// Reads the persisted epoch and stop markers without creating or locking
+    /// anything; fails for an untrusted directory or an uninitialised host.
+    pub fn inspect(directory: &File) -> io::Result<HostStatus> {
+        validate_directory(directory)?;
+        read_private(directory, KEY_FILE, 32)?;
+        let epoch = u64::from_be_bytes(
+            read_private(directory, EPOCH_FILE, 8)?
+                .try_into()
+                .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?,
+        );
+        Ok(HostStatus {
+            epoch,
+            emergency_pending: Self::emergency_pending(directory)?,
+            recovery_pending: Self::recovery_epoch(directory)?.is_some(),
+        })
+    }
+
     pub fn recovery_epoch(directory: &File) -> io::Result<Option<SecurityEpoch>> {
         validate_directory(directory)?;
         match read_private(directory, RECOVERY_FILE, 8) {

@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/blackroom-cli",
     "crates/blackroom-core",
     "crates/blackroom-experiments",
     "crates/blackroom-gnome",
