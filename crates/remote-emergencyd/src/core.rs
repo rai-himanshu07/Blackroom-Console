@@ -20,6 +20,10 @@ pub enum Observed {
     Activity {
         node: DeviceId,
     },
+    /// The node was unplugged; the kernel already dropped any grab on it.
+    Removed {
+        node: DeviceId,
+    },
 }
 
 /// The input nodes the daemon watches and may grab.
@@ -86,7 +90,9 @@ pub enum Reason {
     HotplugFailClosed,
     CoverageLost,
     ReadError,
+    /// A release failed; the daemon keeps retrying and reports `ReleaseRecovered` when it works.
     ReleaseFailed,
+    ReleaseRecovered,
 }
 
 impl Reason {
@@ -99,6 +105,7 @@ impl Reason {
             Self::CoverageLost => "coverage_lost",
             Self::ReadError => "read_error",
             Self::ReleaseFailed => "release_failed",
+            Self::ReleaseRecovered => "release_recovered",
         }
     }
 }
@@ -111,6 +118,10 @@ pub enum Refusal {
     KeysHeld,
     NothingToGrab,
     GrabFailed(String),
+    /// Reading the nodes failed while waiting for the gate.
+    ReadError,
+    /// The chord was used: no remote isolation until the daemon is restarted on purpose.
+    EmergencyLatched,
 }
 
 impl Refusal {
@@ -121,15 +132,22 @@ impl Refusal {
             Self::KeysHeld => "keys_held",
             Self::NothingToGrab => "nothing_to_grab",
             Self::GrabFailed(_) => "grab_failed",
+            Self::ReadError => "read_error",
+            Self::EmergencyLatched => "emergency_latched",
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    Isolated { nodes: usize },
+    Isolated {
+        nodes: usize,
+    },
     Refused(Refusal),
     Released(Reason),
+    /// The emergency chord fired. Always reported, even when the release that follows failed, so
+    /// the caller runs its own emergency actions regardless.
+    ChordFired,
 }
 
 struct Gate {
@@ -144,6 +162,7 @@ pub struct Daemon<N: Nodes> {
     config: Config,
     chord: ChordDetector,
     phase: Phase,
+    latched: bool,
     gate: Option<Gate>,
     known: BTreeMap<DeviceId, Caps>,
     last_rescan_ms: Option<u64>,
@@ -157,6 +176,7 @@ impl<N: Nodes> Daemon<N> {
             config,
             chord,
             phase: Phase::Idle,
+            latched: false,
             gate: None,
             known: BTreeMap::new(),
             last_rescan_ms: None,
@@ -177,12 +197,16 @@ impl<N: Nodes> Daemon<N> {
 
     /// Starts the gate; the outcome arrives as an [`Event`] from [`Self::step`].
     pub fn isolate(&mut self, lease_ms: u64, now_ms: u64) -> Result<(), Refusal> {
+        if self.latched {
+            return Err(Refusal::EmergencyLatched);
+        }
         if lease_ms < self.config.lease_min_ms || lease_ms > self.config.lease_max_ms {
             return Err(Refusal::BadLease);
         }
         if self.phase != Phase::Idle {
             return Err(Refusal::Busy);
         }
+        self.chord.reset();
         self.phase = Phase::Gating;
         self.gate = Some(Gate {
             started_ms: now_ms,
@@ -202,6 +226,7 @@ impl<N: Nodes> Daemon<N> {
     pub fn restore(&mut self) -> Option<Event> {
         let was_active = self.phase != Phase::Idle;
         self.gate = None;
+        self.chord.reset();
         self.isolation.restore();
         self.phase = Self::phase_after_release(self.isolation.state());
         (was_active && self.phase == Phase::Idle).then_some(Event::Released(Reason::Restore))
@@ -217,6 +242,7 @@ impl<N: Nodes> Daemon<N> {
 
     fn fail_closed(&mut self, reason: Reason, events: &mut Vec<Event>) {
         self.gate = None;
+        self.chord.reset();
         self.isolation.restore();
         self.phase = Self::phase_after_release(self.isolation.state());
         events.push(Event::Released(if self.phase == Phase::Idle {
@@ -257,24 +283,64 @@ impl<N: Nodes> Daemon<N> {
         let observed = match self.isolation.grabber_mut().poll() {
             Ok(observed) => observed,
             Err(_) => {
-                if self.phase != Phase::Idle {
-                    self.fail_closed(Reason::ReadError, &mut events);
+                match self.phase {
+                    Phase::Gating => self.refuse_after_release(Refusal::ReadError, &mut events),
+                    Phase::Isolated | Phase::ReleaseFailed => {
+                        self.fail_closed(Reason::ReadError, &mut events);
+                    }
+                    Phase::Idle => self.chord.reset(),
                 }
                 return events;
             }
         };
+        if self.drop_removed(&observed, &mut events) {
+            return events;
+        }
         let presses = self.feed_chord(&observed, now_ms);
         self.rescan(now_ms, &mut events);
         match self.phase {
             Phase::Idle => {}
             Phase::Gating => self.gate_step(now_ms, presses, &mut events),
             Phase::Isolated => self.isolated_step(now_ms, &mut events),
-            Phase::ReleaseFailed => {
-                self.isolation.restore();
-                self.phase = Self::phase_after_release(self.isolation.state());
+            Phase::ReleaseFailed => {}
+        }
+        // A release that failed earlier is retried on every pass until it works.
+        if self.phase != Phase::Isolated && self.isolation.state() != IsolationState::Idle {
+            self.isolation.restore();
+            let recovered = self.isolation.state() == IsolationState::Idle;
+            if recovered && self.phase == Phase::ReleaseFailed {
+                events.push(Event::Released(Reason::ReleaseRecovered));
             }
+            self.phase = Self::phase_after_release(self.isolation.state());
         }
         events
+    }
+
+    /// Releases and refuses the pending isolate.
+    fn refuse_after_release(&mut self, refusal: Refusal, events: &mut Vec<Event>) {
+        self.gate = None;
+        self.chord.reset();
+        self.isolation.restore();
+        self.phase = Self::phase_after_release(self.isolation.state());
+        events.push(Event::Refused(refusal));
+    }
+
+    /// A node that vanished is forgotten at once, so a new node reusing its id is seen as added.
+    /// Returns true when that ended isolation.
+    fn drop_removed(&mut self, observed: &[Observed], events: &mut Vec<Event>) -> bool {
+        for item in observed {
+            if let Observed::Removed { node } = *item {
+                self.known.remove(&node);
+                if self.phase == Phase::Isolated
+                    && self.isolation.hotplug_remove(node) == HotplugOutcome::CoverageLost
+                {
+                    self.phase = Phase::Idle;
+                    events.push(Event::Released(Reason::CoverageLost));
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn rescan(&mut self, now_ms: u64, events: &mut Vec<Event>) {
@@ -339,6 +405,8 @@ impl<N: Nodes> Daemon<N> {
             return;
         }
         if self.chord.poll(now_ms) {
+            self.latched = true;
+            events.push(Event::ChordFired);
             self.fail_closed(Reason::Chord, events);
         }
     }
@@ -355,9 +423,7 @@ impl<N: Nodes> Daemon<N> {
             gate.clear_since.get_or_insert(now_ms);
         }
         if now_ms.saturating_sub(gate.started_ms) > self.config.gate_timeout_ms {
-            self.gate = None;
-            self.phase = Phase::Idle;
-            events.push(Event::Refused(Refusal::KeysHeld));
+            self.refuse_after_release(Refusal::KeysHeld, events);
             return;
         }
         let stable = gate
@@ -400,6 +466,12 @@ impl<N: Nodes> Daemon<N> {
             return;
         }
         self.isolation.restore();
+        if self.isolation.state() != IsolationState::Idle {
+            self.gate = None;
+            self.phase = Phase::ReleaseFailed;
+            events.push(Event::Released(Reason::ReleaseFailed));
+            return;
+        }
         let attempts = self.gate.as_mut().map_or(self.config.max_attempts, |gate| {
             gate.attempts += 1;
             gate.clear_since = None;
@@ -429,6 +501,9 @@ pub(crate) mod testing {
         pub(crate) fail_release: bool,
         pub(crate) fail_poll: bool,
         pub(crate) press_on_grab: u32,
+        /// Presses the four chord keys a few reads after the grab has landed.
+        pub(crate) chord_when_grabbed: bool,
+        grabbed_polls: u32,
     }
 
     impl DeviceGrab for Fake {
@@ -469,6 +544,19 @@ pub(crate) mod testing {
         fn poll(&mut self) -> Result<Vec<Observed>, String> {
             if self.fail_poll {
                 return Err("read".to_string());
+            }
+            if self.grabbed.is_empty() {
+                self.grabbed_polls = 0;
+            } else {
+                self.grabbed_polls += 1;
+                if self.chord_when_grabbed && self.grabbed_polls >= 3 {
+                    self.chord_when_grabbed = false;
+                    self.queue.extend([29, 42, 56, 1].map(|code| Observed::Key {
+                        node: 2,
+                        code,
+                        pressed: true,
+                    }));
+                }
             }
             Ok(self.queue.drain(..).collect())
         }
@@ -649,7 +737,10 @@ mod tests {
             "held too briefly"
         );
         let events = run(&mut daemon, 4_510, 5_600);
-        assert_eq!(events, vec![Event::Released(Reason::Chord)]);
+        assert_eq!(
+            events,
+            vec![Event::ChordFired, Event::Released(Reason::Chord)]
+        );
         assert_eq!(daemon.phase(), Phase::Idle);
         assert!(daemon.nodes_mut().grabbed.is_empty());
     }
@@ -738,6 +829,83 @@ mod tests {
         daemon.step(2_000);
         assert_eq!(daemon.phase(), Phase::Idle);
         assert!(daemon.nodes_mut().grabbed.is_empty());
+    }
+
+    #[test]
+    fn after_the_chord_isolation_is_refused_until_the_daemon_is_restarted() {
+        let mut daemon = Daemon::new(fake(), cfg());
+        isolated_from(&mut daemon, 0);
+        daemon.nodes_mut().queue.extend(chord_keys(true));
+        let events = run(&mut daemon, 310, 2_600);
+        assert!(events.contains(&Event::ChordFired));
+        assert_eq!(daemon.isolate(5_000, 3_000), Err(Refusal::EmergencyLatched));
+    }
+
+    #[test]
+    fn the_chord_is_reported_even_when_the_release_fails_and_the_release_is_retried() {
+        let mut daemon = Daemon::new(fake(), cfg());
+        isolated_from(&mut daemon, 0);
+        daemon.nodes_mut().fail_release = true;
+        daemon.nodes_mut().queue.extend(chord_keys(true));
+        let events = run(&mut daemon, 310, 2_600);
+        assert_eq!(
+            events,
+            vec![Event::ChordFired, Event::Released(Reason::ReleaseFailed)]
+        );
+        assert_eq!(daemon.phase(), Phase::ReleaseFailed);
+        daemon.nodes_mut().fail_release = false;
+        assert_eq!(
+            daemon.step(2_700),
+            vec![Event::Released(Reason::ReleaseRecovered)]
+        );
+        assert_eq!(daemon.phase(), Phase::Idle);
+        assert!(daemon.nodes_mut().grabbed.is_empty());
+    }
+
+    #[test]
+    fn a_failed_release_after_a_tainted_grab_or_a_gate_timeout_is_still_retried() {
+        let mut fake = fake();
+        fake.press_on_grab = 1;
+        fake.fail_release = true;
+        let mut daemon = Daemon::new(fake, cfg());
+        daemon.isolate(5_000, 0).expect("accepted");
+        let events = run(&mut daemon, 0, 300);
+        assert_eq!(events, vec![Event::Released(Reason::ReleaseFailed)]);
+        assert_eq!(daemon.phase(), Phase::ReleaseFailed);
+        daemon.nodes_mut().fail_release = false;
+        assert_eq!(
+            run(&mut daemon, 310, 400),
+            vec![Event::Released(Reason::ReleaseRecovered)]
+        );
+        assert!(daemon.nodes_mut().grabbed.is_empty());
+    }
+
+    #[test]
+    fn a_read_error_while_waiting_for_the_gate_refuses_the_isolate() {
+        let mut daemon = Daemon::new(fake(), cfg());
+        daemon.nodes_mut().down = 1;
+        daemon.isolate(5_000, 0).expect("accepted");
+        daemon.nodes_mut().fail_poll = true;
+        assert_eq!(daemon.step(10), vec![Event::Refused(Refusal::ReadError)]);
+        assert_eq!(daemon.phase(), Phase::Idle);
+    }
+
+    #[test]
+    fn a_node_replaced_under_the_same_id_is_grabbed_again() {
+        let mut daemon = Daemon::new(fake(), cfg());
+        isolated_from(&mut daemon, 0);
+        // Node 6 goes away and a new node reuses its id before the next rescan.
+        daemon.nodes_mut().grabbed.remove(&6);
+        daemon
+            .nodes_mut()
+            .queue
+            .push_back(Observed::Removed { node: 6 });
+        run(&mut daemon, 310, 400);
+        assert!(
+            daemon.nodes_mut().grabbed.contains(&6),
+            "the replacement was grabbed"
+        );
+        assert_eq!(daemon.held(), 2);
     }
 
     fn isolated_from(daemon: &mut Daemon<Fake>, start: u64) {

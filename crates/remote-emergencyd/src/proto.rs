@@ -45,6 +45,11 @@ pub enum Reply {
     Error {
         reason: &'static str,
     },
+    /// What the daemon did on its own after an emergency chord: `ok`, `failed` or `off`.
+    Emergency {
+        marker: &'static str,
+        lock: &'static str,
+    },
 }
 
 /// A reply as a client reads it: every field optional, nothing borrowed.

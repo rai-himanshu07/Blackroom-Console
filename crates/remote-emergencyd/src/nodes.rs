@@ -50,13 +50,12 @@ impl EvdevNodes {
         }
     }
 
-    /// Seat from the udev database; unreadable means "not seat0", which fails closed.
-    fn seat0(node: DeviceId) -> bool {
-        let Ok(dev) = fs::read_to_string(format!("/sys/class/input/event{node}/dev")) else {
-            return false;
-        };
-        fs::read_to_string(format!("/run/udev/data/c{}", dev.trim()))
-            .is_ok_and(|text| seat_from_udev_data(&text) == "seat0")
+    /// Whether the node is on `seat0` per the udev database; `None` while the record is not
+    /// readable (a just-plugged node may not have one yet), which is retried, not cached.
+    fn seat0(node: DeviceId) -> Option<bool> {
+        let dev = fs::read_to_string(format!("/sys/class/input/event{node}/dev")).ok()?;
+        let text = fs::read_to_string(format!("/run/udev/data/c{}", dev.trim())).ok()?;
+        Some(seat_from_udev_data(&text) == "seat0")
     }
 
     fn caps_of(device: &Device, seat0: bool) -> Caps {
@@ -152,12 +151,15 @@ impl Nodes for EvdevNodes {
             if device.set_nonblocking(true).is_err() {
                 continue;
             }
-            let caps = Self::caps_of(&device, Self::seat0(node));
+            let seat = Self::seat0(node);
+            let caps = Self::caps_of(&device, seat.unwrap_or(false));
             match classify(&caps) {
                 Classification::Grab(_) => {
                     self.caps.insert(node, caps);
                     self.devices.insert(node, device);
                 }
+                // An unknown seat fails closed now but is looked at again on the next rescan.
+                Classification::Skip(_) if seat.is_none() => {}
                 Classification::Skip(_) => {
                     self.skipped.insert(node);
                 }
@@ -213,6 +215,7 @@ impl Nodes for EvdevNodes {
         }
         for id in unplugged {
             self.forget(id);
+            observed.push(Observed::Removed { node: id });
         }
         Ok(observed)
     }

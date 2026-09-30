@@ -1,7 +1,7 @@
 # TEMPLATE ONLY: nothing in this repository installs, enables or starts this unit, and the daemon
 # refuses to grab input unless started with --enable-grabs. Review docs/security/emergency-daemon.md
-# (open items: state directory write access, polkit for lock-sessions, chord confirmation on the
-# machine) before using it.
+# (open items: marker ownership, polkit for lock-sessions, chord confirmation on the machine)
+# before using it.
 [Unit]
 Description=Blackroom Console emergency input daemon
 Documentation=file:///usr/share/doc/blackroom-console/emergency-daemon.md
@@ -13,7 +13,10 @@ Type=notify
 # the process dies, so a kill by the watchdog restores local input.
 WatchdogSec=10
 NotifyAccess=main
-User=remote-emergency
+# The stop marker store only accepts a state directory owned by the calling uid, so the daemon runs
+# as hostd's user with the extra `input` group. The trade-off (hostd's uid can signal the daemon)
+# and a dedicated-uid alternative are in docs/security/emergency-daemon.md.
+User=remote-hostd
 SupplementaryGroups=input
 RuntimeDirectory=blackroom-emergency
 RuntimeDirectoryMode=0750
@@ -53,7 +56,7 @@ SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 DevicePolicy=closed
 DeviceAllow=char-input rw
-ReadWritePaths=/var/lib/blackroom-console/state
+ReadWritePaths=-/var/lib/blackroom-console/state
 UMask=0077
 
 [Install]

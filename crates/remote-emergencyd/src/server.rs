@@ -3,17 +3,17 @@
 //! input (inside the core), then persists the stop marker, then locks sessions, and only then tells
 //! the client, so nothing depends on hostd being alive.
 
-use std::fs::File;
 use std::io::{self, ErrorKind, Read};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::process::Command;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use remote_hostd::store::PersistentHostAuthority;
+use remote_hostd::store::{PersistentHostAuthority, open_state_directory};
 
-use crate::core::{Daemon, Event, Nodes, Phase, Reason};
+use crate::core::{Daemon, Event, Nodes, Phase};
 use crate::proto::{MAX_LINE_BYTES, Reply, Request, parse_request, write_reply};
 
 /// Persists the independent stop marker and epoch bump.
@@ -26,30 +26,45 @@ pub trait Locker {
     fn lock_sessions(&mut self) -> Result<(), String>;
 }
 
-/// The real marker: `remote-hostd`'s own independent emergency stop in the opened state directory.
-pub struct DirMarker(pub File);
+/// The real marker: `remote-hostd`'s own independent emergency stop. The state directory is
+/// opened when the chord fires, so the daemon can start before hostd has created it. The store
+/// only accepts a directory owned by the calling uid, so the daemon must run as hostd's user.
+pub struct DirMarker(pub PathBuf);
 
 impl StopMarker for DirMarker {
     fn persist(&mut self) -> Result<(), String> {
-        PersistentHostAuthority::emergency_stop(&self.0)
+        let directory = open_state_directory(&self.0).map_err(|error| error.to_string())?;
+        PersistentHostAuthority::emergency_stop(&directory)
             .map(|_| ())
             .map_err(|error| error.to_string())
     }
 }
 
-/// `loginctl lock-sessions`; a root daemon may lock every session without the session bus.
+/// `loginctl lock-sessions`, started on the side and killed after 5 s, so a stuck logind can
+/// never stall the daemon loop (and with it the lease, the chord and the watchdog).
 pub struct LoginctlLocker;
 
 impl Locker for LoginctlLocker {
     fn lock_sessions(&mut self) -> Result<(), String> {
-        let status = Command::new("loginctl")
-            .arg("lock-sessions")
-            .status()
+        let mut child = Command::new("/usr/bin/loginctl")
+            .args(["--no-ask-password", "lock-sessions"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
             .map_err(|error| error.to_string())?;
-        status
-            .success()
-            .then_some(())
-            .ok_or_else(|| format!("loginctl exited with {status}"))
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                if matches!(child.try_wait(), Ok(Some(_))) {
+                    return;
+                }
+                sleep(Duration::from_millis(50));
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+        });
+        Ok(())
     }
 }
 
@@ -80,7 +95,7 @@ struct Client {
 impl Client {
     fn new(stream: UnixStream) -> io::Result<Self> {
         stream.set_read_timeout(Some(Duration::from_millis(1)))?;
-        stream.set_write_timeout(Some(Duration::from_millis(200)))?;
+        stream.set_write_timeout(Some(Duration::from_millis(10)))?;
         Ok(Self {
             stream,
             buffer: Vec::new(),
@@ -88,7 +103,7 @@ impl Client {
     }
 
     /// Complete request lines received so far; `Err` means the client is gone or misbehaving.
-    fn requests(&mut self) -> Result<Vec<Request>, ()> {
+    fn requests(&mut self, max: usize) -> Result<Vec<Request>, ()> {
         let mut chunk = [0_u8; 256];
         match self.stream.read(&mut chunk) {
             Ok(0) => return Err(()),
@@ -97,7 +112,10 @@ impl Client {
             Err(_) => return Err(()),
         }
         let mut requests = Vec::new();
-        while let Some(end) = self.buffer.iter().position(|byte| *byte == b'\n') {
+        while requests.len() < max {
+            let Some(end) = self.buffer.iter().position(|byte| *byte == b'\n') else {
+                break;
+            };
             let line: Vec<u8> = self.buffer.drain(..=end).collect();
             requests.push(parse_request(&line).map_err(|_| ())?);
         }
@@ -111,6 +129,9 @@ impl Client {
         write_reply(&mut self.stream, reply).map_err(|_| ())
     }
 }
+
+/// More than this per loop pass waits for the next one, so a flood cannot starve the loop.
+const MAX_REQUESTS_PER_PASS: usize = 4;
 
 fn phase_name(phase: Phase) -> &'static str {
     match phase {
@@ -195,35 +216,44 @@ pub fn serve<N: Nodes>(
         }
         let mut gone = false;
         if let Some(active) = client.as_mut() {
-            match active.requests() {
+            match active.requests(MAX_REQUESTS_PER_PASS) {
                 Ok(requests) => {
                     for request in requests {
                         for reply in handle_request(request, daemon, policy, now_ms) {
-                            gone |= active.send(&reply).is_err();
+                            if !gone && active.send(&reply).is_err() {
+                                gone = true;
+                            }
                         }
                     }
                 }
                 Err(()) => gone = true,
             }
         }
-        for event in daemon.step(now_ms) {
+        let events = daemon.step(now_ms);
+        // The chord's own actions come first; the client hears about them afterwards.
+        let emergency = events
+            .contains(&Event::ChordFired)
+            .then(|| emergency_actions(policy));
+        for event in events {
             let reply = match event {
                 Event::Isolated { nodes } => Reply::Isolated { nodes },
                 Event::Refused(refusal) => Reply::Refused {
                     reason: refusal.as_str(),
                 },
-                Event::Released(reason) => {
-                    if reason == Reason::Chord {
-                        emergency_actions(policy);
-                    }
-                    Reply::Released {
-                        reason: reason.as_str(),
-                    }
-                }
+                Event::Released(reason) => Reply::Released {
+                    reason: reason.as_str(),
+                },
+                Event::ChordFired => continue,
             };
-            if let Some(active) = client.as_mut() {
-                gone |= active.send(&reply).is_err();
+            if !gone && let Some(active) = client.as_mut() {
+                gone = active.send(&reply).is_err();
             }
+        }
+        if let Some(reply) = emergency
+            && !gone
+            && let Some(active) = client.as_mut()
+        {
+            gone = active.send(&reply).is_err();
         }
         if gone {
             client = None;
@@ -236,14 +266,28 @@ pub fn serve<N: Nodes>(
     Ok(())
 }
 
-/// What the daemon can do alone once local input is already restored.
-fn emergency_actions(policy: &mut Policy) {
-    if let Some(marker) = policy.marker.as_mut() {
-        let _ = marker.persist();
+/// What the daemon can do alone once local input is already restored. Failures are reported to
+/// the journal (reason only) and to the client, never swallowed.
+fn emergency_actions(policy: &mut Policy) -> Reply {
+    fn outcome(step: Option<Result<(), String>>, what: &str) -> &'static str {
+        match step {
+            None => "off",
+            Some(Ok(())) => "ok",
+            Some(Err(error)) => {
+                eprintln!("remote-emergencyd: emergency {what} failed: {error}");
+                "failed"
+            }
+        }
     }
-    if let Some(locker) = policy.locker.as_mut() {
-        let _ = locker.lock_sessions();
-    }
+    let marker = outcome(
+        policy.marker.as_mut().map(|marker| marker.persist()),
+        "stop marker",
+    );
+    let lock = outcome(
+        policy.locker.as_mut().map(|locker| locker.lock_sessions()),
+        "session lock",
+    );
+    Reply::Emergency { marker, lock }
 }
 
 #[cfg(test)]
@@ -255,8 +299,8 @@ mod tests {
     use remote_input_helper::Chord;
 
     use super::*;
+    use crate::core::Config;
     use crate::core::testing::{Fake, fake};
-    use crate::core::{Config, Observed};
 
     struct Counter(Arc<AtomicUsize>);
 
@@ -443,26 +487,28 @@ mod tests {
             locker: Some(Box::new(Counter(Arc::clone(&lock)))),
             ..policy(true)
         };
-        // The chord keys are already down when the server starts, so the core has held them for
-        // longer than the chord's hold time by the moment the grab lands.
+        // The chord keys go down a few reads after the grab landed, as a person would press them.
         let mut nodes = fake();
-        nodes
-            .queue
-            .extend([29, 42, 56, 1].map(|code| Observed::Key {
-                node: 2,
-                code,
-                pressed: true,
-            }));
+        nodes.chord_when_grabbed = true;
         let mut daemon = Daemon::new(nodes, quick_config());
         with_server(&mut daemon, &mut policy, |path| {
             let (mut stream, mut reader) = connect(path);
-            std::thread::sleep(Duration::from_millis(150));
             writeln!(stream, "{{\"op\":\"isolate\",\"lease_ms\":10000}}").unwrap();
             assert_eq!(line(&mut reader), r#"{"event":"accepted"}"#);
             assert_eq!(line(&mut reader), r#"{"event":"isolated","nodes":2}"#);
             assert_eq!(
                 line(&mut reader),
                 r#"{"event":"released","reason":"chord"}"#
+            );
+            assert_eq!(
+                line(&mut reader),
+                r#"{"event":"emergency","marker":"ok","lock":"ok"}"#
+            );
+            // The chord latches: the daemon will not isolate again until it is restarted.
+            writeln!(stream, "{{\"op\":\"isolate\",\"lease_ms\":5000}}").unwrap();
+            assert_eq!(
+                line(&mut reader),
+                r#"{"event":"refused","reason":"emergency_latched"}"#
             );
         });
         assert_eq!(marker.load(Ordering::SeqCst), 1);

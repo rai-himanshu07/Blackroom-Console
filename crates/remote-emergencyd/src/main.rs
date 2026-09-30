@@ -16,7 +16,6 @@ use clap::Parser;
 use remote_emergencyd::core::{Config, Daemon};
 use remote_emergencyd::nodes::EvdevNodes;
 use remote_emergencyd::server::{DirMarker, Locker, LoginctlLocker, Policy, StopMarker, serve};
-use remote_hostd::store::open_state_directory;
 
 type Fallible<T> = Result<T, String>;
 
@@ -134,10 +133,8 @@ fn run(args: &Args) -> Fallible<()> {
     let allowed_uid = client_uid(args)?;
     let listener = bind_socket(&args.socket)?;
     let marker: Option<Box<dyn StopMarker + Send>> = match &args.state_dir {
-        Some(path) => {
-            let directory = open_state_directory(path).map_err(|error| error.to_string())?;
-            Some(Box::new(DirMarker(directory)))
-        }
+        Some(path) if path.is_absolute() => Some(Box::new(DirMarker(path.clone()))),
+        Some(_) => return Err("--state-dir must be an absolute path".to_string()),
         None => None,
     };
     let locker: Option<Box<dyn Locker + Send>> = args

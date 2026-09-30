@@ -14,13 +14,19 @@ FEAS-G are not promoted by this code.
   pressed or is still down, undoes the grab and retries (at most 5 times). A key held at grab start
   would otherwise be seen by the session as down forever and auto-repeat.
 - **Lease:** isolation lapses unless the controlling client renews it (1 s to 60 s window). The
-  check runs in the same loop as event reading, so a stalled loop is stopped by the systemd
-  watchdog and the kernel then drops the grabs; a frozen process keeps them (observed), so an
-  external kill remains the last resort.
+  check runs in the same loop as event reading. The loop never blocks on the client for more than
+  10 ms per reply, handles at most 4 requests per pass, and runs `loginctl` on the side with a 5 s
+  kill, so a slow client or logind cannot starve the lease or the chord. A loop that stalls for
+  more than the 10 s watchdog is killed and the kernel then drops the grabs; a frozen process
+  keeps them (observed), so an external kill remains the last resort.
 - **Emergency chord:** Left Ctrl + Left Shift + Left Alt + Esc held 2 s on any grabbed keyboard
   (an experiment choice, to be confirmed on each machine). Order of actions (assessment C25):
   release every grab, persist `remote-hostd`'s independent stop marker and epoch bump, optionally
-  `loginctl lock-sessions`, then tell the client. It works with no client connected.
+  `loginctl lock-sessions`, then tell the client (`released chord`, then `emergency` with `ok`,
+  `failed` or `off` for the marker and the lock; failures also go to the journal). The actions run
+  even if the release itself failed, and a failed release is retried on every loop pass until it
+  works (`released release_recovered`). After a chord the daemon refuses every further `isolate`
+  (`emergency_latched`) until it is restarted on purpose.
 - **Hotplug:** the node list is rescanned every 250 ms; a new allow-listed node is grabbed while
   isolated, and a grab failure or loss of every grabbed node releases everything.
 - **Fail closed:** a read error, a failed hotplug grab, the client disappearing, a malformed or
@@ -46,8 +52,12 @@ capabilities, `DeviceAllow=char-input rw`); it is not installed by anything here
 
 ## Open items before any use
 
-- Write access of the daemon's user to the hostd state directory for the stop marker (an ACL or
-  group), and a polkit rule if `--lock-on-emergency` is used without root.
+- Marker ownership: hostd's store accepts only a state directory owned by the calling uid with no
+  group or other access, so the template runs the daemon as `remote-hostd` plus the `input` group.
+  That lets hostd's uid signal the daemon (Yama `ptrace_scope` 1 still blocks attaching). A
+  dedicated uid would need the daemon to write its own marker directory and hostd to honour it,
+  which is a change to hostd's store and is not built. Also a polkit rule if `--lock-on-emergency`
+  is used without root.
 - The chord must be confirmed on the machine's built-in keyboard (a first chord using both right
   keys did not release in one supervised run, cause unknown).
 - Releasing keys that were pressed in the few milliseconds before a grab is handled by retry, not
