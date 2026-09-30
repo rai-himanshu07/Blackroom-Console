@@ -1472,6 +1472,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "remote-emergencyd"
+version = "0.1.0"
+dependencies = [
+ "blackroom-core",
+ "clap",
+ "evdev",
+ "remote-hostd",
+ "remote-input-helper",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "remote-gateway"
 version = "0.1.0"
 dependencies = [

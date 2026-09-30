@@ -1,0 +1,60 @@
+# TEMPLATE ONLY: nothing in this repository installs, enables or starts this unit, and the daemon
+# refuses to grab input unless started with --enable-grabs. Review docs/security/emergency-daemon.md
+# (open items: state directory write access, polkit for lock-sessions, chord confirmation on the
+# machine) before using it.
+[Unit]
+Description=Blackroom Console emergency input daemon
+Documentation=file:///usr/share/doc/blackroom-console/emergency-daemon.md
+After=local-fs.target
+
+[Service]
+Type=notify
+# The watchdog is fed only while the daemon loop makes progress; the kernel drops every grab when
+# the process dies, so a kill by the watchdog restores local input.
+WatchdogSec=10
+NotifyAccess=main
+User=remote-emergency
+SupplementaryGroups=input
+RuntimeDirectory=blackroom-emergency
+RuntimeDirectoryMode=0750
+ExecStart=/usr/libexec/blackroom-console/remote-emergencyd \
+    --socket /run/blackroom-emergency/emergency.sock \
+    --client-user remote-hostd \
+    --state-dir /var/lib/blackroom-console/state
+# Add --enable-grabs only once the physical-input gate has been accepted on the target machine,
+# and --lock-on-emergency only together with a polkit rule allowing the lock.
+Restart=on-failure
+RestartSec=2
+OOMScoreAdjust=-900
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+DevicePolicy=closed
+DeviceAllow=char-input rw
+ReadWritePaths=/var/lib/blackroom-console/state
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
