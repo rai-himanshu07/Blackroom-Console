@@ -149,6 +149,13 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   - Depends on: step 4 and the two items above
   - Verify: physical input absent on the page while grabbed, remote input still
     works, release on timer, SIGKILL and explicit restore; Shell PID unchanged.
+  - Outcome, run 1 (2026-10-01, `docs/experiments/evidence/exp09/2026-09-30-2/`):
+    PASS by the probe rule. While grabbed the page saw 0 pointer moves, 0 buttons
+    and only the injected Shift although the probe read 7 key presses and 327
+    motions; release was clean. Still unobserved: release on SIGKILL, stalled
+    helper, hotplug, keys held across grab start, LED/repeat state, keyboard
+    baseline before the grab. One run, not FEAS-E. Kill timer must use
+    `pkill -KILL -x exp09_grab_prob` (15-char process name); the probe now checks.
 - [ ] 5b. Only if 5a passes and the built-in keyboard matters: one bounded grab of
       the built-in keyboard and touchpad nodes (`event2`, `event3`, `event4`,
       `event5`) with the same safeguards plus the emergency chord. SysRq is
@@ -200,3 +207,8 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   The timer check was corrected against real systemd output (monotonic timers
   have no realtime field, so the JSON timer list is used). Nothing was opened or
   grabbed; the probe refuses without `--operator-present`.
+- 2026-10-01 (step 5a run 1): operator-approved, present, SSH open, dongle nodes only.
+  PASS by the probe rule (see Outcome above). `pkill -x` with the 16-character
+  binary name silently matches nothing, found before arming; the probe now refuses
+  any kill timer whose command is not exactly `pkill -KILL -x exp09_grab_prob`.
+  No repeat, SIGKILL or built-in run authorized.

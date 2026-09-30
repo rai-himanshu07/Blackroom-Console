@@ -45,6 +45,8 @@ const EXP_ID: &str = "exp09";
 const OBSERVER_PAGE: &str = include_str!("../../assets/exp08_observer.html");
 const KEY_LEFTSHIFT: u32 = 42;
 const KILL_TIMER: &str = "blackroom-exp09-kill";
+/// The kernel truncates process names to 15 bytes, so `pkill -x` must use this, not the binary name.
+const KILL_COMM: &str = "exp09_grab_prob";
 /// The watchdog releases the grabs if the loop stops renewing for this long.
 const LEASE_MS: u64 = 4000;
 
@@ -346,6 +348,23 @@ fn udev_seat(node: u32) -> Option<String> {
     )
 }
 
+/// The timer must run `pkill -KILL -x exp09_grab_prob`; `show` is
+/// `systemctl --user --no-pager show <unit>.service -p ExecStart`.
+fn kill_command_problem(show: &str) -> Option<String> {
+    let argv = show
+        .split("argv[]=")
+        .nth(1)
+        .and_then(|rest| rest.split(" ; ").next())
+        .unwrap_or("");
+    let tokens: Vec<&str> = argv.split_whitespace().collect();
+    match tokens.as_slice() {
+        [program, "-KILL", "-x", KILL_COMM] if program.ends_with("pkill") => None,
+        _ => Some(format!(
+            "the timer must run `pkill -KILL -x {KILL_COMM}` (15-character process name), not `{argv}`"
+        )),
+    }
+}
+
 /// The kill timer must be listed, have a next elapse, and fire after this run
 /// could plausibly end. `json` is `systemctl --user list-timers --all --output=json`.
 fn kill_timer_problem(json: &str, now_unix_us: u64, min_remaining_secs: u64) -> Option<String> {
@@ -410,6 +429,21 @@ fn preflight(args: &Args, run: &mut Run) -> anyhow::Result<BTreeMap<DeviceId, De
         anyhow::bail!(
             "arm the external kill timer `{KILL_TIMER}` first (systemd-run --user --on-active=...): {problem}"
         );
+    }
+    let exec = command_line(
+        "systemctl",
+        &[
+            "--user",
+            "--no-pager",
+            "show",
+            &format!("{KILL_TIMER}.service"),
+            "-p",
+            "ExecStart",
+        ],
+    )
+    .unwrap_or_default();
+    if let Some(problem) = kill_command_problem(&exec) {
+        anyhow::bail!("external kill timer `{KILL_TIMER}` is not a working kill switch: {problem}");
     }
     let mut devices = BTreeMap::new();
     for node in args.nodes.iter().copied().collect::<BTreeSet<_>>() {
@@ -868,6 +902,22 @@ mod tests {
             node_problem(true, Some("seat0"), "isa0060/serio0/input0", None, true),
             None
         );
+    }
+
+    #[test]
+    fn the_kill_command_must_match_the_truncated_process_name() {
+        let show = |name: &str| {
+            format!(
+                "ExecStart={{ path=/usr/bin/pkill ; argv[]=/usr/bin/pkill -KILL -x {name} ; ignore_errors=no ; start_time=[n/a] }}"
+            )
+        };
+        assert_eq!(kill_command_problem(&show("exp09_grab_prob")), None);
+        assert!(kill_command_problem(&show("exp09_grab_probe")).is_some());
+        assert!(kill_command_problem(&show("exp09_grab_prob extra")).is_some());
+        assert!(
+            kill_command_problem("ExecStart={ path=/bin/true ; argv[]=/bin/true ; }").is_some()
+        );
+        assert!(kill_command_problem("").is_some());
     }
 
     #[test]

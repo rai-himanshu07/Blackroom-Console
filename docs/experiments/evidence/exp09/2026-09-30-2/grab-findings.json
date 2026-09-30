@@ -1,0 +1,55 @@
+{
+  "nodes": [
+    [
+      6,
+      "LITEON Dell Wireless Device",
+      "usb-0000:00:14.0-1.1/input0"
+    ],
+    [
+      7,
+      "LITEON Dell Wireless Device Mouse",
+      "usb-0000:00:14.0-1.1/input1"
+    ]
+  ],
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "blocked": null,
+  "failure": null,
+  "aborted": null,
+  "phase_a": {
+    "key_events": 0,
+    "shift_down": 0,
+    "pointer_moves": 3,
+    "buttons": 3,
+    "wheel_events": 2
+  },
+  "phase_b": {
+    "key_events": 2,
+    "shift_down": 1,
+    "pointer_moves": 0,
+    "buttons": 0,
+    "wheel_events": 0
+  },
+  "phase_c": {
+    "key_events": 8,
+    "shift_down": 1,
+    "pointer_moves": 41,
+    "buttons": 0,
+    "wheel_events": 0
+  },
+  "probe_key_presses_in_b": 7,
+  "probe_motions_in_b": 327,
+  "injected_shift": "accepted",
+  "restore_released": [
+    6,
+    7
+  ],
+  "restore_failed": [],
+  "keys_still_down_after_release": 0,
+  "grabbed_nodes_during_b": [
+    6,
+    7
+  ],
+  "violations": [],
+  "notes": []
+}
