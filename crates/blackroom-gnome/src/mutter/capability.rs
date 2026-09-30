@@ -314,18 +314,19 @@ fn screensaver_reachable(conn: &Connection) -> bool {
     .is_ok()
 }
 
-/// 3 of the 16 Doc 20 §8 constants (`REMOTE_INPUT_CAPABLE`,
-/// `PHYSICAL_INPUT_ISOLATION_CAPABLE`, `EMERGENCY_CAPABLE`) cannot be
-/// resolved this phase without violating the non-mutation rule for *their*
-/// mechanism (each would require `ConnectToEIS`, physical input isolation,
-/// or a component — `remote-emergencyd` — that does not exist yet). Unlike
+/// 2 of the 16 Doc 20 §8 constants (`PHYSICAL_INPUT_ISOLATION_CAPABLE`,
+/// `EMERGENCY_CAPABLE`) cannot be resolved without violating the
+/// non-mutation rule for *their* mechanism (physical input isolation, or a
+/// component — `remote-emergencyd` — that does not exist yet). Unlike
 /// every other `CapabilityReport` field, these are **not** computed from any
 /// runtime evidence gathered so far; they are fixed at `Unknown` (matching
 /// `docs/gnome/capability-report.md`'s own classification, arrived at by the
 /// same non-mutation reasoning, not by live computation) until the phase
 /// named at each use site adds the mutating call each one requires.
 /// (`VIRTUAL_DISPLAY_CAPABLE` was the 4th member of this group through Phase
-/// 3; Phase 4 promoted it — see [`VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS`].)
+/// 3; Phase 4 promoted it — see [`VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS`].
+/// `REMOTE_INPUT_CAPABLE` left the group after Experiment 8, see
+/// [`REMOTE_INPUT_OBSERVED_EXPERIMENTAL`].)
 const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
 
 /// `VIRTUAL_DISPLAY_CAPABLE`: promoted from `Unknown` this phase (Phase 4,
@@ -345,6 +346,16 @@ const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
 /// repeated-cycle reliability risk Doc 19 §16–17 warns against.
 const VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS: CapabilityTier =
     CapabilityTier::SupportedWithLimitations;
+
+/// `REMOTE_INPUT_CAPABLE`: `Experimental` after Experiment 8 (runs 1-2,
+/// `docs/experiments/evidence/exp08/`). Observed on the single built-in
+/// display with a Firefox observer page and a fake in-process authority:
+/// keyboard and modifier chord, click, scroll and relative-pointer delivery,
+/// and no delivery after a revoke or after session stop. Not proven: pointer
+/// magnitude, a Mutter-side refusal (as opposed to the local authorization
+/// check) and any product-path authority. Structurally fixed, not computed in
+/// `detect()`, because observing it injects input into the live session.
+const REMOTE_INPUT_OBSERVED_EXPERIMENTAL: CapabilityTier = CapabilityTier::Experimental;
 
 /// Detects all 16 Doc 20 §8 capability constants for the already-discovered
 /// `session`. Strictly read-only throughout. 12 of the 16 are computed from
@@ -388,17 +399,13 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
             } else {
                 CapabilityTier::Unsupported
             };
-            // Presence check stays live/cheap every call. Independent-review
-            // finding: Experiment 3 created a `RemoteDesktop` session and
-            // introspected it, but its only recorded `Session.Stop()` call
-            // was made *without* a prior `Start()` and correctly errored
-            // ("Session not started") — no successful `Start`/verified
-            // cleanup was ever exercised for `RemoteDesktop` specifically
-            // (unlike `ScreenCast`, which Experiments 3-5 fully proved).
-            // Stays `EXPERIMENTAL` (presence only) pending Phase 6 (Exp 8),
-            // which exercises `ConnectToEIS` and will need a real Start.
+            // Presence stays a live check. Experiment 8 (2026-09-30) added the
+            // missing evidence: input-only `CreateSession`/`Start`/
+            // `ConnectToEIS`/`Stop` with verified teardown on the single
+            // built-in display. Owner-loss teardown, touch, clipboard and
+            // other layouts are unobserved, hence not a clean `Supported`.
             let remote_desktop_capable = if remote_desktop_version.is_some() {
-                CapabilityTier::Experimental
+                CapabilityTier::SupportedWithLimitations
             } else {
                 CapabilityTier::Unsupported
             };
@@ -459,9 +466,8 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
         // confirmed, and destroyed real virtual monitors.
         virtual_display_capable: VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS,
         display_config_capable,
-        // Not evidence-computed this phase: `ConnectToEIS` is unexercised
-        // (Phase 6).
-        remote_input_capable: NOT_YET_DETERMINABLE,
+        // Observed in Experiment 8 but not computed live (see the constant).
+        remote_input_capable: REMOTE_INPUT_OBSERVED_EXPERIMENTAL,
         // Not evidence-computed this phase: Gate E, the highest project
         // risk, stays UNKNOWN until Phase 7.
         physical_input_isolation_capable: NOT_YET_DETERMINABLE,

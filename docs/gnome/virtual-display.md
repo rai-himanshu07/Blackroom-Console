@@ -103,7 +103,9 @@ of this phase found that Experiment 3's only recorded `RemoteDesktop.Session
 exercised for `RemoteDesktop` specifically (unlike `ScreenCast`, whose full
 lifecycle Experiments 3–5 did prove). It stays `EXPERIMENTAL` pending Phase 6
 (Experiment 8), which will actually call `ConnectToEIS` and needs a real
-`Start()`. All promotions are structurally fixed in `capability.rs` (not
+`Start()`. *(Update 2026-09-30: Experiment 8 supplied that lifecycle and
+`remote_desktop_capable` is now `SUPPORTED_WITH_LIMITATIONS`; see
+`capability-report.md`.)* All promotions are structurally fixed in `capability.rs` (not
 computed by a live mutating call inside `detect()`) — Doc 19 §16–17 treats
 repeated virtual-monitor/RemoteDesktop/ScreenCast creation as a first-class
 reliability risk, so creating one on every `gnome-session-agent` startup would
