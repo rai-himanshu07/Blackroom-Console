@@ -60,8 +60,8 @@ const CHORD_WAIT_SECS: u64 = 40;
 const STALL_COMM: &str = "exp09_grab_hold";
 const STALL_TIMER: &str = "blackroom-exp09-stall-kill";
 const STALL_KILL_SECS: u64 = 24;
-/// Experiment chord, not a product decision: Left Ctrl, Right Ctrl, Left Shift, Right Shift held 2 s.
-const EMERGENCY_CHORD_KEYS: [u16; 4] = [29, 97, 42, 54];
+/// Experiment chord, not a product decision: Left Ctrl, Left Shift, Left Alt and Esc held 2 s (keys every laptop has).
+const EMERGENCY_CHORD_KEYS: [u16; 4] = [29, 42, 56, 1];
 const EMERGENCY_CHORD_HOLD_MS: u64 = 2000;
 
 #[derive(Parser, Debug)]
@@ -97,6 +97,9 @@ struct Args {
     /// Built-in keyboard and touchpad nodes for the last stage, for example `2,3,4,5`.
     #[arg(long, value_delimiter = ',', num_args = 1..=6)]
     builtin_nodes: Vec<u32>,
+    /// Run only the built-in stage (needs --builtin-nodes); for repeating it after the others passed.
+    #[arg(long, default_value_t = false)]
+    chord_only: bool,
     /// Internal: run as the separate process that holds the grab.
     #[arg(long, hide = true, default_value_t = false)]
     hold_grab: bool,
@@ -203,12 +206,17 @@ impl EvdevGrab {
         self.per_node.clear();
     }
 
+    /// Per-node event counts, plus how many chord keys are down when a chord is set.
     fn counts(&self) -> String {
-        self.per_node
+        let mut parts: Vec<String> = self
+            .per_node
             .iter()
             .map(|(id, n)| format!("e{id}={n}"))
-            .collect::<Vec<_>>()
-            .join(" ")
+            .collect();
+        if let Some(chord) = &self.chord {
+            parts.push(format!("chord={}", chord.down_count()));
+        }
+        parts.join(" ")
     }
 
     fn keys_still_down(&self) -> usize {
@@ -299,6 +307,7 @@ struct Run {
     phase_c0: Option<PhaseTally>,
     phase_c: Option<PhaseTally>,
     c0_device_events: u64,
+    chord_only: bool,
     /// Page focus and fullscreen changes (times and flags only), to diagnose a lost page.
     focus_history: Vec<String>,
     stages_requested: usize,
@@ -322,6 +331,8 @@ struct StageResult {
     /// Events the un-grabbed devices produced in the after window (told apart from an idle operator).
     after_device_events: u64,
     helper_reads: String,
+    helper_reads_end: String,
+    chord_keys_max: usize,
     helper_end: String,
     seconds_to_end: Option<u64>,
     key_polls: u32,
@@ -555,6 +566,10 @@ fn preflight(args: &Args, run: &mut Run) -> anyhow::Result<BTreeMap<DeviceId, De
         locked == Some(false),
         "selected session is locked or unreadable"
     );
+    anyhow::ensure!(
+        !args.chord_only || !args.builtin_nodes.is_empty(),
+        "--chord-only needs --builtin-nodes"
+    );
     let comm = comm_of(std::process::id());
     anyhow::ensure!(
         comm.as_deref() == Some(KILL_COMM),
@@ -581,7 +596,9 @@ fn preflight(args: &Args, run: &mut Run) -> anyhow::Result<BTreeMap<DeviceId, De
             .duration_since(SystemTime::UNIX_EPOCH)?
             .as_micros(),
     )?;
-    let need_secs = if args.full {
+    let need_secs = if args.chord_only {
+        120
+    } else if args.full {
         240
     } else {
         3 * args.phase_secs + 30
@@ -759,6 +776,16 @@ fn execute(
     ) {
         run.blocked = Some("observer page never reported focused and fullscreen".to_string());
         anyhow::bail!("observer not ready");
+    }
+    if args.chord_only {
+        let isolation = Arc::new(Mutex::new(Isolation::new(EvdevGrab::new(devices, None))));
+        run_stages(args, run, observer, &isolation)?;
+        announce(
+            observer,
+            "Run finished. You can leave fullscreen (F11) and close this page.",
+        );
+        sleep(Duration::from_millis(1200));
+        return Ok(());
     }
     // Leaked on purpose: the injector borrows it for the rest of the process.
     let conn: &'static zbus::blocking::Connection = Box::leak(Box::new(
@@ -967,8 +994,11 @@ fn run_stages(
     isolation: &Arc<Mutex<Isolation<EvdevGrab>>>,
 ) -> anyhow::Result<()> {
     let exe = std::env::current_exe().context("current_exe")?;
-    let mut go = can_continue(run);
+    let mut go = args.chord_only || can_continue(run);
     for (index, min_secs) in [(2, 200_u64), (3, 130), (4, 90)] {
+        if args.chord_only && index < 4 {
+            continue;
+        }
         if !go || (index == 4 && args.builtin_nodes.is_empty()) {
             break;
         }
@@ -1064,6 +1094,12 @@ fn wait_state(pid: u32, wanted: char, timeout: Duration) -> bool {
         sleep(Duration::from_millis(50));
     }
     false
+}
+
+/// Chord keys down, from a helper `READ ... chord=3` line.
+fn parse_chord(line: &str) -> Option<usize> {
+    line.split_whitespace()
+        .find_map(|item| item.strip_prefix("chord=")?.parse().ok())
 }
 
 /// Per-node event counts from a helper `READ e6=12 e7=300` line.
@@ -1202,6 +1238,8 @@ struct Helper {
     ended: Option<String>,
     grabbed: bool,
     keys_held: bool,
+    /// Most chord keys the helper saw down at once (from its `chord=N` report).
+    chord_max: usize,
 }
 
 impl Helper {
@@ -1229,6 +1267,7 @@ impl Helper {
             ended: None,
             grabbed: false,
             keys_held: false,
+            chord_max: 0,
         })
     }
 
@@ -1238,6 +1277,7 @@ impl Helper {
         } else if line == "GRABBED" {
             self.grabbed = true;
         } else if line.starts_with("READ") {
+            self.chord_max = self.chord_max.max(parse_chord(&line).unwrap_or(0));
             self.last_read = line;
         } else if line.starts_with("RELEASED") {
             self.ended = Some(line);
@@ -1915,7 +1955,7 @@ fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> S
     announce(
         observer,
         &format!(
-            "Stage 4: now HOLD Left Ctrl + Right Ctrl + Left Shift + Right Shift together on the BUILT-IN keyboard for about 2 s until the grab releases (up to {CHORD_WAIT_SECS} s)."
+            "Stage 4: now HOLD Left Ctrl + Left Shift + Left Alt + Esc together on the BUILT-IN keyboard for about 2 s until the grab releases (up to {CHORD_WAIT_SECS} s)."
         ),
     );
     let started = Instant::now();
@@ -1947,6 +1987,9 @@ fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> S
                 format!("no release within {CHORD_WAIT_SECS} s; killed by the probe");
         }
     }
+    helper.pump();
+    stage.chord_keys_max = helper.chord_max;
+    stage.helper_reads_end.clone_from(&helper.last_read);
     let mut counter = open_counter(&args.builtin_nodes);
     if arm_page(observer, run, &mut stage, "after") {
         announce(
@@ -1964,8 +2007,10 @@ fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> S
         .map_or(0, |counter| counter.per_node.values().sum());
     let end_problem = (!released_by_chord).then(|| {
         format!(
-            "the grab was not released cleanly by the emergency chord ({})",
-            stage.helper_end
+            "the grab was not released cleanly by the emergency chord ({}; most chord keys seen down at once: {} of {})",
+            stage.helper_end,
+            stage.chord_keys_max,
+            EMERGENCY_CHORD_KEYS.len()
         )
     });
     judge_stage(&mut stage, builtin_held > 0, builtin_after > 0, end_problem);
@@ -1977,12 +2022,42 @@ fn baseline_ok(tally: &PhaseTally) -> bool {
     tally.key_events > 0 && tally.pointer_moves + tally.buttons as u64 + tally.wheel_events > 0
 }
 
+/// A chord-only run is judged on its one stage; the other phases did not run.
+fn classify_chord_only(run: &mut Run) -> ExperimentResult {
+    for stage in &run.stages {
+        for failure in &stage.failures {
+            run.violations.push(format!("{}: {failure}", stage.name));
+        }
+    }
+    if run.shell_pid_before.is_some() && run.shell_pid_before != run.shell_pid_after {
+        run.violations.push("gnome-shell PID changed".to_string());
+    }
+    if !run.violations.is_empty() {
+        return ExperimentResult::Fail;
+    }
+    let mut partial = run.aborted.is_some() || run.stages.is_empty();
+    for stage in &run.stages {
+        for gap in &stage.gaps {
+            run.notes.push(format!("{}: {gap}", stage.name));
+            partial = true;
+        }
+    }
+    if partial {
+        ExperimentResult::Partial
+    } else {
+        ExperimentResult::Pass
+    }
+}
+
 fn classify_run(run: &mut Run) -> ExperimentResult {
     if run.blocked.is_some() {
         return ExperimentResult::Blocked;
     }
     if run.failure.is_some() {
         return ExperimentResult::Fail;
+    }
+    if run.chord_only {
+        return classify_chord_only(run);
     }
     let injected = usize::from(run.injected_shift.as_deref() == Some("accepted"));
     if let Some(b) = &run.phase_b {
@@ -2113,7 +2188,10 @@ fn main() -> anyhow::Result<()> {
     }
     let now = OffsetDateTime::now_utc();
     let mut run = Run {
-        stages_requested: if args.full {
+        chord_only: args.chord_only,
+        stages_requested: if args.chord_only {
+            1
+        } else if args.full {
             2 + usize::from(!args.builtin_nodes.is_empty())
         } else {
             0
@@ -2346,6 +2424,32 @@ mod tests {
     }
 
     #[test]
+    fn a_chord_only_run_is_judged_on_its_one_stage() {
+        let clean = || Run {
+            chord_only: true,
+            stages: vec![StageResult {
+                name: "chord".to_string(),
+                ..StageResult::default()
+            }],
+            ..Run::default()
+        };
+        assert_eq!(classify_run(&mut clean()), ExperimentResult::Pass);
+        let mut failed = clean();
+        failed.stages[0].failures.push("no release".to_string());
+        assert_eq!(classify_run(&mut failed), ExperimentResult::Fail);
+        let mut gap = clean();
+        gap.stages[0].gaps.push("idle".to_string());
+        assert_eq!(classify_run(&mut gap), ExperimentResult::Partial);
+        let mut none = Run {
+            chord_only: true,
+            ..Run::default()
+        };
+        assert_eq!(classify_run(&mut none), ExperimentResult::Partial);
+        assert_eq!(parse_chord("READ e2=4 chord=3"), Some(3));
+        assert_eq!(parse_chord("READ e2=4"), None);
+    }
+
+    #[test]
     fn a_grab_waits_for_every_key_to_be_up_and_stay_up() {
         let stable = Duration::from_millis(60);
         let mut polls = 0;
@@ -2456,11 +2560,11 @@ mod tests {
         assert!(builtin_problem(false, Some("seat0"), "isa0060/serio0/input0").is_some());
 
         let mut chord = emergency_chord().expect("chord");
-        for code in [29, 97, 42] {
+        for code in [29, 42, 56] {
             chord.key(code, true, 0);
         }
         assert!(!chord.poll(5000), "three of four keys never fire");
-        chord.key(54, true, 100);
+        chord.key(1, true, 100);
         assert!(!chord.poll(1000), "not held long enough");
         assert!(chord.poll(2200));
         assert!(!chord.poll(2300), "fires once per hold");

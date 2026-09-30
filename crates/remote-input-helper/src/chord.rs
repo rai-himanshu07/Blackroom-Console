@@ -58,6 +58,11 @@ impl ChordDetector {
         }
     }
 
+    /// How many chord keys are down now (a count only, for diagnosing a chord that never fires).
+    pub fn down_count(&self) -> usize {
+        self.down.len()
+    }
+
     /// True once per hold, when every chord key has been down long enough.
     pub fn poll(&mut self, now_ms: u64) -> bool {
         match self.complete_since {
@@ -131,5 +136,17 @@ mod tests {
         detector.reset();
         assert!(!detector.poll(10_000));
         assert!(Chord::new(&[], 1000).is_none());
+    }
+
+    #[test]
+    fn down_count_reports_only_how_many_chord_keys_are_held() {
+        let mut detector = ChordDetector::new(Chord::new(&[1, 2, 3], 100).expect("chord"));
+        assert_eq!(detector.down_count(), 0);
+        detector.key(1, true, 0);
+        detector.key(2, true, 0);
+        detector.key(9, true, 0);
+        assert_eq!(detector.down_count(), 2);
+        detector.key(1, false, 10);
+        assert_eq!(detector.down_count(), 1);
     }
 }

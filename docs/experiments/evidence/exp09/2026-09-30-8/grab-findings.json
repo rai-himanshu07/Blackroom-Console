@@ -1,0 +1,192 @@
+{
+  "nodes": [
+    [
+      6,
+      "LITEON Dell Wireless Device",
+      "usb-0000:00:14.0-1.1/input0"
+    ],
+    [
+      7,
+      "LITEON Dell Wireless Device Mouse",
+      "usb-0000:00:14.0-1.1/input1"
+    ],
+    [
+      2,
+      "AT Translated Set 2 keyboard",
+      "isa0060/serio0/input0"
+    ],
+    [
+      3,
+      "PS/2 Generic Mouse",
+      "isa0060/serio1/input0"
+    ],
+    [
+      4,
+      "DELL0A71:00 04F3:317E Mouse",
+      "i2c-DELL0A71:00"
+    ],
+    [
+      5,
+      "DELL0A71:00 04F3:317E Touchpad",
+      "i2c-DELL0A71:00"
+    ]
+  ],
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "blocked": null,
+  "failure": null,
+  "aborted": null,
+  "phase_a": {
+    "key_events": 32,
+    "key_downs": 16,
+    "key_shape": "dduudduududduudududduudduudduudu",
+    "shift_down": 0,
+    "pointer_moves": 931,
+    "buttons": 0,
+    "wheel_events": 0
+  },
+  "phase_b": {
+    "key_events": 2,
+    "key_downs": 1,
+    "key_shape": "du",
+    "shift_down": 1,
+    "pointer_moves": 0,
+    "buttons": 0,
+    "wheel_events": 0
+  },
+  "phase_c0": {
+    "key_events": 0,
+    "key_downs": 0,
+    "key_shape": "",
+    "shift_down": 0,
+    "pointer_moves": 0,
+    "buttons": 0,
+    "wheel_events": 0
+  },
+  "phase_c": {
+    "key_events": 84,
+    "key_downs": 42,
+    "key_shape": "dduduudududduudduduudduudduuddududuuddud",
+    "shift_down": 0,
+    "pointer_moves": 1086,
+    "buttons": 0,
+    "wheel_events": 0
+  },
+  "c0_device_events": 0,
+  "focus_history": [
+    "t=251ms focus=true fullscreen=false visibility=\"visible\"",
+    "t=3009ms focus=true fullscreen=true visibility=\"visible\"",
+    "t=33063ms focus=true fullscreen=false visibility=\"visible\"",
+    "t=34342ms focus=false fullscreen=false visibility=\"visible\"",
+    "t=38092ms focus=false fullscreen=false visibility=\"hidden\"",
+    "t=38342ms focus=false fullscreen=false visibility=\"visible\"",
+    "t=41595ms focus=true fullscreen=false visibility=\"visible\"",
+    "t=44096ms focus=true fullscreen=true visibility=\"visible\""
+  ],
+  "stages_requested": 3,
+  "stages": [
+    {
+      "name": "helper killed with SIGKILL",
+      "held": {
+        "key_events": 0,
+        "key_downs": 0,
+        "key_shape": "",
+        "shift_down": 0,
+        "pointer_moves": 0,
+        "buttons": 0,
+        "wheel_events": 0
+      },
+      "after": {
+        "key_events": 74,
+        "key_downs": 36,
+        "key_shape": "uudduduududduduudduudduudduduudduduududu",
+        "shift_down": 0,
+        "pointer_moves": 308,
+        "buttons": 0,
+        "wheel_events": 0
+      },
+      "after_device_events": 522,
+      "helper_reads": "READ e6=33 e7=881",
+      "helper_end": "signal 9",
+      "seconds_to_end": null,
+      "key_polls": 0,
+      "failures": [],
+      "gaps": []
+    },
+    {
+      "name": "stalled helper killed by its own timer",
+      "held": {
+        "key_events": 0,
+        "key_downs": 0,
+        "key_shape": "",
+        "shift_down": 0,
+        "pointer_moves": 0,
+        "buttons": 0,
+        "wheel_events": 0
+      },
+      "after": {
+        "key_events": 52,
+        "key_downs": 26,
+        "key_shape": "dudduudduudduudududduudududduduududududd",
+        "shift_down": 0,
+        "pointer_moves": 556,
+        "buttons": 0,
+        "wheel_events": 0
+      },
+      "after_device_events": 1037,
+      "helper_reads": "",
+      "helper_end": "signal 9",
+      "seconds_to_end": 24,
+      "key_polls": 77,
+      "failures": [],
+      "gaps": []
+    },
+    {
+      "name": "built-in devices released by the emergency chord",
+      "held": {
+        "key_events": 0,
+        "key_downs": 0,
+        "key_shape": "",
+        "shift_down": 0,
+        "pointer_moves": 0,
+        "buttons": 0,
+        "wheel_events": 0
+      },
+      "after": {
+        "key_events": 26,
+        "key_downs": 13,
+        "key_shape": "dududududududududududududu",
+        "shift_down": 0,
+        "pointer_moves": 176,
+        "buttons": 0,
+        "wheel_events": 0
+      },
+      "after_device_events": 0,
+      "helper_reads": "READ e5=101 e7=79",
+      "helper_end": "no release within 40 s; killed by the probe",
+      "seconds_to_end": null,
+      "key_polls": 0,
+      "failures": [
+        "the grab was not released cleanly by the emergency chord (no release within 40 s; killed by the probe)"
+      ],
+      "gaps": []
+    }
+  ],
+  "probe_key_presses_in_b": 38,
+  "probe_motions_in_b": 2255,
+  "injected_shift": "accepted",
+  "restore_released": [
+    6,
+    7
+  ],
+  "restore_failed": [],
+  "keys_still_down_after_release": 0,
+  "grabbed_nodes_during_b": [
+    6,
+    7
+  ],
+  "violations": [
+    "built-in devices released by the emergency chord: the grab was not released cleanly by the emergency chord (no release within 40 s; killed by the probe)"
+  ],
+  "notes": []
+}
