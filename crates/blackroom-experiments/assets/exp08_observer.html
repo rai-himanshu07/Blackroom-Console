@@ -11,11 +11,13 @@
   h1 { margin: 0 0 6px; font-size: 20px; }
   .ok { color: #a3be8c; } .bad { color: #bf616a; }
   pre { margin: 6px 0 0; white-space: pre-wrap; }
+  #prompt { margin: 8px 0; font-size: 26px; color: #ebcb8b; white-space: pre-wrap; }
 </style>
 </head>
 <body>
 <div id="bar">
   <h1>exp08 observer: press F11 for fullscreen, keep this window focused, then touch nothing</h1>
+  <div id="prompt"></div>
   <div id="ready">checking focus...</div>
   <div id="verdict">waiting for input...</div>
   <pre id="out"></pre>
@@ -95,6 +97,7 @@
     verdict();
     try {
       const reply = await (await fetch('beat', { method: 'POST', body: JSON.stringify({ ...st, tally: s }) })).json();
+      document.getElementById('prompt').textContent = reply.prompt || '';
       if (reply.epoch > s.epoch) { s = { ...fresh(), epoch: reply.epoch, transitions: s.transitions }; scrollTo(0, 0); render(); }
     } catch (_) { r.textContent += ' | run ended or unreachable: nothing is recorded now'; r.className = 'bad'; }
   }

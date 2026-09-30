@@ -27,6 +27,8 @@ pub struct ObserverState {
     pub beats: u64,
     /// Tally generation the page is asked to reset to before injection.
     pub epoch: u64,
+    /// Instruction the page shows the operator (the terminal is hidden behind the fullscreen page).
+    pub prompt: String,
 }
 
 #[derive(Deserialize)]
@@ -148,6 +150,12 @@ impl Observer {
         false
     }
 
+    /// Text shown on the page, for instructions the operator cannot read in the terminal.
+    pub fn set_prompt(&self, text: &str) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.prompt = text.chars().take(600).collect();
+    }
+
     pub fn describe(&self) -> String {
         self.snapshot(|state| {
             format!(
@@ -264,7 +272,8 @@ fn route(
                     state.fullscreen = beat.fullscreen;
                     state.tally = Some(beat.tally);
                     state.beats += 1;
-                    let reply = format!("{{\"epoch\":{}}}", state.epoch);
+                    let prompt = serde_json::to_string(&state.prompt).unwrap_or_default();
+                    let reply = format!("{{\"prompt\":{prompt},\"epoch\":{}}}", state.epoch);
                     response("200 OK", "application/json", reply.as_bytes())
                 }
                 Err(_) => response("400 Bad Request", "text/plain", b""),
@@ -330,8 +339,14 @@ mod tests {
             )
         };
         let reply = http(port, &post(&body));
-        assert!(reply.starts_with("HTTP/1.1 200") && reply.ends_with("{\"epoch\":0}"));
+        assert!(reply.starts_with("HTTP/1.1 200") && reply.ends_with("\"epoch\":0}"));
         assert!(observer.ready_now(FRESH));
+        observer.set_prompt("Stage \"2\": type <now>");
+        let reply = http(port, &post(&body));
+        assert!(
+            reply.contains(r#""prompt":"Stage \"2\": type <now>""#),
+            "the prompt travels JSON-escaped: {reply}"
+        );
         assert!(http(port, &post("not json")).starts_with("HTTP/1.1 400"));
         let blurred = json!({"focus": false, "fullscreen": true, "tally": {}}).to_string();
         assert!(http(port, &post(&blurred)).starts_with("HTTP/1.1 200"));

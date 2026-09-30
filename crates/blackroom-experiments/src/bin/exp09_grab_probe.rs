@@ -243,6 +243,8 @@ fn caps_of(device: &Device) -> Caps {
 struct PhaseTally {
     key_events: usize,
     key_downs: usize,
+    /// Down (d), repeat (r) and up (u) letters in order, without key codes.
+    key_shape: String,
     shift_down: usize,
     pointer_moves: u64,
     buttons: usize,
@@ -255,6 +257,17 @@ impl PhaseTally {
         Self {
             key_events: keys.len(),
             key_downs: keys.iter().filter(|key| key["type"] == "down").count(),
+            key_shape: keys
+                .iter()
+                .take(40)
+                .map(
+                    |key| match (key["type"].as_str(), key["repeat"].as_bool()) {
+                        (Some("up"), _) => 'u',
+                        (_, Some(true)) => 'r',
+                        _ => 'd',
+                    },
+                )
+                .collect(),
             shift_down: keys
                 .iter()
                 .filter(|key| key["type"] == "down" && key["code"] == "ShiftLeft")
@@ -646,6 +659,12 @@ fn wait_phase(
     true
 }
 
+/// Shows an instruction in the terminal and on the observer page, which is all the operator can see.
+fn announce(observer: &Observer, text: &str) {
+    println!("{text}");
+    observer.set_prompt(text);
+}
+
 fn now_ms(origin: Instant) -> u64 {
     u64::try_from(origin.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
@@ -702,9 +721,12 @@ fn execute(
         })
     };
 
-    println!(
-        "Phase A ({} s): type lowercase letters and move the EXTERNAL mouse now.",
-        args.phase_secs
+    announce(
+        observer,
+        &format!(
+            "Phase A ({} s): with the EXTERNAL keyboard type lowercase letters, AND move and click the EXTERNAL mouse. Do not press Esc or F11.",
+            args.phase_secs
+        ),
     );
     let mut ok = observer.arm(Duration::from_secs(10));
     if !ok {
@@ -715,14 +737,13 @@ fn execute(
     run.phase_a = snapshot_tally(observer);
 
     if ok {
-        println!(
-            "Phase B ({} s): GRAB starts; keep typing and moving the external devices.",
-            args.phase_secs
+        announce(
+            observer,
+            &format!(
+                "Phase B ({} s): the grab is ON. Keep typing letters on the EXTERNAL keyboard and moving the EXTERNAL mouse. Nothing should reach this page.",
+                args.phase_secs
+            ),
         );
-        if !observer.arm(Duration::from_secs(10)) {
-            run.aborted = Some("observer did not acknowledge the phase B reset".to_string());
-            ok = false;
-        }
         let specs: Vec<(DeviceId, Caps)> = isolation
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -742,7 +763,19 @@ fn execute(
                 .unwrap_or_else(PoisonError::into_inner)
                 .isolate(&specs, now_ms(origin), LEASE_MS);
             match grabbed {
-                Ok(ids) => run.grabbed_nodes_during_b = ids,
+                Ok(ids) => {
+                    run.grabbed_nodes_during_b = ids;
+                    // Armed after the grab so keys pressed just before it cannot count as leaks.
+                    if !observer.arm(Duration::from_secs(10)) {
+                        run.aborted =
+                            Some("observer did not acknowledge the phase B reset".to_string());
+                        let _ = isolation
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .restore();
+                        ok = false;
+                    }
+                }
                 Err(error) => {
                     run.failure = Some(format!("isolate: {error:?}"));
                     ok = false;
@@ -799,7 +832,10 @@ fn execute(
     }
 
     if ok || run.phase_b.is_some() {
-        println!("Phase C0 (3 s): grab released. HANDS OFF both devices.");
+        announce(
+            observer,
+            "Phase C0 (3 s): grab released. HANDS OFF: do not touch the keyboard, mouse wheel or touchpad.",
+        );
         sleep(Duration::from_millis(1500));
         let mut builtin_counter = open_counter(&args.builtin_nodes);
         if observer.arm(Duration::from_secs(10)) {
@@ -807,9 +843,12 @@ fn execute(
                 quiet_window(observer, 3, run, &isolation, builtin_counter.as_mut());
             run.phase_c0 = snapshot_tally(observer);
         }
-        println!(
-            "Phase C ({} s): grab released; type and move the external devices again.",
-            args.phase_secs
+        announce(
+            observer,
+            &format!(
+                "Phase C ({} s): grab released. Type letters on the EXTERNAL keyboard AND move the EXTERNAL mouse again.",
+                args.phase_secs
+            ),
         );
         if observer.arm(Duration::from_secs(10)) {
             wait_phase(observer, args.phase_secs, "C", run, None, origin);
@@ -826,6 +865,11 @@ fn execute(
     if args.full {
         run_stages(args, run, observer, &isolation)?;
     }
+    announce(
+        observer,
+        "Run finished. You can leave fullscreen (F11) and close this page.",
+    );
+    sleep(Duration::from_millis(1200));
     Ok(())
 }
 
@@ -873,7 +917,7 @@ fn can_continue(run: &Run) -> bool {
         && run
             .phase_b
             .as_ref()
-            .is_some_and(|b| b.physical_events(1) == 0)
+            .is_some_and(|b| b.physical_events(1) == 0 && b.key_downs == 1)
         && run
             .phase_c0
             .as_ref()
@@ -1434,8 +1478,11 @@ fn stage_sigkill(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) ->
     }
     helper.pump();
     let base = parse_reads(&helper.last_read);
-    println!(
-        "Stage 2 ({HOLD_SECS} s): a separate helper process holds the grab. Type and move the EXTERNAL devices; nothing should reach the page."
+    announce(
+        observer,
+        &format!(
+            "Stage 2 ({HOLD_SECS} s): a separate helper process holds the grab. Type and move the EXTERNAL devices; nothing should reach the page."
+        ),
     );
     let watched = watch(
         observer,
@@ -1459,8 +1506,11 @@ fn stage_sigkill(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) ->
         .wait()
         .map_or_else(|error| error.to_string(), describe_exit);
     if arm_page(observer, run, &mut stage, "after") {
-        println!(
-            "Stage 2 after ({AFTER_SECS} s): the helper was killed. Type and move the external devices again."
+        announce(
+            observer,
+            &format!(
+                "Stage 2 after ({AFTER_SECS} s): the helper was killed. Type and move the external devices again."
+            ),
         );
         let watched = watch(observer, AFTER_SECS, "stage 2 after", run, None, None, None);
         fail_on(&mut stage, watched);
@@ -1517,8 +1567,11 @@ fn stage_stall(
         return stage;
     }
     let stopped_at = Instant::now();
-    println!(
-        "Stage 3 ({HOLD_SECS} s): the helper is FROZEN but still holds the grab, so the external devices stay dead until its own timer kills it (~{STALL_KILL_SECS} s). Release every key first, then HOLD one letter key down and keep moving the mouse."
+    announce(
+        observer,
+        &format!(
+            "Stage 3 ({HOLD_SECS} s): the helper is FROZEN but still holds the grab, so the external devices stay dead until its own timer kills it (~{STALL_KILL_SECS} s). Release every key first, then HOLD one letter key down and keep moving the mouse."
+        ),
     );
     let mut polls = 0_u32;
     let watched = watch(
@@ -1535,7 +1588,10 @@ fn stage_stall(
         return stage;
     }
     stage.held = snapshot_tally(observer);
-    println!("Stage 3: keep holding; the helper is about to be killed.");
+    announce(
+        observer,
+        "Stage 3: keep holding; the helper is about to be killed.",
+    );
     let deadline = Instant::now() + Duration::from_secs(45);
     let status = loop {
         if let Some(status) = helper.exited() {
@@ -1559,8 +1615,11 @@ fn stage_stall(
     }
     drop(timer);
     if arm_page(observer, run, &mut stage, "after") {
-        println!(
-            "Stage 3 after ({AFTER_SECS} s): release the held key, then type and move the external devices."
+        announce(
+            observer,
+            &format!(
+                "Stage 3 after ({AFTER_SECS} s): release the held key, then type and move the external devices."
+            ),
         );
         let watched = watch(observer, AFTER_SECS, "stage 3 after", run, None, None, None);
         fail_on(&mut stage, watched);
@@ -1601,8 +1660,11 @@ fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> S
     }
     helper.pump();
     let base = parse_reads(&helper.last_read);
-    println!(
-        "Stage 4 ({HOLD_SECS} s): EVERYTHING is grabbed, including this laptop's own keyboard and touchpad. Type and move on BOTH the built-in and the external devices; nothing should reach the page."
+    announce(
+        observer,
+        &format!(
+            "Stage 4 ({HOLD_SECS} s): EVERYTHING is grabbed, including this laptop's own keyboard and touchpad. Type and move on BOTH the built-in and the external devices; nothing should reach the page."
+        ),
     );
     let watched = watch(
         observer,
@@ -1624,8 +1686,11 @@ fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> S
         &base,
         Some(&args.builtin_nodes),
     );
-    println!(
-        "Stage 4: now HOLD Left Ctrl + Right Ctrl + Left Shift + Right Shift together on the BUILT-IN keyboard for about 2 s until the grab releases (up to {CHORD_WAIT_SECS} s)."
+    announce(
+        observer,
+        &format!(
+            "Stage 4: now HOLD Left Ctrl + Right Ctrl + Left Shift + Right Shift together on the BUILT-IN keyboard for about 2 s until the grab releases (up to {CHORD_WAIT_SECS} s)."
+        ),
     );
     let started = Instant::now();
     let status = loop {
@@ -1658,8 +1723,11 @@ fn stage_chord(args: &Args, run: &mut Run, observer: &Observer, exe: &Path) -> S
     }
     let mut counter = open_counter(&args.builtin_nodes);
     if arm_page(observer, run, &mut stage, "after") {
-        println!(
-            "Stage 4 after ({AFTER_SECS} s): type and move on the BUILT-IN keyboard and touchpad ONLY; leave the external devices alone."
+        announce(
+            observer,
+            &format!(
+                "Stage 4 after ({AFTER_SECS} s): type and move on the BUILT-IN keyboard and touchpad ONLY; leave the external devices alone."
+            ),
         );
         let watched = watch_counting(observer, AFTER_SECS, "stage 4 after", run, counter.as_mut());
         fail_on(&mut stage, watched);
@@ -1703,10 +1771,10 @@ fn classify_run(run: &mut Run) -> ExperimentResult {
                 "{leaked} physical-looking events reached the page while grabbed"
             ));
         }
-        if injected == 1 && b.shift_down != 1 {
+        if injected == 1 && !(b.key_events == 2 && b.key_downs == 1 && b.shift_down == 1) {
             run.violations.push(format!(
-                "injected Shift tap seen {} times in phase B",
-                b.shift_down
+                "phase B keys are not exactly the injected Shift tap (events {}, downs {}, Shift downs {}, shape {})",
+                b.key_events, b.key_downs, b.shift_down, b.key_shape
             ));
         }
     }
@@ -1912,6 +1980,7 @@ mod tests {
     fn a_leak_during_the_grab_or_missing_phases_never_pass() {
         let quiet = PhaseTally {
             key_events: 2,
+            key_downs: 1,
             shift_down: 1,
             ..PhaseTally::default()
         };
@@ -2148,6 +2217,7 @@ mod tests {
         };
         let quiet = PhaseTally {
             key_events: 2,
+            key_downs: 1,
             shift_down: 1,
             ..PhaseTally::default()
         };
@@ -2240,6 +2310,7 @@ mod tests {
         };
         let quiet = PhaseTally {
             key_events: 2,
+            key_downs: 1,
             shift_down: 1,
             ..PhaseTally::default()
         };
