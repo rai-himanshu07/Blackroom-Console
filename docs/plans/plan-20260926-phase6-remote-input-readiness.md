@@ -445,3 +445,15 @@ Exit codes: 0 PASS, 1 FAIL, 2 BLOCKED, 3 inconclusive.
   `docs/experiments/evidence/exp08/2026-09-30/observation.md`. Fixes: modifier-only
   keys, tally reset before injection, focus-transition log. A second run needs
   its own approval.
+- 2026-09-30 (Experiment 8 run 2, operator-approved, FAIL by the coded rule):
+  with Shift and Shift + Right Ctrl the whole sequence ran and the page tally
+  (all events trusted) showed the keys in order, one left click and a scroll; the
+  revoked tap was refused as `LeaseRevoked` and nothing arrived; after `Stop`
+  Mutter sent `DeviceRemoved`, `SeatRemoved`, `Disconnected` and closed the
+  socket, the post-stop tap was refused and nothing arrived; Shell PID
+  unchanged, `gnome-remote-desktop` restored. The only failed check was pointer
+  magnitude: movementX summed to -40, which cannot separate a browser first-move
+  artifact from an edge clamp, so pointer size is inconclusive (2 moves did
+  arrive). The page now records positions and the evaluator checks them. FEAS-D
+  stays UNPROVEN pending Step 4 review; run 3 is optional and needs its own
+  approval. Evidence: `docs/experiments/evidence/exp08/2026-09-30-2/`.

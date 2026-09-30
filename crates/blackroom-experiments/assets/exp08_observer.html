@@ -25,7 +25,7 @@
 (() => {
   const t0 = performance.now();
   const at = () => Math.round(performance.now() - t0);
-  const fresh = () => ({ keys: [], buttons: [], pointer: { moves: 0, netX: 0, netY: 0, absX: 0, absY: 0 },
+  const fresh = () => ({ keys: [], buttons: [], pointer: { moves: 0, positions: [] },
                          wheel: { events: 0, deltaY: 0, scrollY: 0 }, untrusted: 0 });
   // epoch: the run clears the tally right before injecting; transitions: focus history for diagnosis.
   let s = { ...fresh(), epoch: 0, transitions: [] };
@@ -33,14 +33,18 @@
   // Same checks as the Rust side (evaluate_tally); the Rust result is the recorded one.
   function verdict() {
     s.wheel.scrollY = Math.round(window.scrollY);
+    s.viewport = { w: innerWidth, h: innerHeight };
     const c = {
       shift: count('down', 'ShiftLeft') === 2 && count('up', 'ShiftLeft') === 2,
       ctrl: count('down', 'ControlRight') === 1 && count('up', 'ControlRight') === 1
         && s.keys.some(k => k.type === 'down' && k.code === 'ControlRight' && k.shift),
       otherKeys: s.keys.filter(k => k.code !== 'ShiftLeft' && k.code !== 'ControlRight').length === 0,
       click: s.buttons.filter(b => b.type === 'click' && b.button === 0).length === 1 && s.buttons.every(b => b.button === 0),
-      pointer: s.pointer.moves > 0 && Math.abs(s.pointer.netX) <= 2 && Math.abs(s.pointer.netY) <= 2
-        && s.pointer.absX >= 20 && s.pointer.absX <= 200,
+      pointer: s.pointer.positions.length === 2 && (() => {
+        const [a, b] = s.pointer.positions;
+        return Math.abs(b.x - a.x + 40) <= 4 && Math.abs(b.y - a.y) <= 2
+          && a.x >= 2 && a.x <= innerWidth - 3 && a.y >= 2 && a.y <= innerHeight - 3;
+      })(),
       wheel: s.wheel.events > 0 && s.wheel.deltaY > 0 && s.wheel.deltaY <= 500 && s.wheel.scrollY > 0,
       trusted: s.untrusted === 0,
     };
@@ -51,7 +55,7 @@
     const v = document.getElementById('verdict');
     v.textContent = Object.entries(c).map(([k, ok]) => `${k}:${ok ? 'ok' : '--'}`).join(' ')
       + ` | Shift ${count('down', 'ShiftLeft')}/${count('up', 'ShiftLeft')} RCtrl ${count('down', 'ControlRight')}/${count('up', 'ControlRight')}`
-      + ` moves ${s.pointer.moves} net ${s.pointer.netX},${s.pointer.netY} wheel ${s.wheel.events}/${s.wheel.deltaY}`;
+      + ` moves ${s.pointer.moves} at ${JSON.stringify(s.pointer.positions)} wheel ${s.wheel.events}/${s.wheel.deltaY}`;
     v.className = all ? 'ok' : 'bad';
     document.getElementById('out').textContent = JSON.stringify(s);
   }
@@ -60,8 +64,9 @@
   addEventListener('keyup', key('up'));
   addEventListener('mousemove', e => {
     if (!e.isTrusted) s.untrusted++;
-    s.pointer.moves++; s.pointer.netX += e.movementX; s.pointer.netY += e.movementY;
-    s.pointer.absX += Math.abs(e.movementX); s.pointer.absY += Math.abs(e.movementY); render();
+    s.pointer.moves++;
+    if (s.pointer.positions.length < 200) s.pointer.positions.push({ x: e.clientX, y: e.clientY });
+    render();
   });
   for (const type of ['mousedown', 'mouseup', 'click']) {
     addEventListener(type, e => { if (!e.isTrusted) s.untrusted++; s.buttons.push({ t: at(), type: type.replace('mouse', ''), button: e.button }); render(); });

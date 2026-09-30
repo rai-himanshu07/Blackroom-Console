@@ -234,19 +234,34 @@ fn evaluate_tally(tally: &Value) -> (bool, Vec<String>) {
         clicks == 1 && buttons.iter().all(|button| button["button"] == 0),
         format!("{clicks} left clicks or a non-left button seen"),
     );
+    // Positions, not movementX: the browser reports 0 for the first move after
+    // an idle period, which hid the +40 step in run 2.
     let pointer = &tally["pointer"];
     let number = |value: &Value| value.as_f64().unwrap_or(f64::NAN);
-    let (net_x, net_y, abs_x) = (
-        number(&pointer["netX"]),
-        number(&pointer["netY"]),
-        number(&pointer["absX"]),
+    let positions = pointer["positions"].as_array().cloned().unwrap_or_default();
+    let (width, height) = (
+        number(&tally["viewport"]["w"]),
+        number(&tally["viewport"]["h"]),
     );
+    let pointer_ok = match (positions.first(), positions.last()) {
+        (Some(first), Some(last)) if positions.len() == 2 => {
+            let (dx, dy) = (
+                number(&last["x"]) - number(&first["x"]),
+                number(&last["y"]) - number(&first["y"]),
+            );
+            // The +40 step must land inside the viewport (a clamped edge move
+            // also looks like a -40 return), and the -40 step must undo it.
+            let inside = (2.0..=width - 3.0).contains(&number(&first["x"]))
+                && (2.0..=height - 3.0).contains(&number(&first["y"]));
+            (dx + 40.0).abs() <= 4.0 && dy.abs() <= 2.0 && inside
+        }
+        _ => false,
+    };
     check(
-        pointer["moves"].as_u64().unwrap_or(0) > 0
-            && net_x.abs() <= 2.0
-            && net_y.abs() <= 2.0
-            && (20.0..=200.0).contains(&abs_x),
-        format!("pointer motion not net-zero or missing (net {net_x},{net_y} abs {abs_x})"),
+        pointer_ok,
+        format!(
+            "pointer motion did not show +40 then -40 away from an edge (positions {positions:?})"
+        ),
     );
     let wheel = &tally["wheel"];
     let delta = number(&wheel["deltaY"]);
@@ -1090,7 +1105,8 @@ mod tests {
             "buttons": [
                 {"type": "down", "button": 0}, {"type": "up", "button": 0}, {"type": "click", "button": 0},
             ],
-            "pointer": {"moves": 2, "netX": 0, "netY": 0, "absX": 80, "absY": 0},
+            "pointer": {"moves": 2, "positions": [{"x": 540, "y": 400}, {"x": 500, "y": 400}]},
+            "viewport": {"w": 1920, "h": 1080},
             "wheel": {"events": 1, "deltaY": 15, "scrollY": 15},
             "untrusted": 0,
         })
@@ -1177,7 +1193,11 @@ mod tests {
         assert!(!evaluate_tally(&leaked).0);
 
         let mut drifted = good_tally();
-        drifted["pointer"]["netX"] = json!(40);
+        drifted["pointer"]["positions"][1]["x"] = json!(540);
+        assert!(!evaluate_tally(&drifted).0);
+
+        // +40 clamped at the right edge still looks like a -40 return.
+        drifted["pointer"]["positions"] = json!([{"x": 1919, "y": 400}, {"x": 1879, "y": 400}]);
         assert!(!evaluate_tally(&drifted).0);
 
         let mut synthetic = good_tally();
