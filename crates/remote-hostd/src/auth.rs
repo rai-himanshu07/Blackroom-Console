@@ -89,7 +89,26 @@ impl AuthSession {
 #[derive(Debug, Default)]
 pub struct HostSessions {
     sessions: HashMap<SessionToken, AuthSession>,
-    grant_session: Option<SessionToken>,
+    grant: Option<(SessionToken, String)>,
+}
+
+/// Random 128-bit input binding issued with a grant. It is an opaque label
+/// the peer must echo with each input, not a credential.
+pub fn mint_input_grant() -> Result<String, BlackroomError> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|_| {
+        BlackroomError::new(ErrorCode::RecoveryFailed, "host input grant unavailable")
+    })?;
+    Ok(hex::encode(bytes))
+}
+
+fn same_bytes(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .fold(0_u8, |difference, (a, b)| difference | (a ^ b))
+            == 0
 }
 
 impl HostSessions {
@@ -141,10 +160,23 @@ impl HostSessions {
         Ok(session)
     }
 
-    /// Ties the single active grant to `token`; a later loss of that session
-    /// is reported by [`Self::grant_session_lost`].
-    pub fn bind_grant(&mut self, token: &SessionToken) {
-        self.grant_session = Some(token.clone());
+    /// Ties the single active grant and its input binding to `token`; a later
+    /// loss of that session is reported by [`Self::grant_session_lost`].
+    pub fn bind_grant(&mut self, token: &SessionToken, input_grant: String) {
+        self.grant = Some((token.clone(), input_grant));
+    }
+
+    /// True only for the active grant's binding while its session is live.
+    pub fn input_grant_valid(
+        &self,
+        presented: &str,
+        epoch: SecurityEpoch,
+        now: SystemTime,
+    ) -> bool {
+        self.grant.as_ref().is_some_and(|(token, input_grant)| {
+            self.resolve(token, epoch, now).is_ok()
+                && same_bytes(input_grant.as_bytes(), presented.as_bytes())
+        })
     }
 
     pub fn revoke(&mut self, token: &SessionToken) -> bool {
@@ -162,7 +194,7 @@ impl HostSessions {
     /// Ends every session and the grant binding; called with each revocation.
     pub fn clear(&mut self) {
         self.sessions.clear();
-        self.grant_session = None;
+        self.grant = None;
     }
 
     #[cfg(test)]
@@ -173,9 +205,9 @@ impl HostSessions {
     /// True when the session behind the active grant was revoked, expired or
     /// belongs to an older epoch, so the grant must be revoked too.
     pub fn grant_session_lost(&self, epoch: SecurityEpoch, now: SystemTime) -> bool {
-        self.grant_session
+        self.grant
             .as_ref()
-            .is_some_and(|token| self.resolve(token, epoch, now).is_err())
+            .is_some_and(|(token, _)| self.resolve(token, epoch, now).is_err())
     }
 }
 
@@ -298,7 +330,7 @@ mod tests {
         assert!(!sessions.grant_session_lost(epoch, now));
 
         let token = login(&mut sessions, "a", now);
-        sessions.bind_grant(&token);
+        sessions.bind_grant(&token, "g".into());
         assert!(!sessions.grant_session_lost(epoch, now));
         assert!(sessions.grant_session_lost(epoch.next(), now));
         assert!(sessions.grant_session_lost(epoch, now + AUTH_SESSION_TTL));
@@ -307,7 +339,7 @@ mod tests {
 
         let token = login(&mut sessions, "a", now);
         let other = login(&mut sessions, "b", now);
-        sessions.bind_grant(&token);
+        sessions.bind_grant(&token, "g".into());
         assert_eq!(sessions.revoke_client("client-b"), 1);
         assert!(!sessions.grant_session_lost(epoch, now));
         assert!(sessions.resolve(&other, epoch, now).is_err());
@@ -315,9 +347,42 @@ mod tests {
         assert!(sessions.grant_session_lost(epoch, now));
 
         let token = login(&mut sessions, "a", now);
-        sessions.bind_grant(&token);
+        sessions.bind_grant(&token, "g".into());
         sessions.clear();
         assert!(!sessions.grant_session_lost(epoch, now));
         assert!(sessions.resolve(&token, epoch, now).is_err());
+    }
+
+    #[test]
+    fn input_grant_is_random_and_valid_only_for_the_live_bound_session() {
+        let first = mint_input_grant().unwrap();
+        assert_eq!(first.len(), 32);
+        assert!(first.bytes().all(|digit| digit.is_ascii_hexdigit()));
+        assert_ne!(first, mint_input_grant().unwrap());
+
+        let now = SystemTime::now();
+        let epoch = SecurityEpoch::INITIAL;
+        let mut sessions = HostSessions::default();
+        assert!(!sessions.input_grant_valid(&first, epoch, now));
+
+        let token = login(&mut sessions, "a", now);
+        sessions.bind_grant(&token, first.clone());
+        assert!(sessions.input_grant_valid(&first, epoch, now));
+        assert!(!sessions.input_grant_valid("", epoch, now));
+        assert!(!sessions.input_grant_valid(&first[..31], epoch, now));
+        assert!(!sessions.input_grant_valid(&mint_input_grant().unwrap(), epoch, now));
+        assert!(!sessions.input_grant_valid(&first, epoch.next(), now));
+        assert!(!sessions.input_grant_valid(&first, epoch, now + AUTH_SESSION_TTL));
+
+        let other = login(&mut sessions, "b", now);
+        sessions.bind_grant(&other, "replacement".into());
+        assert!(!sessions.input_grant_valid(&first, epoch, now));
+        assert!(sessions.revoke(&other));
+        assert!(!sessions.input_grant_valid("replacement", epoch, now));
+
+        let token = login(&mut sessions, "a", now);
+        sessions.bind_grant(&token, first.clone());
+        sessions.clear();
+        assert!(!sessions.input_grant_valid(&first, epoch, now));
     }
 }

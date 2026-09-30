@@ -40,7 +40,9 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   input and the abuse limit end the session. Session revocation/expiry is a
   unit-tested `expire_grant` seam with no control command yet, and the 120 s
   lease expires before the 300 s session. The session credential never leaves
-  hostd and the wire protocol is unchanged.
+  hostd. Hostd also mints the input grant (returned on Start, echoed on every
+  Input, dead with the session) instead of the gateway in SEPARATE mode; the
+  control protocol gained that field. In-process modes keep gateway-issued IDs.
 
 ## Open Dependencies
 
@@ -68,9 +70,9 @@ a feasibility, security, Go/No-Go or release gate from simulation.
 
 Run focused gateway/web checks per change; one workspace checkpoint only for
 cross-crate integration and one independent review for a new high-risk
-mechanism. Live system tests stay ignored. Next independent code work is
-presenting the hostd session to the browser only through an authenticated
-gateway protocol (replacing the gateway-issued input ID) before any
+mechanism. Live system tests stay ignored. Next independent code work is an
+authenticated browser-to-gateway session (HttpOnly cookie) so the unauthenticated
+status endpoint stops exposing the input grant, before any
 LAN/real-media implementation. FEAS-C remains
 STOP after the HDMI connector-loss incident; no unattended live experiment is
 authorized by this plan.

@@ -54,9 +54,16 @@ impl CredentialVerifier for DemoCredentialVerifier {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum OfflineCommand {
-    Start { proof: String, demo_code: String },
+    Start {
+        proof: String,
+        demo_code: String,
+    },
     Revoke {},
-    Input { epoch: u64, sequence: u64 },
+    Input {
+        epoch: u64,
+        sequence: u64,
+        grant_id: String,
+    },
     Status {},
 }
 
@@ -69,6 +76,8 @@ pub struct OfflineReply {
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_proof: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_grant: Option<String>,
 }
 
 pub fn write_frame<T: Serialize>(stream: &mut UnixStream, value: &T) -> io::Result<()> {
@@ -135,15 +144,13 @@ mod tests {
             &OfflineCommand::Input {
                 epoch: 1,
                 sequence: 1,
+                grant_id: "g".into(),
             },
         )
         .unwrap();
         assert!(matches!(
             read_frame::<OfflineCommand>(&mut receiver).unwrap(),
-            OfflineCommand::Input {
-                epoch: 1,
-                sequence: 1
-            }
+            OfflineCommand::Input { epoch: 1, sequence: 1, grant_id } if grant_id == "g"
         ));
         let invalid = serde_json::json!({"command": "start", "authenticated": true});
         write_frame(&mut sender, &invalid).unwrap();

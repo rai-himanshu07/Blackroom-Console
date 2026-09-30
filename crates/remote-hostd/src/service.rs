@@ -10,7 +10,7 @@ use blackroom_core::state::State;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    auth::HostSessions,
+    auth::{HostSessions, mint_input_grant},
     offline_control::{
         DemoCredential, DemoCredentialVerifier, OfflineCommand, OfflineReply, read_frame,
         write_frame,
@@ -108,6 +108,7 @@ fn reply(host: &PersistentHostAuthority, accepted: bool, code: Option<&str>) -> 
         epoch: host.epoch().value(),
         code: code.map(str::to_owned),
         next_proof: None,
+        input_grant: None,
     }
 }
 
@@ -117,23 +118,25 @@ fn new_proof() -> io::Result<String> {
     Ok(hex::encode(bytes))
 }
 
-/// Authenticates through the fake adapter, then issues a grant bound to the
-/// new session. A failure after authentication leaves no live session.
+/// Authenticates through the fake adapter, then issues a grant and its input
+/// binding bound to the new session. A failure after authentication leaves
+/// no live session.
 fn issue_session_grant(
     host: &mut PersistentHostAuthority,
     sessions: &mut HostSessions,
     verifier: &mut DemoCredentialVerifier,
     credential: DemoCredential,
     now: SystemTime,
-) -> Result<AuthorityUpdate, BlackroomError> {
+) -> Result<(AuthorityUpdate, String), BlackroomError> {
     let token = sessions.authenticate(verifier, credential, host.epoch(), now)?;
-    let update = sessions
-        .resolve(&token, host.epoch(), now)
-        .and_then(|session| host.grant_update_for(session));
-    match update {
-        Ok(update) => {
-            sessions.bind_grant(&token);
-            Ok(update)
+    let issued = mint_input_grant().and_then(|input_grant| {
+        let session = sessions.resolve(&token, host.epoch(), now)?;
+        Ok((host.grant_update_for(session)?, input_grant))
+    });
+    match issued {
+        Ok((update, input_grant)) => {
+            sessions.bind_grant(&token, input_grant.clone());
+            Ok((update, input_grant))
         }
         Err(error) => {
             sessions.revoke(&token);
@@ -281,7 +284,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                         }
                     }
                     Err(error) => reply(&host, false, Some(error.code.as_str())),
-                    Ok(update) => {
+                    Ok((update, input_grant)) => {
                         if agent.is_none() {
                             agent = Some(connect_agent(agent_socket)?);
                         }
@@ -293,6 +296,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                             invalid_start_attempts = 0;
                             let mut response = reply(&host, true, None);
                             response.next_proof = Some(next_proof);
+                            response.input_grant = Some(input_grant);
                             response
                         } else {
                             host.revoke_update()?;
@@ -322,9 +326,18 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 host.complete_recovery(granted_epoch)?;
                 reply(&host, true, None)
             }
-            OfflineCommand::Input { epoch, sequence } => match current_grant.as_ref() {
+            OfflineCommand::Input {
+                epoch,
+                sequence,
+                grant_id,
+            } => match current_grant.as_ref() {
                 Some(AuthorityUpdate::Grant { lease, .. })
                     if lease.security_epoch.value() == epoch
+                        && sessions.input_grant_valid(
+                            &grant_id,
+                            host.epoch(),
+                            SystemTime::now(),
+                        )
                         && input_sequence.checked_add(1) == Some(sequence) =>
                 {
                     let update = current_grant.as_ref().expect("checked current grant");
@@ -405,7 +418,7 @@ mod tests {
         assert_eq!(sessions.live(), 0);
 
         let credential = presented(&verifier);
-        let update =
+        let (update, input_grant) =
             issue_session_grant(&mut host, &mut sessions, &mut verifier, credential, now).unwrap();
         let AuthorityUpdate::Grant { lease, .. } = update else {
             panic!("expected a grant");
@@ -423,6 +436,7 @@ mod tests {
                     .unwrap_err();
             assert_eq!(error.code, ErrorCode::LeaseInvalid);
             assert!(!sessions.grant_session_lost(host.epoch(), now));
+            assert!(sessions.input_grant_valid(&input_grant, host.epoch(), now));
             assert_eq!(sessions.live(), 1);
         }
         assert_eq!(host.state(), State::RemoteActive);
@@ -436,7 +450,7 @@ mod tests {
         let mut verifier = DemoCredentialVerifier::new("b".repeat(64));
         let now = SystemTime::now();
         let credential = presented(&verifier);
-        let update =
+        let (update, input_grant) =
             issue_session_grant(&mut host, &mut sessions, &mut verifier, credential, now).unwrap();
         let mut grant = Some(update);
         let (mut host_wire, mut agent_wire) = UnixStream::pair().unwrap();
@@ -451,6 +465,7 @@ mod tests {
         .unwrap();
         assert_eq!(host.state(), State::RemoteActive);
         assert!(grant.is_some());
+        assert!(sessions.input_grant_valid(&input_grant, host.epoch(), now));
 
         assert_eq!(sessions.revoke_client("synthetic-client"), 1);
         let peer = std::thread::spawn(move || {
@@ -472,6 +487,7 @@ mod tests {
         assert_eq!(host.state(), State::LocalLocked);
         assert!(grant.is_none());
         assert!(!sessions.grant_session_lost(host.epoch(), now));
+        assert!(!sessions.input_grant_valid(&input_grant, host.epoch(), now));
         assert_eq!(sessions.live(), 0);
         assert_eq!(host.epoch().value(), 1);
     }

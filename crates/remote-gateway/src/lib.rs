@@ -45,10 +45,11 @@ impl SimulationBackend {
         }
     }
 
-    fn start(&mut self, demo_code: &str) -> Result<(), BlackroomError> {
+    /// The grant is hostd-issued in SEPARATE mode and `None` for in-process hosts.
+    fn start(&mut self, demo_code: &str) -> Result<Option<String>, BlackroomError> {
         match self {
-            Self::InProcess(host) => host.start(),
-            Self::Separated(host) => host.start(demo_code),
+            Self::InProcess(host) => host.start().map(|()| None),
+            Self::Separated(host) => host.start(demo_code).map(Some),
         }
     }
 
@@ -59,10 +60,15 @@ impl SimulationBackend {
         }
     }
 
-    fn input(&mut self, event: InputEvent, sequence: u64) -> Result<(), BlackroomError> {
+    fn input(
+        &mut self,
+        event: InputEvent,
+        sequence: u64,
+        grant_id: &str,
+    ) -> Result<(), BlackroomError> {
         match self {
             Self::InProcess(host) => host.input(event),
-            Self::Separated(host) => host.input(event, sequence),
+            Self::Separated(host) => host.input(event, sequence, grant_id),
         }
     }
 }
@@ -115,8 +121,9 @@ impl OfflineConsole {
         getrandom::fill(&mut grant).map_err(|_| {
             BlackroomError::new(ErrorCode::RecoveryFailed, "offline input grant unavailable")
         })?;
-        self.backend.start(demo_code)?;
-        self.input_grant = Some(format!("{:032x}", u128::from_be_bytes(grant)));
+        let hostd_grant = self.backend.start(demo_code)?;
+        self.input_grant =
+            Some(hostd_grant.unwrap_or_else(|| format!("{:032x}", u128::from_be_bytes(grant))));
         self.last_sequence = 0;
         self.invalid_demo_codes = 0;
         Ok(())
@@ -133,7 +140,8 @@ impl OfflineConsole {
                 "stale offline input grant or sequence",
             ));
         }
-        self.backend.input(command.event, command.sequence)?;
+        self.backend
+            .input(command.event, command.sequence, &command.grant_id)?;
         self.last_sequence = command.sequence;
         Ok(())
     }

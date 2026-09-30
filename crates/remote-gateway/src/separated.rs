@@ -90,6 +90,17 @@ fn checked_reply(
         }
         _ => {}
     }
+    match (command, response.input_grant.as_deref()) {
+        (OfflineCommand::Start { .. }, Some(grant))
+            if grant.len() == 32 && grant.bytes().all(|digit| digit.is_ascii_hexdigit()) => {}
+        (OfflineCommand::Start { .. }, _) | (_, Some(_)) => {
+            return Err(BlackroomError::new(
+                ErrorCode::HostUnavailable,
+                "invalid offline authority input grant",
+            ));
+        }
+        _ => {}
+    }
     Ok(expected)
 }
 
@@ -240,7 +251,7 @@ impl SeparatedHost {
             .map_err(|_| ())
     }
 
-    fn request(&mut self, command: OfflineCommand) -> Result<(), BlackroomError> {
+    fn request(&mut self, command: OfflineCommand) -> Result<Option<String>, BlackroomError> {
         if self.emergency_pending() {
             self.state = State::FailedSafe;
             return Err(BlackroomError::new(
@@ -290,7 +301,7 @@ impl SeparatedHost {
         }
         self.epoch = response.epoch;
         self.state = next;
-        Ok(())
+        Ok(response.input_grant)
     }
 
     fn relaunch(&mut self) -> Result<(), BlackroomError> {
@@ -315,7 +326,7 @@ impl SeparatedHost {
         Ok(())
     }
 
-    pub fn start(&mut self, demo_code: &str) -> Result<(), BlackroomError> {
+    pub fn start(&mut self, demo_code: &str) -> Result<String, BlackroomError> {
         if self.emergency_pending() {
             self.state = State::FailedSafe;
             return Err(BlackroomError::new(
@@ -338,6 +349,12 @@ impl SeparatedHost {
         self.request(OfflineCommand::Start {
             proof: self.simulation_proof.clone(),
             demo_code: demo_code.to_owned(),
+        })?
+        .ok_or_else(|| {
+            BlackroomError::new(
+                ErrorCode::HostUnavailable,
+                "offline authority issued no input grant",
+            )
         })
     }
 
@@ -347,10 +364,15 @@ impl SeparatedHost {
         } else {
             State::LocalLocked
         };
-        self.request(OfflineCommand::Revoke {})
+        self.request(OfflineCommand::Revoke {}).map(|_| ())
     }
 
-    pub fn input(&mut self, event: InputEvent, sequence: u64) -> Result<(), BlackroomError> {
+    pub fn input(
+        &mut self,
+        event: InputEvent,
+        sequence: u64,
+        grant_id: &str,
+    ) -> Result<(), BlackroomError> {
         if !event.valid() {
             return Err(BlackroomError::new(
                 ErrorCode::IpcInvalidMessage,
@@ -366,6 +388,7 @@ impl SeparatedHost {
         self.request(OfflineCommand::Input {
             epoch: self.epoch,
             sequence,
+            grant_id: grant_id.to_owned(),
         })?;
         if let InputEvent::Move { dx, dy } = event {
             self.pointer.x = (self.pointer.x + dx / 10.0).clamp(5.0, 95.0);
@@ -411,15 +434,18 @@ mod tests {
             epoch: 4,
             code: None,
             next_proof: None,
+            input_grant: None,
         };
         let input = OfflineCommand::Input {
             epoch: 4,
             sequence: 1,
+            grant_id: "g".into(),
         };
         assert!(checked_reply(&input, &reply, 4).is_err());
         reply.state = "REMOTE_ACTIVE".into();
         reply.epoch = 3;
         reply.next_proof = Some("ab".repeat(32));
+        reply.input_grant = Some("cd".repeat(16));
         assert!(
             checked_reply(
                 &OfflineCommand::Start {
@@ -469,6 +495,22 @@ mod tests {
             )
             .is_err()
         );
+        reply.next_proof = Some("ab".repeat(32));
+        for grant in [Some("short".to_owned()), None] {
+            reply.input_grant = grant;
+            assert!(
+                checked_reply(
+                    &OfflineCommand::Start {
+                        proof: "test".into(),
+                        demo_code: DEMO_CODE.into(),
+                    },
+                    &reply,
+                    4
+                )
+                .is_err()
+            );
+        }
+        reply.next_proof = None;
         assert_eq!(
             checked_reply(&input, &reply, 4).unwrap(),
             State::RemoteActive
@@ -521,12 +563,12 @@ mod tests {
         let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
         let mut demo =
             SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
-        demo.start(DEMO_CODE).unwrap();
+        let grant = demo.start(DEMO_CODE).unwrap();
         let prior_epoch = demo.snapshot().epoch;
         demo.hostd.0.kill().unwrap();
         demo.hostd.0.wait().unwrap();
         assert_ne!(demo.snapshot().state, State::RemoteActive.as_str());
-        assert!(demo.input(InputEvent::Key { code: 30 }, 1).is_err());
+        assert!(demo.input(InputEvent::Key { code: 30 }, 1, &grant).is_err());
         let deadline = Instant::now() + Duration::from_secs(3);
         while demo.agent.0.try_wait().unwrap().is_none() && Instant::now() < deadline {
             std::thread::yield_now();
@@ -534,9 +576,9 @@ mod tests {
         assert!(demo.agent.0.try_wait().unwrap().is_some());
         assert_eq!(demo.snapshot().state, State::LocalLocked.as_str());
         assert!(demo.snapshot().events.is_empty());
-        demo.start(DEMO_CODE).unwrap();
+        let grant = demo.start(DEMO_CODE).unwrap();
         assert!(demo.snapshot().epoch > prior_epoch);
-        demo.input(InputEvent::Key { code: 30 }, 1).unwrap();
+        demo.input(InputEvent::Key { code: 30 }, 1, &grant).unwrap();
         assert_eq!(demo.snapshot().events.len(), 1);
         drop(demo);
         let mut restarted =
@@ -554,12 +596,12 @@ mod tests {
         let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
         let mut demo =
             SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
-        demo.start(DEMO_CODE).unwrap();
+        let grant = demo.start(DEMO_CODE).unwrap();
         let prior_epoch = demo.snapshot().epoch;
         demo.agent.0.kill().unwrap();
         demo.agent.0.wait().unwrap();
         assert_eq!(demo.snapshot().state, State::FailedSafe.as_str());
-        assert!(demo.input(InputEvent::Key { code: 30 }, 1).is_err());
+        assert!(demo.input(InputEvent::Key { code: 30 }, 1, &grant).is_err());
         assert_eq!(demo.snapshot().state, State::FailedSafe.as_str());
         assert!(demo.snapshot().events.is_empty());
         assert_eq!(
@@ -593,7 +635,7 @@ mod tests {
             let mut demo =
                 SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent))
                     .unwrap();
-            demo.start(DEMO_CODE).unwrap();
+            let grant = demo.start(DEMO_CODE).unwrap();
             let before = demo.snapshot().epoch;
             match loss {
                 "agent" => {
@@ -625,7 +667,7 @@ mod tests {
             assert_eq!(stopped.state, State::FailedSafe.as_str(), "{loss}");
             assert!(stopped.epoch > before, "{loss}");
             assert!(
-                demo.input(InputEvent::Key { code: 30 }, 1).is_err(),
+                demo.input(InputEvent::Key { code: 30 }, 1, &grant).is_err(),
                 "{loss}"
             );
             assert!(demo.snapshot().events.is_empty(), "{loss}");
@@ -658,7 +700,7 @@ mod tests {
         let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
         let mut demo =
             SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
-        demo.start(DEMO_CODE).unwrap();
+        let grant = demo.start(DEMO_CODE).unwrap();
         let previous_epoch = demo.snapshot().epoch;
         demo.hostd.0.kill().unwrap();
         demo.hostd.0.wait().unwrap();
@@ -679,12 +721,36 @@ mod tests {
             ErrorCode::HostUnavailable
         );
         assert_eq!(demo.snapshot().state, State::LocalLocked.as_str());
-        assert!(demo.input(InputEvent::Key { code: 30 }, 1).is_err());
+        assert!(demo.input(InputEvent::Key { code: 30 }, 1, &grant).is_err());
         assert!(demo.snapshot().events.is_empty());
         drop(demo);
         let mut restarted =
             SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
         assert!(restarted.snapshot().epoch > previous_epoch);
         assert_eq!(restarted.snapshot().state, State::LocalLocked.as_str());
+    }
+
+    #[test]
+    #[ignore = "run with built offline agent/hostd binaries in BLACKROOM_TEST_AGENT_BIN and BLACKROOM_TEST_HOSTD_BIN"]
+    fn hostd_refuses_input_without_its_own_grant_and_fails_closed() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let agent = std::env::var_os("BLACKROOM_TEST_AGENT_BIN").unwrap();
+        let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
+        let mut demo =
+            SeparatedHost::launch(directory.path(), Path::new(&hostd), Path::new(&agent)).unwrap();
+        let grant = demo.start(DEMO_CODE).unwrap();
+        assert_eq!(grant.len(), 32);
+        assert_eq!(demo.snapshot().state, State::RemoteActive.as_str());
+        demo.input(InputEvent::Key { code: 30 }, 1, &grant).unwrap();
+        let forged = "0".repeat(32);
+        assert!(
+            demo.input(InputEvent::Key { code: 30 }, 2, &forged)
+                .is_err()
+        );
+        assert_eq!(demo.snapshot().events.len(), 1);
+        assert_ne!(demo.snapshot().state, State::RemoteActive.as_str());
+        assert!(demo.input(InputEvent::Key { code: 30 }, 2, &grant).is_err());
+        assert_eq!(demo.snapshot().events.len(), 1);
     }
 }

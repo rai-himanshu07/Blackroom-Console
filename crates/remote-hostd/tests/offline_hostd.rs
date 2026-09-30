@@ -401,7 +401,10 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
     assert_eq!(refused.code.as_deref(), Some("AUTH_INVALID"));
     assert_eq!(refused.state, "LOCAL_LOCKED");
     assert!(refused.next_proof.is_none());
+    assert!(refused.input_grant.is_none());
     let mut current_proof = bootstrap.simulation_proof.clone();
+    let mut current_grant = String::new();
+    let mut first_grant = String::new();
     for (index, (command, state)) in [
         (
             OfflineCommand::Start {
@@ -414,6 +417,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
             OfflineCommand::Input {
                 epoch: 1,
                 sequence: 1,
+                grant_id: String::new(),
             },
             "REMOTE_ACTIVE",
         ),
@@ -435,6 +439,13 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
                 proof: current_proof.clone(),
                 demo_code: DEMO_CODE.into(),
             },
+            OfflineCommand::Input {
+                epoch, sequence, ..
+            } => OfflineCommand::Input {
+                epoch,
+                sequence,
+                grant_id: current_grant.clone(),
+            },
             other => other,
         };
         write_frame(&mut gateway, &command).unwrap();
@@ -446,12 +457,42 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
             assert_ne!(replacement, current_proof);
             assert_eq!(replacement.len(), 64);
             current_proof = replacement;
+            let grant = response.input_grant.expect("accepted Start issues a grant");
+            assert_eq!(grant.len(), 32);
+            assert_ne!(grant, current_grant);
+            if first_grant.is_empty() {
+                first_grant = grant.clone();
+            }
+            current_grant = grant;
         } else {
             assert!(response.next_proof.is_none());
+            assert!(response.input_grant.is_none());
         }
         if index == 1 {
             for (epoch, sequence) in [(1, 1), (1, 0), (1, 3), (2, 2)] {
-                write_frame(&mut gateway, &OfflineCommand::Input { epoch, sequence }).unwrap();
+                write_frame(
+                    &mut gateway,
+                    &OfflineCommand::Input {
+                        epoch,
+                        sequence,
+                        grant_id: current_grant.clone(),
+                    },
+                )
+                .unwrap();
+                let refused: OfflineReply = read_frame(&mut gateway).unwrap();
+                assert!(!refused.accepted);
+                assert_eq!(refused.code.as_deref(), Some("LEASE_INVALID"));
+            }
+            for grant_id in [String::new(), "0".repeat(32), current_grant[1..].to_owned()] {
+                write_frame(
+                    &mut gateway,
+                    &OfflineCommand::Input {
+                        epoch: 1,
+                        sequence: 2,
+                        grant_id,
+                    },
+                )
+                .unwrap();
                 let refused: OfflineReply = read_frame(&mut gateway).unwrap();
                 assert!(!refused.accepted);
                 assert_eq!(refused.code.as_deref(), Some("LEASE_INVALID"));
@@ -461,6 +502,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
                 &OfflineCommand::Input {
                     epoch: 1,
                     sequence: 2,
+                    grant_id: current_grant.clone(),
                 },
             )
             .unwrap();
@@ -481,6 +523,18 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
             assert!(replay.next_proof.is_none());
         }
         if index == 3 {
+            write_frame(
+                &mut gateway,
+                &OfflineCommand::Input {
+                    epoch: 2,
+                    sequence: 1,
+                    grant_id: first_grant.clone(),
+                },
+            )
+            .unwrap();
+            let stale: OfflineReply = read_frame(&mut gateway).unwrap();
+            assert!(!stale.accepted);
+            assert_eq!(stale.code.as_deref(), Some("LEASE_INVALID"));
             for attempt in 1..=5 {
                 write_frame(
                     &mut gateway,
@@ -533,6 +587,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
                 &OfflineCommand::Input {
                     epoch: 2,
                     sequence: 1,
+                    grant_id: current_grant.clone(),
                 },
             )
             .unwrap();
