@@ -111,13 +111,15 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   - Depends on: step 1
   - Verify: each answer cites source; InputCapture rejected at source level for
     criterion 1. Gsettings default of the cancel chord was read on this host.
-- [ ] 3. Write the decision record and helper design: device allow-list and
-      classification, `ISOLATE_INPUT`/`RESTORE_INPUT` only, udev hotplug, in-helper
-      emergency chord, privilege model (distinct UID, group `input`, systemd
-      hardening), release-on-death.
+- [x] 3. Write the decision record and helper design: device allow-list and
+      classification, `ISOLATE_INPUT`/`RESTORE_INPUT` only, udev hotplug, emergency
+      chord in the `remote-emergencyd` binary, grab lease and watchdog, privilege
+      model, release-on-death.
   - Files: `docs/security/input-isolation-decision.md`
   - Depends on: step 2
-  - Verify: independent review of the design; threat-model bypasses named.
+  - Verify: independent review done 2026-09-30; its four findings (emergency
+    path independent of hostd, hung helper, mixed-function nodes, unit hardening
+    wording) are applied in the record.
 - [ ] 4. Offline helper logic behind a fake evdev source: device classification,
       grab state machine, chord detector, hotplug inheritance, release on error.
   - Files: `crates/remote-input-helper/` (new), workspace `Cargo.toml`
@@ -125,7 +127,11 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   - Verify: `cargo test -p remote-input-helper`; no `/dev/input` access in tests.
 - [ ] 5. Live, separate approval: read-only enumeration of input devices and
       capabilities (no grab), then one bounded grab of the built-in keyboard and
-      touchpad with an auto-release timer and second-device SSH.
+      touchpad with an external kill timer, a grab lease and second-device SSH.
+      Must observe: release on fd close and on SIGKILL, queued-event leakage,
+      stuck-modifier/LED/repeat state after release, a stalled helper, mixed
+      hotkey nodes, SysRq and power button, a USB combo plus internal devices,
+      hotplug latency. The 50-cycle target is not claimed.
   - Files: `crates/blackroom-experiments/src/bin/exp09_isolate_input.rs`
   - Depends on: step 4 and a named privilege path
   - Verify: physical input absent from the observer page while grabbed, remote
@@ -148,6 +154,9 @@ observes it; an unsafe or failed mechanism is reported as STOP.
 ## Execution Log
 
 - 2026-09-30: drafted from a read-only source review; nothing live was run.
+- 2026-09-30 (step 3): decision record written and independently reviewed; the
+  grabber is the `remote-emergencyd` binary, a grab lease and watchdog cover a
+  hung helper, and hotplug sandboxing is an open review item.
 - 2026-09-30 (step 2): a read-only source review found InputCapture captures
   injected remote input as well (no virtual-device exemption), so it cannot
   satisfy criterion 1; candidate 3 (`EVIOCGRAB` helper) is next, offline design
