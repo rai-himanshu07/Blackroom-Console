@@ -723,6 +723,14 @@ fn offline_hostd_renews_only_for_the_holder_of_the_active_grant() {
     });
     assert!(started.accepted);
     let grant = started.input_grant.unwrap();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let lease_ms = started.lease_expires_unix_ms.unwrap();
+    let session_ms = started.session_expires_unix_ms.unwrap();
+    assert!(lease_ms > now_ms && lease_ms <= now_ms + 31_000);
+    assert!(session_ms > lease_ms && session_ms <= now_ms + 301_000);
     for (epoch, grant_id) in [
         (0, "0".repeat(32)),
         (0, String::new()),
@@ -738,6 +746,8 @@ fn offline_hostd_renews_only_for_the_holder_of_the_active_grant() {
     assert!(renewed.accepted);
     assert_eq!(renewed.state, "REMOTE_ACTIVE");
     assert!(renewed.next_proof.is_none() && renewed.input_grant.is_none());
+    assert!(renewed.lease_expires_unix_ms.unwrap() > lease_ms);
+    assert_eq!(renewed.session_expires_unix_ms, Some(session_ms));
     let input = send(OfflineCommand::Input {
         epoch: 0,
         sequence: 1,

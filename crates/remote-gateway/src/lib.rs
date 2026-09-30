@@ -7,6 +7,7 @@ use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use axum::extract::{DefaultBodyLimit, State as ExtractState};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
@@ -179,7 +180,17 @@ impl OfflineConsole {
     fn view(&mut self, presented: Option<&str>) -> Snapshot {
         let mut snapshot = self.snapshot();
         snapshot.input_bound = holds_grant(snapshot.input_grant.as_deref(), presented);
-        if !snapshot.input_bound {
+        if snapshot.input_bound {
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_millis() as u64);
+            snapshot.lease_remaining_ms = snapshot
+                .lease_expires_unix_ms
+                .map(|deadline| deadline.saturating_sub(now));
+            snapshot.session_remaining_ms = snapshot
+                .session_expires_unix_ms
+                .map(|deadline| deadline.saturating_sub(now));
+        } else {
             snapshot.next_sequence = None;
         }
         snapshot
@@ -256,6 +267,13 @@ pub struct Snapshot {
     pub input_grant: Option<String>,
     pub input_bound: bool,
     pub next_sequence: Option<u64>,
+    #[serde(skip)]
+    pub lease_expires_unix_ms: Option<u64>,
+    #[serde(skip)]
+    pub session_expires_unix_ms: Option<u64>,
+    /// Only the cookie holder sees the time left before fail-closed expiry.
+    pub lease_remaining_ms: Option<u64>,
+    pub session_remaining_ms: Option<u64>,
     pub events: Vec<InputEvent>,
     pub pointer: PointerPosition,
 }
@@ -407,6 +425,10 @@ impl SimulatedHost {
             input_grant: None,
             input_bound: false,
             next_sequence: None,
+            lease_expires_unix_ms: None,
+            session_expires_unix_ms: None,
+            lease_remaining_ms: None,
+            session_remaining_ms: None,
             events: self.events.clone(),
             pointer: self.pointer,
         }
@@ -982,6 +1004,10 @@ mod tests {
         let (_, started) = call_start(&router).await;
         let grant = jar().unwrap();
         assert!(!started.to_string().contains(&grant));
+        assert!(
+            started["lease_remaining_ms"].is_null(),
+            "in-process hosts have no lease timer"
+        );
         let event = r#"{"sequence":1,"event":{"kind":"key","code":30}}"#;
         for cookie in [
             None,
@@ -1427,6 +1453,13 @@ mod tests {
         assert_eq!(call_start(&router).await.0, StatusCode::CONFLICT);
         let (_, after_duplicate) = call(&router, "/api/simulation", None).await;
         assert_eq!(after_duplicate["state"], "REMOTE_ACTIVE");
+        let lease = after_duplicate["lease_remaining_ms"].as_u64().unwrap();
+        let session = after_duplicate["session_remaining_ms"].as_u64().unwrap();
+        assert!((1..=30_000).contains(&lease) && session > lease && session <= 300_000);
+        assert!(after_duplicate.get("lease_expires_unix_ms").is_none());
+        let (_, stranger) = call_as(&router, "/api/simulation", None, None).await;
+        assert!(stranger["lease_remaining_ms"].is_null());
+        assert!(stranger["session_remaining_ms"].is_null());
         let first_cookie = jar().unwrap();
         let old_input = serde_json::json!({
             "sequence": 1,

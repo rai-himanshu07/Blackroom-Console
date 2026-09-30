@@ -82,6 +82,11 @@ pub struct OfflineReply {
     pub next_proof: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_grant: Option<String>,
+    /// Absolute deadlines on accepted Start/Renew replies, for display only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_expires_unix_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_expires_unix_ms: Option<u64>,
 }
 
 pub fn write_frame<T: Serialize>(stream: &mut UnixStream, value: &T) -> io::Result<()> {

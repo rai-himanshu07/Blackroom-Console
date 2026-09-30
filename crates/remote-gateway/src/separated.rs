@@ -40,6 +40,8 @@ pub struct SeparatedHost {
     epoch: u64,
     events: Vec<InputEvent>,
     pointer: PointerPosition,
+    lease_expires_ms: Option<u64>,
+    session_expires_ms: Option<u64>,
 }
 
 fn checked_reply(
@@ -103,6 +105,18 @@ fn checked_reply(
             ));
         }
         _ => {}
+    }
+    let grants = matches!(
+        command,
+        OfflineCommand::Start { .. } | OfflineCommand::Renew { .. }
+    );
+    let lease = response.lease_expires_unix_ms.is_some();
+    let session = response.session_expires_unix_ms.is_some();
+    if (grants && !(lease && session)) || (!grants && (lease || session)) {
+        return Err(BlackroomError::new(
+            ErrorCode::HostUnavailable,
+            "invalid offline authority deadlines",
+        ));
     }
     Ok(expected)
 }
@@ -195,6 +209,8 @@ impl SeparatedHost {
             epoch: bootstrap.epoch,
             events: Vec::new(),
             pointer: PointerPosition { x: 50.0, y: 55.0 },
+            lease_expires_ms: None,
+            session_expires_ms: None,
         })
     }
 
@@ -232,6 +248,10 @@ impl SeparatedHost {
             input_grant: None,
             input_bound: false,
             next_sequence: None,
+            lease_expires_unix_ms: self.lease_expires_ms,
+            session_expires_unix_ms: self.session_expires_ms,
+            lease_remaining_ms: None,
+            session_remaining_ms: None,
             events: self.events.clone(),
             pointer: self.pointer,
         }
@@ -305,6 +325,13 @@ impl SeparatedHost {
         }
         self.epoch = response.epoch;
         self.state = next;
+        if matches!(
+            command,
+            OfflineCommand::Start { .. } | OfflineCommand::Renew { .. }
+        ) {
+            self.lease_expires_ms = response.lease_expires_unix_ms;
+            self.session_expires_ms = response.session_expires_unix_ms;
+        }
         Ok(response.input_grant)
     }
 
@@ -454,6 +481,8 @@ mod tests {
             code: None,
             next_proof: None,
             input_grant: None,
+            lease_expires_unix_ms: None,
+            session_expires_unix_ms: None,
         };
         let input = OfflineCommand::Input {
             epoch: 4,
@@ -465,6 +494,8 @@ mod tests {
         reply.epoch = 3;
         reply.next_proof = Some("ab".repeat(32));
         reply.input_grant = Some("cd".repeat(16));
+        reply.lease_expires_unix_ms = Some(1);
+        reply.session_expires_unix_ms = Some(2);
         assert!(
             checked_reply(
                 &OfflineCommand::Start {
@@ -529,7 +560,39 @@ mod tests {
                 .is_err()
             );
         }
+        reply.next_proof = Some("ab".repeat(32));
+        reply.input_grant = Some("cd".repeat(16));
+        for (lease, session) in [(None, Some(2)), (Some(1), None), (None, None)] {
+            reply.lease_expires_unix_ms = lease;
+            reply.session_expires_unix_ms = session;
+            assert!(
+                checked_reply(
+                    &OfflineCommand::Start {
+                        proof: "test".into(),
+                        demo_code: DEMO_CODE.into(),
+                    },
+                    &reply,
+                    4
+                )
+                .is_err()
+            );
+        }
+        let renew = OfflineCommand::Renew {
+            epoch: 4,
+            grant_id: "g".into(),
+        };
         reply.next_proof = None;
+        reply.input_grant = None;
+        assert!(checked_reply(&renew, &reply, 4).is_err());
+        reply.lease_expires_unix_ms = Some(1);
+        reply.session_expires_unix_ms = Some(2);
+        assert_eq!(
+            checked_reply(&renew, &reply, 4).unwrap(),
+            State::RemoteActive
+        );
+        assert!(checked_reply(&input, &reply, 4).is_err());
+        reply.lease_expires_unix_ms = None;
+        reply.session_expires_unix_ms = None;
         assert_eq!(
             checked_reply(&input, &reply, 4).unwrap(),
             State::RemoteActive

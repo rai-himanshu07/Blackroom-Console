@@ -16,6 +16,8 @@ interface Snapshot {
   auth_blocked: boolean;
   input_bound: boolean;
   next_sequence: number | null;
+  lease_remaining_ms: number | null;
+  session_remaining_ms: number | null;
   events: InputEvent[];
   pointer: { x: number; y: number };
 }
@@ -57,6 +59,8 @@ app.innerHTML = `
             <div class="status-row"><span>Host state</span><strong id="state">LOCAL_LOCKED</strong></div>
             <div class="status-row"><span>Security epoch</span><strong id="epoch">0</strong></div>
             <div class="status-row"><span>Authority store</span><strong id="storage">EPHEMERAL</strong></div>
+            <div class="status-row"><span>Lease (auto-renewed)</span><strong id="lease">--</strong></div>
+            <div class="status-row"><span>Session ends in</span><strong id="session">--</strong></div>
             <label class="control-label demo-label" for="demo-code">Offline demo code</label>
             <input id="demo-code" class="demo-code" type="password" maxlength="64" autocomplete="off" spellcheck="false" disabled />
             <div class="session-buttons"><button id="start" class="primary" disabled><i data-lucide="circle-play"></i><span>Start simulation</span></button><button id="revoke" class="secondary" disabled><i data-lucide="shield-off"></i><span>Revoke & lock</span></button></div>
@@ -96,6 +100,20 @@ function describe(event: InputEvent): string {
   }
 }
 
+// Time left before hostd fails closed; only the cookie holder is told.
+let countdown: { at: number; lease: number | null; session: number | null } | null = null;
+
+function remaining(total: number | null | undefined): string {
+  if (total === null || total === undefined || !countdown) return '--';
+  const seconds = Math.max(0, Math.ceil((total - (performance.now() - countdown.at)) / 1000));
+  return seconds >= 60 ? `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s` : `${seconds}s`;
+}
+
+function renderCountdown(): void {
+  $('#lease').textContent = remaining(countdown?.lease);
+  $('#session').textContent = remaining(countdown?.session);
+}
+
 function render(value: Snapshot): void {
   snapshot = value;
   const granted = value.state === 'REMOTE_ACTIVE';
@@ -108,6 +126,10 @@ function render(value: Snapshot): void {
   $('#state').textContent = value.state;
   $('#epoch').textContent = String(value.epoch);
   $('#storage').textContent = value.authority_store;
+  countdown = active && value.lease_remaining_ms !== null
+    ? { at: performance.now(), lease: value.lease_remaining_ms, session: value.session_remaining_ms }
+    : null;
+  renderCountdown();
   $('#stage-status').textContent = failedSafe ? 'RECOVERY REQUIRED' : bindingMissing ? 'INPUT BLOCKED' : blocked ? 'ACCESS BLOCKED' : active ? 'SIMULATING' : 'LOCKED';
   $('#screen-state').textContent = value.state;
   $('#screen-title').textContent = failedSafe ? 'Offline recovery required' : bindingMissing ? 'Input authority unavailable' : blocked ? 'Demo access blocked' : active ? 'Synthetic session active' : 'Simulation locked';
@@ -147,6 +169,8 @@ function renderUnavailable(): void {
   $('#state').textContent = 'UNAVAILABLE';
   $('#epoch').textContent = '--';
   $('#storage').textContent = '--';
+  countdown = null;
+  renderCountdown();
   $('#stage-status').textContent = 'OFFLINE';
   $('#screen-state').textContent = 'UNAVAILABLE';
   $('#screen-title').textContent = 'Local gateway unavailable';
@@ -261,3 +285,4 @@ async function heartbeat(): Promise<void> {
 }
 
 window.setInterval(() => { void heartbeat(); }, 10_000);
+window.setInterval(renderCountdown, 1000);

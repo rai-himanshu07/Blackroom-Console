@@ -110,7 +110,32 @@ fn reply(host: &PersistentHostAuthority, accepted: bool, code: Option<&str>) -> 
         code: code.map(str::to_owned),
         next_proof: None,
         input_grant: None,
+        lease_expires_unix_ms: None,
+        session_expires_unix_ms: None,
     }
+}
+
+fn unix_ms(time: SystemTime) -> u64 {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64)
+}
+
+/// Adds the lease and session deadlines of the grant held by `grant_id`.
+fn with_deadlines(
+    mut reply: OfflineReply,
+    update: &AuthorityUpdate,
+    sessions: &HostSessions,
+    grant_id: &str,
+    epoch: blackroom_core::epoch::SecurityEpoch,
+) -> OfflineReply {
+    if let AuthorityUpdate::Grant { lease, .. } = update {
+        reply.lease_expires_unix_ms = Some(unix_ms(lease.expires_at));
+    }
+    reply.session_expires_unix_ms = sessions
+        .session_for_grant(grant_id, epoch, SystemTime::now())
+        .ok()
+        .map(|session| unix_ms(session.expires_at()));
+    reply
 }
 
 fn new_proof() -> io::Result<String> {
@@ -345,11 +370,17 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                         }
                         let stream = agent.as_mut().expect("agent connected");
                         if acknowledged(stream, &update, directory)? {
-                            current_grant = Some(update);
                             input_sequence = 0;
                             verifier.rotate(next_proof.clone());
                             invalid_start_attempts = 0;
-                            let mut response = reply(&host, true, None);
+                            let mut response = with_deadlines(
+                                reply(&host, true, None),
+                                &update,
+                                &sessions,
+                                &input_grant,
+                                host.epoch(),
+                            );
+                            current_grant = Some(update);
                             response.next_proof = Some(next_proof);
                             response.input_grant = Some(input_grant);
                             response
@@ -435,8 +466,15 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                                 .as_mut()
                                 .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
                             if acknowledged(stream, &update, directory)? {
+                                let response = with_deadlines(
+                                    reply(&host, true, None),
+                                    &update,
+                                    &sessions,
+                                    &grant_id,
+                                    host.epoch(),
+                                );
                                 current_grant = Some(update);
-                                reply(&host, true, None)
+                                response
                             } else {
                                 current_grant = None;
                                 input_sequence = 0;
