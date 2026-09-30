@@ -2,10 +2,54 @@ use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
+use blackroom_core::error::{BlackroomError, ErrorCode};
 use blackroom_core::limits::MAX_MESSAGE_SIZE_BYTES;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
+use crate::auth::{CredentialVerifier, Principal};
+
 pub const DEMO_CODE: &str = "SIMULATE";
+
+pub struct DemoCredential {
+    pub proof: String,
+    pub demo_code: String,
+}
+
+/// Fake adapter: the public demo code and rotating simulation proof are
+/// loopback simulation gates, not authentication. They yield the synthetic
+/// principal only so the session and grant path can be exercised offline.
+pub struct DemoCredentialVerifier {
+    proof: String,
+}
+
+impl DemoCredentialVerifier {
+    pub fn new(proof: String) -> Self {
+        Self { proof }
+    }
+
+    pub fn proof(&self) -> &str {
+        &self.proof
+    }
+
+    pub fn rotate(&mut self, proof: String) {
+        self.proof = proof;
+    }
+}
+
+impl CredentialVerifier for DemoCredentialVerifier {
+    type Presented = DemoCredential;
+
+    fn verify(&mut self, presented: DemoCredential) -> Result<Principal, BlackroomError> {
+        if presented.proof == self.proof && presented.demo_code == DEMO_CODE {
+            Ok(Principal::synthetic())
+        } else {
+            Err(BlackroomError::new(
+                ErrorCode::AuthInvalid,
+                "offline simulation credential refused",
+            ))
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]

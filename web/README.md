@@ -57,12 +57,19 @@ processes; the agent acknowledges signed host updates before simulated input
 is recorded. The host key and epoch persist, but the fake event log does not.
 Hostd gives the gateway a random synthetic Start proof through a private
 bootstrap pipe. In separate-process mode hostd requires both that proof and
-the public fake demo code before issuing a signed grant. Each acknowledged
+the public fake demo code. A fake adapter turns them into a synthetic
+principal and hostd opens its own short-lived, epoch-bound in-memory session;
+the signed lease takes its user/client from that session, never outlives it,
+and hostd revokes the grant if the session ends (unit-tested; no control
+command ends a session yet). The session credential is not
+sent to the gateway or browser. Each acknowledged
 Start rotates the proof in the private control reply; an earlier proof cannot
 restart after revoke. Five invalid or replayed Starts block further Starts
 until hostd restarts and revoke an active fake grant. An unverified revoke
 leaves a protected stop marker that blocks restart. This is **not** user
-authentication, PAM, or an installed service identity. The
+authentication, PAM, or an installed service identity; the in-process,
+persisted and one-shot `--offline-sim-host` paths still issue a fixed
+synthetic lease without a session. The
 agent's fake lock, display, input-isolation and capture
 effects must be observed before it acknowledges a signed grant.
 

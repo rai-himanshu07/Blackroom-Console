@@ -31,12 +31,25 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   reports current logind/GNOME capability tiers and the Phase 3 session gate
   while always leaving product remote mode disabled. This does not measure
   display privacy, real input, recovery or compatibility matrix support.
+- [x] Phase 12 slice: separated hostd owns an in-memory, epoch-bound, 5-minute
+  authentication-session registry (`remote-hostd::auth`). Only a
+  `CredentialVerifier` adapter can open a session; the sole adapter is the
+  fake demo-code/rotating-proof one. `start_for` takes the lease user/client
+  from the session, caps expiry at the session's and refuses stale-epoch or
+  expired sessions before any recovery marker is written. Revoke, agent-refused
+  input and the abuse limit end the session. Session revocation/expiry is a
+  unit-tested `expire_grant` seam with no control command yet, and the 120 s
+  lease expires before the 300 s session. The session credential never leaves
+  hostd and the wire protocol is unchanged.
 
 ## Open Dependencies
 
-- [ ] Phase 12: product hostd authentication/session ownership, privilege
-  separation, hardened LAN HTTPS/WebSocket/IPC and CSRF/origin enforcement.
-  The public demo code and exposed input ID are not credentials.
+- [ ] Phase 12: product credential verification (PAM/TOTP/device key),
+  per-account rate limits, session renewal/device revocation commands,
+  privilege separation, hardened LAN HTTPS/WebSocket/IPC and CSRF/origin
+  enforcement. In-process, persisted and one-shot `--offline-sim-host` paths
+  still issue a fixed synthetic lease without a session. The public demo code
+  and exposed input ID are not credentials.
 - [ ] Phase 13: real browser identity, reconnect, trusted device and remote
   interaction flows require the authenticated product protocol; synthetic
   controls are not a desktop client.
@@ -55,8 +68,9 @@ a feasibility, security, Go/No-Go or release gate from simulation.
 
 Run focused gateway/web checks per change; one workspace checkpoint only for
 cross-crate integration and one independent review for a new high-risk
-mechanism. Live system tests stay ignored. Next independent code work is a
-hostd-owned authenticated session bound to grants and revocation, replacing
-the public fake code before any LAN/real-media implementation. FEAS-C remains
+mechanism. Live system tests stay ignored. Next independent code work is
+presenting the hostd session to the browser only through an authenticated
+gateway protocol (replacing the gateway-issued input ID) before any
+LAN/real-media implementation. FEAS-C remains
 STOP after the HDMI connector-loss incident; no unattended live experiment is
 authorized by this plan.

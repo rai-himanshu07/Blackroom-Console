@@ -12,6 +12,9 @@ use blackroom_core::protocol::AuthorityUpdate;
 use blackroom_core::state::State;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 
+use auth::{AuthSession, Principal};
+
+pub mod auth;
 pub mod offline_control;
 pub mod service;
 pub mod store;
@@ -52,22 +55,62 @@ impl OfflineHostAuthority {
         self.state
     }
 
+    /// Issues a lease for the fixed synthetic principal, without any session.
     pub fn start(&mut self) -> Result<(ControlLease, Signature), BlackroomError> {
+        self.issue(&Principal::synthetic(), None, SystemTime::now())
+    }
+
+    /// Issues a lease for an authenticated hostd session; it never outlives
+    /// that session, and the session must belong to the current epoch.
+    pub fn start_for(
+        &mut self,
+        session: &AuthSession,
+    ) -> Result<(ControlLease, Signature), BlackroomError> {
+        let now = SystemTime::now();
+        self.check_session(session, now)?;
+        self.issue(session.principal(), Some(session.expires_at()), now)
+    }
+
+    fn check_session(&self, session: &AuthSession, now: SystemTime) -> Result<(), BlackroomError> {
+        if session.epoch() != self.epoch {
+            return Err(BlackroomError::new(
+                ErrorCode::SessionEpochMismatch,
+                "authentication session belongs to another security epoch",
+            ));
+        }
+        if now >= session.expires_at() {
+            return Err(BlackroomError::new(
+                ErrorCode::AuthInvalid,
+                "authentication session expired",
+            ));
+        }
+        Ok(())
+    }
+
+    fn issue(
+        &mut self,
+        principal: &Principal,
+        not_after: Option<SystemTime>,
+        now: SystemTime,
+    ) -> Result<(ControlLease, Signature), BlackroomError> {
         if self.state != State::LocalLocked {
             return Err(BlackroomError::new(
                 ErrorCode::LeaseInvalid,
                 "simulation is already active",
             ));
         }
-        let now = SystemTime::now();
+        let mut expires_at = now + Duration::from_secs(120);
+        if let Some(limit) = not_after {
+            expires_at = expires_at.min(limit);
+        }
         let lease = ControlLease {
             session_id: SIMULATED_SESSION_ID.into(),
             host_id: "synthetic-host".into(),
-            user_id: "synthetic-user".into(),
-            client_id: "synthetic-client".into(),
+            user_id: principal.user_id.clone(),
+            client_id: principal.client_id.clone(),
             security_epoch: self.epoch,
             issued_at: now,
-            expires_at: now + Duration::from_secs(120),
+            expires_at,
             capabilities: vec![Capability::Control],
         };
         let signature = lease.sign(&self.signing_key);
@@ -114,10 +157,85 @@ pub fn write_update(stream: &mut UnixStream, update: &AuthorityUpdate) -> io::Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use auth::HostSessions;
+    use blackroom_core::limits::AUTH_SESSION_TTL;
+    use offline_control::{DEMO_CODE, DemoCredential, DemoCredentialVerifier};
     use std::io::Read;
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::fs::PermissionsExt;
     use store::PersistentHostAuthority;
+
+    fn demo_credential() -> DemoCredential {
+        DemoCredential {
+            proof: "proof".into(),
+            demo_code: DEMO_CODE.into(),
+        }
+    }
+
+    struct Named;
+
+    impl auth::CredentialVerifier for Named {
+        type Presented = ();
+
+        fn verify(&mut self, _: ()) -> Result<Principal, BlackroomError> {
+            Ok(Principal {
+                user_id: "user-x".into(),
+                client_id: "client-x".into(),
+            })
+        }
+    }
+
+    #[test]
+    fn session_bound_lease_takes_principal_and_never_outlives_session() {
+        let mut host = OfflineHostAuthority::new();
+        let mut sessions = HostSessions::default();
+        let issued = SystemTime::now() - Duration::from_secs(250);
+        let token = sessions
+            .authenticate(&mut Named, (), host.epoch(), issued)
+            .unwrap();
+        let session = sessions
+            .resolve(&token, host.epoch(), SystemTime::now())
+            .unwrap();
+        let (lease, signature) = host.start_for(session).unwrap();
+        lease.verify(&host.verifying_key(), &signature).unwrap();
+        assert_eq!(lease.user_id, "user-x");
+        assert_eq!(lease.client_id, "client-x");
+        assert_eq!(lease.expires_at, session.expires_at());
+        assert!(lease.expires_at < lease.issued_at + Duration::from_secs(120));
+    }
+
+    #[test]
+    fn stale_or_expired_sessions_never_get_a_lease() {
+        let mut host = OfflineHostAuthority::new();
+        let mut sessions = HostSessions::default();
+        let mut verifier = DemoCredentialVerifier::new("proof".into());
+        let foreign = sessions
+            .authenticate(
+                &mut verifier,
+                demo_credential(),
+                host.epoch().next(),
+                SystemTime::now(),
+            )
+            .unwrap();
+        let session = sessions
+            .resolve(&foreign, host.epoch().next(), SystemTime::now())
+            .unwrap();
+        assert_eq!(
+            host.start_for(session).unwrap_err().code,
+            ErrorCode::SessionEpochMismatch
+        );
+
+        let issued = SystemTime::now() - AUTH_SESSION_TTL - Duration::from_secs(1);
+        let old = sessions
+            .authenticate(&mut verifier, demo_credential(), host.epoch(), issued)
+            .unwrap();
+        let session = sessions.resolve(&old, host.epoch(), issued).unwrap();
+        assert_eq!(
+            host.start_for(session).unwrap_err().code,
+            ErrorCode::AuthInvalid
+        );
+        assert_eq!(host.state(), State::LocalLocked);
+    }
 
     #[test]
     fn host_owns_grant_and_invalidates_it_on_revoke() {

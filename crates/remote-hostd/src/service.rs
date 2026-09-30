@@ -4,12 +4,17 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 
+use blackroom_core::error::{BlackroomError, ErrorCode};
 use blackroom_core::protocol::AuthorityUpdate;
 use blackroom_core::state::State;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    offline_control::{DEMO_CODE, OfflineCommand, OfflineReply, read_frame, write_frame},
+    auth::HostSessions,
+    offline_control::{
+        DemoCredential, DemoCredentialVerifier, OfflineCommand, OfflineReply, read_frame,
+        write_frame,
+    },
     store::PersistentHostAuthority,
     write_update,
 };
@@ -112,24 +117,55 @@ fn new_proof() -> io::Result<String> {
     Ok(hex::encode(bytes))
 }
 
+/// Authenticates through the fake adapter, then issues a grant bound to the
+/// new session. A failure after authentication leaves no live session.
+fn issue_session_grant(
+    host: &mut PersistentHostAuthority,
+    sessions: &mut HostSessions,
+    verifier: &mut DemoCredentialVerifier,
+    credential: DemoCredential,
+    now: SystemTime,
+) -> Result<AuthorityUpdate, BlackroomError> {
+    let token = sessions.authenticate(verifier, credential, host.epoch(), now)?;
+    let update = sessions
+        .resolve(&token, host.epoch(), now)
+        .and_then(|session| host.grant_update_for(session));
+    match update {
+        Ok(update) => {
+            sessions.bind_grant(&token);
+            Ok(update)
+        }
+        Err(error) => {
+            sessions.revoke(&token);
+            Err(error)
+        }
+    }
+}
+
+/// Revokes a grant whose lease expired or whose authentication session ended.
 fn expire_grant(
     host: &mut PersistentHostAuthority,
     agent: &mut UnixStream,
     grant: &mut Option<AuthorityUpdate>,
+    sessions: &mut HostSessions,
     directory: &File,
     now: SystemTime,
 ) -> io::Result<()> {
-    if !matches!(grant, Some(AuthorityUpdate::Grant { lease, .. }) if now >= lease.expires_at) {
+    let lease_expired =
+        matches!(grant, Some(AuthorityUpdate::Grant { lease, .. }) if now >= lease.expires_at);
+    let session_ended = grant.is_some() && sessions.grant_session_lost(host.epoch(), now);
+    if !lease_expired && !session_ended {
         return Ok(());
     }
     let Some(AuthorityUpdate::Grant { lease, .. }) = grant.take() else {
-        unreachable!("expired grant must be present");
+        unreachable!("revocable grant must be present");
     };
+    sessions.clear();
     let revoke = host.revoke_update()?;
     if acknowledged(agent, &revoke, directory)? {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            "agent did not revoke expired grant",
+            "agent did not revoke ended grant",
         ));
     }
     host.complete_recovery(lease.security_epoch)?;
@@ -143,11 +179,12 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
         return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
     let listener = UnixListener::bind(control_socket)?;
-    let mut simulation_proof = new_proof()?;
+    let mut verifier = DemoCredentialVerifier::new(new_proof()?);
+    let mut sessions = HostSessions::default();
     let bootstrap = OfflineBootstrap {
         verifier_hex: hex::encode(host.verifying_key().to_bytes()),
         epoch: host.epoch().value(),
-        simulation_proof: simulation_proof.clone(),
+        simulation_proof: verifier.proof().to_owned(),
     };
     let mut stdout = io::stdout().lock();
     serde_json::to_writer(&mut stdout, &bootstrap).map_err(io::Error::other)?;
@@ -169,6 +206,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 &mut host,
                 agent,
                 &mut current_grant,
+                &mut sessions,
                 directory,
                 SystemTime::now(),
             )?;
@@ -197,6 +235,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 &mut host,
                 agent,
                 &mut current_grant,
+                &mut sessions,
                 directory,
                 SystemTime::now(),
             )?;
@@ -207,54 +246,59 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
             {
                 reply(&host, false, Some("AUTH_RATE_LIMITED"))
             }
-            OfflineCommand::Start {
-                ref proof,
-                ref demo_code,
-            } if proof != &simulation_proof || demo_code != DEMO_CODE => {
-                invalid_start_attempts += 1;
-                if invalid_start_attempts == MAX_INVALID_START_ATTEMPTS {
-                    if host.state() == State::RemoteActive {
-                        current_grant = None;
-                        input_sequence = 0;
-                        let granted_epoch = host.epoch();
-                        let update = host.revoke_update()?;
-                        let stream = agent
-                            .as_mut()
-                            .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
-                        if acknowledged(stream, &update, directory)? {
-                            return Err(io::Error::new(
-                                io::ErrorKind::PermissionDenied,
-                                "agent did not revoke after invalid Start attempts",
-                            ));
-                        }
-                        host.complete_recovery(granted_epoch)?;
-                    }
-                    reply(&host, false, Some("AUTH_RATE_LIMITED"))
-                } else {
-                    reply(&host, false, Some("AUTH_INVALID"))
-                }
-            }
-            OfflineCommand::Start { .. } if host.state() == State::RemoteActive => {
-                reply(&host, false, Some("LEASE_INVALID"))
-            }
-            OfflineCommand::Start { .. } => {
+            OfflineCommand::Start { proof, demo_code } => {
                 let next_proof = new_proof()?;
-                let update = host.grant_update().map_err(io::Error::other)?;
-                if agent.is_none() {
-                    agent = Some(connect_agent(agent_socket)?);
-                }
-                let stream = agent.as_mut().expect("agent connected");
-                if acknowledged(stream, &update, directory)? {
-                    current_grant = Some(update);
-                    input_sequence = 0;
-                    simulation_proof = next_proof.clone();
-                    invalid_start_attempts = 0;
-                    let mut response = reply(&host, true, None);
-                    response.next_proof = Some(next_proof);
-                    response
-                } else {
-                    host.revoke_update()?;
-                    return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+                match issue_session_grant(
+                    &mut host,
+                    &mut sessions,
+                    &mut verifier,
+                    DemoCredential { proof, demo_code },
+                    SystemTime::now(),
+                ) {
+                    Err(error) if error.code == ErrorCode::AuthInvalid => {
+                        invalid_start_attempts += 1;
+                        if invalid_start_attempts == MAX_INVALID_START_ATTEMPTS {
+                            if host.state() == State::RemoteActive {
+                                current_grant = None;
+                                input_sequence = 0;
+                                sessions.clear();
+                                let granted_epoch = host.epoch();
+                                let update = host.revoke_update()?;
+                                let stream = agent
+                                    .as_mut()
+                                    .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
+                                if acknowledged(stream, &update, directory)? {
+                                    return Err(io::Error::new(
+                                        io::ErrorKind::PermissionDenied,
+                                        "agent did not revoke after invalid Start attempts",
+                                    ));
+                                }
+                                host.complete_recovery(granted_epoch)?;
+                            }
+                            reply(&host, false, Some("AUTH_RATE_LIMITED"))
+                        } else {
+                            reply(&host, false, Some("AUTH_INVALID"))
+                        }
+                    }
+                    Err(error) => reply(&host, false, Some(error.code.as_str())),
+                    Ok(update) => {
+                        if agent.is_none() {
+                            agent = Some(connect_agent(agent_socket)?);
+                        }
+                        let stream = agent.as_mut().expect("agent connected");
+                        if acknowledged(stream, &update, directory)? {
+                            current_grant = Some(update);
+                            input_sequence = 0;
+                            verifier.rotate(next_proof.clone());
+                            invalid_start_attempts = 0;
+                            let mut response = reply(&host, true, None);
+                            response.next_proof = Some(next_proof);
+                            response
+                        } else {
+                            host.revoke_update()?;
+                            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+                        }
+                    }
                 }
             }
             OfflineCommand::Revoke {} if host.state() == State::LocalLocked => {
@@ -263,6 +307,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
             OfflineCommand::Revoke {} => {
                 current_grant = None;
                 input_sequence = 0;
+                sessions.clear();
                 let granted_epoch = host.epoch();
                 let update = host.revoke_update()?;
                 let stream = agent
@@ -292,6 +337,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                     } else {
                         current_grant = None;
                         input_sequence = 0;
+                        sessions.clear();
                         host.revoke_update()?;
                         reply(&host, false, Some("LEASE_INVALID"))
                     }
@@ -309,10 +355,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
     if host.state() == State::RemoteActive {
         let granted_epoch = host.epoch();
         let update = host.revoke_update()?;
-        if let Some(stream) = agent.as_mut() {
-            if let Ok(false) = acknowledged(stream, &update, directory) {
-                host.complete_recovery(granted_epoch)?;
-            }
+        if let Some(stream) = agent.as_mut()
+            && let Ok(false) = acknowledged(stream, &update, directory)
+        {
+            host.complete_recovery(granted_epoch)?;
         }
     }
     Ok(())
@@ -321,14 +367,120 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::offline_control::DEMO_CODE;
     use std::os::unix::fs::PermissionsExt;
 
-    #[test]
-    fn expiry_revokes_without_input_and_persists_epoch() {
+    fn private_dir() -> (tempfile::TempDir, File) {
         let directory = tempfile::tempdir().unwrap();
         std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let dirfd = File::open(directory.path()).unwrap();
+        (directory, dirfd)
+    }
+
+    fn presented(verifier: &DemoCredentialVerifier) -> DemoCredential {
+        DemoCredential {
+            proof: verifier.proof().to_owned(),
+            demo_code: DEMO_CODE.into(),
+        }
+    }
+
+    #[test]
+    fn grant_requires_a_fake_adapter_session_and_takes_its_principal() {
+        let (directory, dirfd) = private_dir();
         let mut host = PersistentHostAuthority::open(&dirfd).unwrap();
+        let mut sessions = HostSessions::default();
+        let mut verifier = DemoCredentialVerifier::new("a".repeat(64));
+        let now = SystemTime::now();
+
+        let refused = DemoCredential {
+            proof: verifier.proof().to_owned(),
+            demo_code: "wrong".into(),
+        };
+        let error =
+            issue_session_grant(&mut host, &mut sessions, &mut verifier, refused, now).unwrap_err();
+        assert_eq!(error.code, ErrorCode::AuthInvalid);
+        assert_eq!(host.state(), State::LocalLocked);
+        assert!(!directory.path().join("recovery-pending").exists());
+        assert!(!sessions.grant_session_lost(host.epoch(), now));
+        assert_eq!(sessions.live(), 0);
+
+        let credential = presented(&verifier);
+        let update =
+            issue_session_grant(&mut host, &mut sessions, &mut verifier, credential, now).unwrap();
+        let AuthorityUpdate::Grant { lease, .. } = update else {
+            panic!("expected a grant");
+        };
+        assert_eq!(lease.user_id, "synthetic-user");
+        assert_eq!(lease.client_id, "synthetic-client");
+        assert!(lease.expires_at <= now + blackroom_core::limits::AUTH_SESSION_TTL);
+        assert!(!sessions.grant_session_lost(host.epoch(), now));
+        assert_eq!(sessions.live(), 1);
+
+        for _ in 0..8 {
+            let credential = presented(&verifier);
+            let error =
+                issue_session_grant(&mut host, &mut sessions, &mut verifier, credential, now)
+                    .unwrap_err();
+            assert_eq!(error.code, ErrorCode::LeaseInvalid);
+            assert!(!sessions.grant_session_lost(host.epoch(), now));
+            assert_eq!(sessions.live(), 1);
+        }
+        assert_eq!(host.state(), State::RemoteActive);
+    }
+
+    #[test]
+    fn ended_session_revokes_its_grant_and_ends_all_sessions() {
+        let (_directory, dirfd) = private_dir();
+        let mut host = PersistentHostAuthority::open(&dirfd).unwrap();
+        let mut sessions = HostSessions::default();
+        let mut verifier = DemoCredentialVerifier::new("b".repeat(64));
+        let now = SystemTime::now();
+        let credential = presented(&verifier);
+        let update =
+            issue_session_grant(&mut host, &mut sessions, &mut verifier, credential, now).unwrap();
+        let mut grant = Some(update);
+        let (mut host_wire, mut agent_wire) = UnixStream::pair().unwrap();
+        expire_grant(
+            &mut host,
+            &mut host_wire,
+            &mut grant,
+            &mut sessions,
+            &dirfd,
+            now,
+        )
+        .unwrap();
+        assert_eq!(host.state(), State::RemoteActive);
+        assert!(grant.is_some());
+
+        assert_eq!(sessions.revoke_client("synthetic-client"), 1);
+        let peer = std::thread::spawn(move || {
+            let update: AuthorityUpdate =
+                crate::offline_control::read_frame(&mut agent_wire).unwrap();
+            assert!(matches!(update, AuthorityUpdate::Revoke { .. }));
+            agent_wire.write_all(&[0]).unwrap();
+        });
+        expire_grant(
+            &mut host,
+            &mut host_wire,
+            &mut grant,
+            &mut sessions,
+            &dirfd,
+            now,
+        )
+        .unwrap();
+        peer.join().unwrap();
+        assert_eq!(host.state(), State::LocalLocked);
+        assert!(grant.is_none());
+        assert!(!sessions.grant_session_lost(host.epoch(), now));
+        assert_eq!(sessions.live(), 0);
+        assert_eq!(host.epoch().value(), 1);
+    }
+
+    #[test]
+    fn expiry_revokes_without_input_and_persists_epoch() {
+        let (_directory, dirfd) = private_dir();
+        let mut host = PersistentHostAuthority::open(&dirfd).unwrap();
+        let mut sessions = HostSessions::default();
         let mut grant = Some(host.grant_update().unwrap());
         let Some(AuthorityUpdate::Grant { lease, .. }) = grant.as_mut() else {
             panic!("expected grant");
@@ -339,6 +491,7 @@ mod tests {
             &mut host,
             &mut host_wire,
             &mut grant,
+            &mut sessions,
             &dirfd,
             expiry - Duration::from_secs(1),
         )
@@ -352,7 +505,15 @@ mod tests {
             assert!(matches!(update, AuthorityUpdate::Revoke { .. }));
             agent_wire.write_all(&[0]).unwrap();
         });
-        expire_grant(&mut host, &mut host_wire, &mut grant, &dirfd, expiry).unwrap();
+        expire_grant(
+            &mut host,
+            &mut host_wire,
+            &mut grant,
+            &mut sessions,
+            &dirfd,
+            expiry,
+        )
+        .unwrap();
         peer.join().unwrap();
         assert_eq!(host.state(), State::LocalLocked);
         assert!(grant.is_none());

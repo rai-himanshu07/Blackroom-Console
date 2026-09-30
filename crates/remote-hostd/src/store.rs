@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::MetadataExt;
+use std::time::SystemTime;
 
 use blackroom_core::epoch::SecurityEpoch;
 use blackroom_core::error::{BlackroomError, ErrorCode};
@@ -11,6 +12,7 @@ use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use rustix::fs::{AtFlags, FlockOperation, Mode, OFlags};
 
 use crate::OfflineHostAuthority;
+use crate::auth::AuthSession;
 
 const KEY_FILE: &str = "host-identity.key";
 const EPOCH_FILE: &str = "security-epoch";
@@ -319,32 +321,62 @@ impl PersistentHostAuthority {
     }
 
     pub fn start(&mut self) -> Result<(ControlLease, Signature), BlackroomError> {
+        self.begin(|inner| inner.start())
+    }
+
+    /// Session-bound grant. The session is checked once, before any recovery
+    /// intent is persisted, and the same instant is used to sign the lease.
+    pub fn start_for(
+        &mut self,
+        session: &AuthSession,
+    ) -> Result<(ControlLease, Signature), BlackroomError> {
+        let now = SystemTime::now();
+        self.inner.check_session(session, now)?;
+        self.begin(|inner| inner.issue(session.principal(), Some(session.expires_at()), now))
+    }
+
+    fn begin(
+        &mut self,
+        issue: impl FnOnce(
+            &mut OfflineHostAuthority,
+        ) -> Result<(ControlLease, Signature), BlackroomError>,
+    ) -> Result<(ControlLease, Signature), BlackroomError> {
         if self.emergency_required() {
             return Err(BlackroomError::new(
                 ErrorCode::RecoveryFailed,
                 "host authority state cannot be trusted",
             ));
         }
-        if self.inner.state() == State::LocalLocked {
-            if create_private(
+        if self.inner.state() == State::LocalLocked
+            && create_private(
                 &self.directory,
                 RECOVERY_FILE,
                 &self.inner.epoch().value().to_be_bytes(),
             )
             .is_err()
-            {
-                self.blocked = true;
-                return Err(BlackroomError::new(
-                    ErrorCode::RecoveryFailed,
-                    "host recovery intent could not be persisted",
-                ));
-            }
+        {
+            self.blocked = true;
+            return Err(BlackroomError::new(
+                ErrorCode::RecoveryFailed,
+                "host recovery intent could not be persisted",
+            ));
         }
-        self.inner.start()
+        issue(&mut self.inner)
     }
 
     pub fn grant_update(&mut self) -> Result<AuthorityUpdate, BlackroomError> {
         let (lease, signature) = self.start()?;
+        Ok(AuthorityUpdate::Grant {
+            lease,
+            signature: signature.to_bytes().to_vec(),
+        })
+    }
+
+    pub fn grant_update_for(
+        &mut self,
+        session: &AuthSession,
+    ) -> Result<AuthorityUpdate, BlackroomError> {
+        let (lease, signature) = self.start_for(session)?;
         Ok(AuthorityUpdate::Grant {
             lease,
             signature: signature.to_bytes().to_vec(),
@@ -466,6 +498,44 @@ mod tests {
             restarted.start().unwrap_err().code,
             ErrorCode::RecoveryFailed
         );
+    }
+
+    #[test]
+    fn refused_session_leaves_no_recovery_intent() {
+        use crate::auth::HostSessions;
+        use crate::offline_control::{DEMO_CODE, DemoCredential, DemoCredentialVerifier};
+
+        let directory = private_dir();
+        let dirfd = File::open(directory.path()).unwrap();
+        let mut host = PersistentHostAuthority::open(&dirfd).unwrap();
+        let mut sessions = HostSessions::default();
+        let mut verifier = DemoCredentialVerifier::new("proof".into());
+        let credential = || DemoCredential {
+            proof: "proof".into(),
+            demo_code: DEMO_CODE.into(),
+        };
+        let now = std::time::SystemTime::now();
+        let foreign_epoch = host.epoch().next();
+        let token = sessions
+            .authenticate(&mut verifier, credential(), foreign_epoch, now)
+            .unwrap();
+        let session = sessions.resolve(&token, foreign_epoch, now).unwrap();
+        assert_eq!(
+            host.grant_update_for(session).unwrap_err().code,
+            ErrorCode::SessionEpochMismatch
+        );
+        assert!(!directory.path().join(RECOVERY_FILE).exists());
+        assert_eq!(host.state(), State::LocalLocked);
+
+        let token = sessions
+            .authenticate(&mut verifier, credential(), host.epoch(), now)
+            .unwrap();
+        let session = sessions.resolve(&token, host.epoch(), now).unwrap();
+        assert!(matches!(
+            host.grant_update_for(session).unwrap(),
+            AuthorityUpdate::Grant { .. }
+        ));
+        assert!(directory.path().join(RECOVERY_FILE).exists());
     }
 
     #[test]
