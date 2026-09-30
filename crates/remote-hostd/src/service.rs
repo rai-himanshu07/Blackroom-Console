@@ -334,7 +334,10 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                                 })
                                 .is_err()
                         {
+                            // The agent never saw this grant, so recovery is trivially verified.
+                            let granted_epoch = host.epoch();
                             host.revoke_update()?;
+                            host.complete_recovery(granted_epoch)?;
                             return Err(io::Error::other("audit log unavailable"));
                         }
                         if agent.is_none() {

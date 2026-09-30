@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -14,8 +14,19 @@ use remote_hostd::{
     store::PersistentHostAuthority,
 };
 
+// A forked-but-not-yet-exec'd child from another test thread can briefly keep a
+// just-released state-directory flock alive, so process-spawning tests run serially.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[test]
 fn independent_emergency_process_invalidates_an_active_host() {
+    let _serial = serial();
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let dirfd = File::open(directory.path()).unwrap();
@@ -48,6 +59,7 @@ fn independent_emergency_process_invalidates_an_active_host() {
 
 #[test]
 fn failed_safe_agent_ack_persists_stop_before_host_restart() {
+    let _serial = serial();
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let runtime = tempfile::tempdir().unwrap();
@@ -122,6 +134,7 @@ fn failed_safe_agent_ack_persists_stop_before_host_restart() {
 
 #[test]
 fn unverified_abuse_revocation_blocks_host_restart() {
+    let _serial = serial();
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let runtime = tempfile::tempdir().unwrap();
@@ -209,6 +222,7 @@ fn unverified_abuse_revocation_blocks_host_restart() {
 
 #[test]
 fn offline_hostd_process_sends_a_signed_grant_and_persisted_revoke() {
+    let _serial = serial();
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let dirfd = File::open(directory.path()).unwrap();
@@ -281,6 +295,7 @@ fn offline_hostd_process_sends_a_signed_grant_and_persisted_revoke() {
 
 #[test]
 fn offline_hostd_refuses_external_socket_before_creating_identity() {
+    let _serial = serial();
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_remote-hostd"))
@@ -297,6 +312,7 @@ fn offline_hostd_refuses_external_socket_before_creating_identity() {
 
 #[test]
 fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
+    let _serial = serial();
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let runtime = tempfile::tempdir().unwrap();
@@ -632,6 +648,7 @@ fn offline_hostd_service_routes_commands_through_signed_agent_updates() {
 
 #[test]
 fn offline_hostd_renews_only_for_the_holder_of_the_active_grant() {
+    let _serial = serial();
     let directory = tempfile::tempdir().unwrap();
     std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let runtime = tempfile::tempdir().unwrap();
@@ -782,6 +799,7 @@ fn offline_hostd_renews_only_for_the_holder_of_the_active_grant() {
 
 #[test]
 fn malformed_control_frames_stop_hostd_without_any_grant_or_state_change() {
+    let _serial = serial();
     let oversized = (blackroom_core::limits::MAX_MESSAGE_SIZE_BYTES as u32 + 1)
         .to_be_bytes()
         .to_vec();
@@ -882,4 +900,158 @@ fn malformed_control_frames_stop_hostd_without_any_grant_or_state_change() {
         let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
         assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
     }
+}
+
+struct RunningHostd {
+    child: std::process::Child,
+    gateway: UnixStream,
+    proof: String,
+}
+
+fn spawn_hostd(directory: &std::path::Path, runtime: &std::path::Path) -> RunningHostd {
+    let control_socket = runtime.join("control.sock");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_remote-hostd"))
+        .args(["--offline-sim-service", "--state-dir"])
+        .arg(directory)
+        .arg("--runtime-dir")
+        .arg(runtime)
+        .arg("--agent-socket")
+        .arg(runtime.join("agent.sock"))
+        .arg("--control-socket")
+        .arg(&control_socket)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut bootstrap = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut bootstrap)
+        .unwrap();
+    let bootstrap: OfflineBootstrap = serde_json::from_str(&bootstrap).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let gateway = loop {
+        match UnixStream::connect(&control_socket) {
+            Ok(stream) => break stream,
+            Err(_) if Instant::now() < deadline => std::thread::yield_now(),
+            Err(error) => panic!("offline host did not listen: {error}"),
+        }
+    };
+    gateway
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    RunningHostd {
+        child,
+        gateway,
+        proof: bootstrap.simulation_proof,
+    }
+}
+
+fn private_directory() -> tempfile::TempDir {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    directory
+}
+
+#[test]
+fn audit_write_failure_refuses_the_grant_and_leaves_recoverable_state() {
+    let _serial = serial();
+    let directory = private_directory();
+    let runtime = private_directory();
+    let dirfd = File::open(directory.path()).unwrap();
+    drop(PersistentHostAuthority::open(&dirfd).unwrap());
+    // One byte short of the rotation limit, and a rotation target that cannot be replaced.
+    let mut log = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(directory.path().join("audit.log"))
+        .unwrap();
+    log.write_all(&vec![b' '; 1024 * 1024 - 10]).unwrap();
+    std::fs::create_dir(directory.path().join("audit.log.1")).unwrap();
+    std::fs::write(directory.path().join("audit.log.1").join("keep"), b"x").unwrap();
+
+    let listener = UnixListener::bind(runtime.path().join("agent.sock")).unwrap();
+    let peer = std::thread::spawn(move || {
+        let (mut agent, _) = listener.accept().unwrap();
+        agent
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        agent.read(&mut [0_u8; 1]).unwrap_or(0)
+    });
+    let mut host = spawn_hostd(directory.path(), runtime.path());
+    write_frame(
+        &mut host.gateway,
+        &OfflineCommand::Start {
+            proof: host.proof.clone(),
+            demo_code: DEMO_CODE.into(),
+        },
+    )
+    .unwrap();
+    assert!(read_frame::<OfflineReply>(&mut host.gateway).is_err());
+    assert!(!host.child.wait().unwrap().success());
+    assert_eq!(
+        peer.join().unwrap(),
+        0,
+        "the agent must never see the grant"
+    );
+
+    let status = PersistentHostAuthority::inspect(&dirfd).unwrap();
+    assert!(!status.recovery_pending && !status.emergency_pending);
+    let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
+    assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
+}
+
+#[test]
+fn gateway_disconnect_revokes_with_agent_confirmation_and_verifies_recovery() {
+    let _serial = serial();
+    let directory = private_directory();
+    let runtime = private_directory();
+    let listener = UnixListener::bind(runtime.path().join("agent.sock")).unwrap();
+    let peer = std::thread::spawn(move || {
+        let (mut agent, _) = listener.accept().unwrap();
+        agent
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut kinds = Vec::new();
+        for _ in 0..2 {
+            let mut header = [0_u8; 4];
+            agent.read_exact(&mut header).unwrap();
+            let mut bytes = vec![0; u32::from_be_bytes(header) as usize];
+            agent.read_exact(&mut bytes).unwrap();
+            let grant = matches!(
+                serde_json::from_slice::<AuthorityUpdate>(&bytes).unwrap(),
+                AuthorityUpdate::Grant { .. }
+            );
+            agent.write_all(&[u8::from(grant)]).unwrap();
+            kinds.push(grant);
+        }
+        kinds
+    });
+    let mut host = spawn_hostd(directory.path(), runtime.path());
+    write_frame(
+        &mut host.gateway,
+        &OfflineCommand::Start {
+            proof: host.proof.clone(),
+            demo_code: DEMO_CODE.into(),
+        },
+    )
+    .unwrap();
+    assert!(
+        read_frame::<OfflineReply>(&mut host.gateway)
+            .unwrap()
+            .accepted
+    );
+    drop(host.gateway);
+    assert!(host.child.wait().unwrap().success());
+    assert_eq!(peer.join().unwrap(), [true, false]);
+
+    let dirfd = File::open(directory.path()).unwrap();
+    let status = PersistentHostAuthority::inspect(&dirfd).unwrap();
+    assert!(!status.recovery_pending);
+    let audit = std::fs::read_to_string(directory.path().join("audit.log")).unwrap();
+    let last: serde_json::Value = serde_json::from_str(audit.lines().last().unwrap()).unwrap();
+    assert_eq!(last["event"], "grant_revoked");
+    assert_eq!(last["cause"], "peer_closed");
+    let restarted = PersistentHostAuthority::open(&dirfd).unwrap();
+    assert_eq!(restarted.state(), blackroom_core::state::State::LocalLocked);
 }
