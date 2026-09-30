@@ -120,11 +120,16 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   - Verify: independent review done 2026-09-30; its four findings (emergency
     path independent of hostd, hung helper, mixed-function nodes, unit hardening
     wording) are applied in the record.
-- [ ] 4. Offline helper logic behind a fake evdev source: device classification,
-      grab state machine, chord detector, hotplug inheritance, release on error.
-  - Files: `crates/remote-input-helper/` (new), workspace `Cargo.toml`
+- [x] 4. Offline grabber logic behind a fake device source: node classification
+      by capability bits, all-or-nothing isolate, release that retries, hotplug
+      add and remove with fail-closed, a dead-man grab lease and the emergency
+      chord detector. No `/dev/input` access; the caller supplies `Caps` and an
+      `EVIOCGRAB` implementation.
+  - Files: `crates/remote-input-helper/` (library), workspace `Cargo.toml`
   - Depends on: step 3
-  - Verify: `cargo test -p remote-input-helper`; no `/dev/input` access in tests.
+  - Verify: `cargo test -p remote-input-helper` (16 tests), clippy `-D warnings`.
+    Not done: the privileged binary, evdev/udev I/O, the watchdog wiring and the
+    chord choice; those stay behind step 5's approval.
 - [ ] 5. Live, separate approval: read-only enumeration of input devices and
       capabilities (no grab), then one bounded grab of the built-in keyboard and
       touchpad with an external kill timer, a grab lease and second-device SSH.
@@ -162,3 +167,6 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   satisfy criterion 1; candidate 3 (`EVIOCGRAB` helper) is next, offline design
   first. Owner loss, cancel chord, VT-switch and barrier-trigger answers are in
   Evidence. Nothing live was run.
+- 2026-09-30 (step 4, direction approved by the operator): added the pure-logic
+  crate `remote-input-helper` (classification, isolation state machine, lease,
+  chord detector) with 16 tests; no device, ioctl or privilege is touched.

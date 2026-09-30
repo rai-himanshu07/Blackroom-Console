@@ -1,0 +1,11 @@
+[package]
+name = "remote-input-helper"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Pure logic for exclusive physical-input grabs (Phase 7); no device access"
+
+[lints]
+workspace = true

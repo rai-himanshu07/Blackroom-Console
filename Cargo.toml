@@ -8,6 +8,7 @@ members = [
     "crates/blackroom-systest",
     "crates/gnome-session-agent",
     "crates/remote-hostd",
+    "crates/remote-input-helper",
     "crates/remote-gateway",
 ]
 
