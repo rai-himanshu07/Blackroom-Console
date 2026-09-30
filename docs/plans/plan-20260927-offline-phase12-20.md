@@ -51,7 +51,9 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   the gateway forwards a browser heartbeat every 10 s (separated mode only),
   and silence lets the lease lapse (real-process test, ~70 s). Revoke is the
   logout (it ends the session and grant); the 5-minute session end is capped
-  into the lease expiry, so no separate logout command exists. The session
+  into the lease expiry, so no separate logout command exists. Accepted Start
+  and Renew replies carry display-only deadlines; the gateway shows remaining
+  time to the holder only and the page counts down. The session
   credential never leaves
   hostd. Hostd also mints the input grant (returned on Start, echoed on every
   Input, dead with the session) instead of the gateway in SEPARATE mode; the
