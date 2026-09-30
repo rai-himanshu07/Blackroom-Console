@@ -21,7 +21,7 @@ use blackroom_core::state::State;
 use ed25519_dalek::VerifyingKey;
 use gnome_session_agent::{authority::InputAuthority, ipc};
 use remote_hostd::{
-    OfflineHostAuthority, SIMULATED_SESSION_ID, offline_control::DEMO_CODE,
+    OfflineHostAuthority, SIMULATED_SESSION_ID, auth::same_bytes, offline_control::DEMO_CODE,
     store::PersistentHostAuthority, write_update,
 };
 use serde::{Deserialize, Serialize};
@@ -129,22 +129,65 @@ impl OfflineConsole {
         Ok(())
     }
 
-    fn input(&mut self, command: InputCommand) -> Result<(), BlackroomError> {
+    fn input(
+        &mut self,
+        command: InputCommand,
+        presented: Option<&str>,
+    ) -> Result<(), BlackroomError> {
         let current = self.snapshot();
-        if current.state != State::RemoteActive.as_str()
-            || current.input_grant.as_deref() != Some(command.grant_id.as_str())
-            || current.next_sequence != Some(command.sequence)
-        {
+        let held =
+            presented.filter(|value| holds_grant(current.input_grant.as_deref(), Some(value)));
+        let Some(grant) = held.filter(|_| {
+            current.state == State::RemoteActive.as_str()
+                && current.next_sequence == Some(command.sequence)
+        }) else {
             return Err(BlackroomError::new(
                 ErrorCode::LeaseInvalid,
                 "stale offline input grant or sequence",
             ));
-        }
-        self.backend
-            .input(command.event, command.sequence, &command.grant_id)?;
+        };
+        self.backend.input(command.event, command.sequence, grant)?;
         self.last_sequence = command.sequence;
         Ok(())
     }
+
+    /// Browser-facing view: only the holder of the matching cookie sees a sequence.
+    fn view(&mut self, presented: Option<&str>) -> Snapshot {
+        let mut snapshot = self.snapshot();
+        snapshot.input_bound = holds_grant(snapshot.input_grant.as_deref(), presented);
+        if !snapshot.input_bound {
+            snapshot.next_sequence = None;
+        }
+        snapshot
+    }
+}
+
+fn holds_grant(current: Option<&str>, presented: Option<&str>) -> bool {
+    matches!(
+        (current, presented),
+        (Some(current), Some(presented)) if same_bytes(current.as_bytes(), presented.as_bytes())
+    )
+}
+
+const INPUT_COOKIE: &str = "blackroom_input";
+const CLEAR_INPUT_COOKIE: &str =
+    "blackroom_input=; Max-Age=0; HttpOnly; SameSite=Strict; Path=/api/simulation";
+
+fn set_input_cookie(grant: &str) -> String {
+    format!("{INPUT_COOKIE}={grant}; HttpOnly; SameSite=Strict; Path=/api/simulation")
+}
+
+fn input_cookie(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(name, _)| *name == INPUT_COOKIE)
+        .map(|(_, value)| value)
+        .filter(|value| value.len() == 32 && value.bytes().all(|digit| digit.is_ascii_hexdigit()))
+        .map(str::to_owned)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -172,7 +215,6 @@ impl InputEvent {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InputCommand {
-    grant_id: String,
     sequence: u64,
     event: InputEvent,
 }
@@ -185,7 +227,10 @@ pub struct Snapshot {
     pub state: &'static str,
     pub epoch: u64,
     pub auth_blocked: bool,
+    /// Never serialized: it travels only in the HttpOnly `blackroom_input` cookie.
+    #[serde(skip)]
     pub input_grant: Option<String>,
+    pub input_bound: bool,
     pub next_sequence: Option<u64>,
     pub events: Vec<InputEvent>,
     pub pointer: PointerPosition,
@@ -336,6 +381,7 @@ impl SimulatedHost {
             epoch: self.host.epoch().value(),
             auth_blocked: false,
             input_grant: None,
+            input_bound: false,
             next_sequence: None,
             events: self.events.clone(),
             pointer: self.pointer,
@@ -487,31 +533,54 @@ fn check_origin(headers: &HeaderMap) -> Result<(), (StatusCode, Json<ApiError>)>
     }
 }
 
-async fn status(ExtractState(host): ExtractState<SharedHost>) -> Json<Snapshot> {
-    Json(host.lock().expect("simulation lock poisoned").snapshot())
+async fn status(
+    ExtractState(host): ExtractState<SharedHost>,
+    headers: HeaderMap,
+) -> Json<Snapshot> {
+    let presented = input_cookie(&headers);
+    Json(
+        host.lock()
+            .expect("simulation lock poisoned")
+            .view(presented.as_deref()),
+    )
 }
+
+type CookieResult = Result<([(header::HeaderName, String); 1], Json<Snapshot>), ApiFailure>;
+type ApiFailure = (StatusCode, Json<ApiError>);
 
 async fn start(
     ExtractState(host): ExtractState<SharedHost>,
     headers: HeaderMap,
     Json(command): Json<StartCommand>,
-) -> ApiResult<Snapshot> {
+) -> CookieResult {
     check_origin(&headers)?;
     let mut host = host.lock().expect("simulation lock poisoned");
     host.start(&command.demo_code)
         .map_err(start_error_response)?;
-    Ok(Json(host.snapshot()))
+    let grant = host
+        .input_grant
+        .clone()
+        .expect("Start sets the input grant");
+    let snapshot = host.view(Some(&grant));
+    Ok((
+        [(header::SET_COOKIE, set_input_cookie(&grant))],
+        Json(snapshot),
+    ))
 }
 
 async fn revoke(
     ExtractState(host): ExtractState<SharedHost>,
     headers: HeaderMap,
     Json(_command): Json<EmptyCommand>,
-) -> ApiResult<Snapshot> {
+) -> CookieResult {
     check_origin(&headers)?;
     let mut host = host.lock().expect("simulation lock poisoned");
     host.backend.revoke().map_err(error_response)?;
-    Ok(Json(host.snapshot()))
+    let snapshot = host.view(None);
+    Ok((
+        [(header::SET_COOKIE, CLEAR_INPUT_COOKIE.to_owned())],
+        Json(snapshot),
+    ))
 }
 
 async fn input(
@@ -520,9 +589,11 @@ async fn input(
     Json(command): Json<InputCommand>,
 ) -> ApiResult<Snapshot> {
     check_origin(&headers)?;
+    let presented = input_cookie(&headers);
     let mut host = host.lock().expect("simulation lock poisoned");
-    host.input(command).map_err(error_response)?;
-    Ok(Json(host.snapshot()))
+    host.input(command, presented.as_deref())
+        .map_err(error_response)?;
+    Ok(Json(host.view(presented.as_deref())))
 }
 
 pub fn router() -> Router {
@@ -573,14 +644,28 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use tower::ServiceExt;
 
-    async fn call(
+    thread_local! {
+        static BROWSER_COOKIE: std::cell::RefCell<Option<String>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// The test browser's `blackroom_input` cookie; one jar per test thread.
+    fn jar() -> Option<String> {
+        BROWSER_COOKIE.with(|jar| jar.borrow().clone())
+    }
+
+    async fn send(
         router: &Router,
         path: &str,
         body: Option<&str>,
-    ) -> (StatusCode, serde_json::Value) {
+        cookie: Option<&str>,
+    ) -> (StatusCode, HeaderMap, serde_json::Value) {
         let mut builder = Request::builder()
             .uri(path)
             .header("host", "127.0.0.1:8787");
+        if let Some(cookie) = cookie {
+            builder = builder.header("cookie", format!("theme=dark; blackroom_input={cookie}"));
+        }
         if body.is_some() {
             builder = builder
                 .method("POST")
@@ -596,11 +681,47 @@ mod tests {
             .await
             .unwrap();
         let status = response.status();
+        let headers = response.headers().clone();
         let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
         (
             status,
+            headers,
             serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
         )
+    }
+
+    /// Sends the jar's cookie and applies any `Set-Cookie`, like a browser.
+    async fn call(
+        router: &Router,
+        path: &str,
+        body: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        let (status, headers, value) = send(router, path, body, jar().as_deref()).await;
+        if let Some(set) = headers.get(header::SET_COOKIE) {
+            let set = set.to_str().unwrap();
+            assert!(set.contains("; HttpOnly; SameSite=Strict; Path=/api/simulation"));
+            let stored = set
+                .split(';')
+                .next()
+                .unwrap()
+                .strip_prefix("blackroom_input=")
+                .unwrap();
+            BROWSER_COOKIE.with(|jar| {
+                *jar.borrow_mut() = (!stored.is_empty()).then(|| stored.to_owned());
+            });
+        }
+        (status, value)
+    }
+
+    /// Sends an explicit cookie (or none) and leaves the jar alone.
+    async fn call_as(
+        router: &Router,
+        path: &str,
+        body: Option<&str>,
+        cookie: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        let (status, _, value) = send(router, path, body, cookie).await;
+        (status, value)
     }
 
     async fn call_start(router: &Router) -> (StatusCode, serde_json::Value) {
@@ -615,7 +736,6 @@ mod tests {
     async fn call_input(router: &Router, event: &str) -> (StatusCode, serde_json::Value) {
         let (_, snapshot) = call(router, "/api/simulation", None).await;
         let command = serde_json::json!({
-            "grant_id": snapshot["input_grant"].as_str().unwrap_or(""),
             "sequence": snapshot["next_sequence"].as_u64().unwrap_or(1),
             "event": serde_json::from_str::<serde_json::Value>(event).unwrap(),
         });
@@ -738,11 +858,13 @@ mod tests {
     async fn sequenced_input_rejects_replay_skips_and_prior_grants() {
         let router = router();
         let (_, first) = call_start(&router).await;
-        let first_grant = first["input_grant"].as_str().unwrap().to_owned();
+        let first_grant = jar().expect("Start sets the input cookie");
         assert_eq!(first_grant.len(), 32);
         assert_eq!(first["next_sequence"], 1);
+        assert_eq!(first["input_bound"], true);
+        assert!(first.get("input_grant").is_none());
         let first_event = serde_json::json!({
-            "grant_id": first_grant, "sequence": 1,
+            "sequence": 1,
             "event": {"kind": "key", "code": 30},
         });
         let first_event = first_event.to_string();
@@ -759,7 +881,7 @@ mod tests {
             StatusCode::CONFLICT
         );
         let skipped = serde_json::json!({
-            "grant_id": first_grant, "sequence": 3,
+            "sequence": 3,
             "event": {"kind": "click", "button": 272},
         });
         assert_eq!(
@@ -782,28 +904,87 @@ mod tests {
             call(&router, "/api/simulation/revoke", Some("{}")).await.0,
             StatusCode::OK
         );
+        assert!(jar().is_none(), "Revoke clears the input cookie");
         let (_, second) = call_start(&router).await;
-        assert_ne!(second["input_grant"], first_grant);
+        assert_ne!(jar().unwrap(), first_grant);
         assert_eq!(second["next_sequence"], 1);
         assert_eq!(
-            call(&router, "/api/simulation/input", Some(&first_event))
-                .await
-                .0,
+            call_as(
+                &router,
+                "/api/simulation/input",
+                Some(&first_event),
+                Some(&first_grant)
+            )
+            .await
+            .0,
             StatusCode::CONFLICT
         );
         drop(router);
 
         let restarted = super::router();
-        let (_, new_session) = call_start(&restarted).await;
-        assert_ne!(new_session["input_grant"], first_grant);
+        call_start(&restarted).await;
+        assert_ne!(jar().unwrap(), first_grant);
         assert_eq!(
-            call(&restarted, "/api/simulation/input", Some(&first_event))
-                .await
-                .0,
+            call_as(
+                &restarted,
+                "/api/simulation/input",
+                Some(&first_event),
+                Some(&first_grant)
+            )
+            .await
+            .0,
             StatusCode::CONFLICT
         );
         let (_, snapshot) = call(&restarted, "/api/simulation", None).await;
         assert!(snapshot["events"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn status_hides_the_grant_and_only_the_cookie_holder_can_input() {
+        let router = router();
+        let (_, started) = call_start(&router).await;
+        let grant = jar().unwrap();
+        assert!(!started.to_string().contains(&grant));
+        let event = r#"{"sequence":1,"event":{"kind":"key","code":30}}"#;
+        for cookie in [
+            None,
+            Some("0".repeat(32)),
+            Some(grant[1..].to_owned()),
+            Some("not-a-hex-grant-not-a-hex-grant-xx".to_owned()),
+        ] {
+            let (_, status) = call_as(&router, "/api/simulation", None, cookie.as_deref()).await;
+            assert_eq!(status["state"], "REMOTE_ACTIVE");
+            assert_eq!(status["input_bound"], false);
+            assert!(status["next_sequence"].is_null());
+            assert!(!status.to_string().contains(&grant));
+            assert_eq!(
+                call_as(
+                    &router,
+                    "/api/simulation/input",
+                    Some(event),
+                    cookie.as_deref()
+                )
+                .await
+                .0,
+                StatusCode::CONFLICT
+            );
+        }
+        let (_, unchanged) = call(&router, "/api/simulation", None).await;
+        assert_eq!(unchanged["input_bound"], true);
+        assert_eq!(unchanged["next_sequence"], 1);
+        assert!(unchanged["events"].as_array().unwrap().is_empty());
+        assert_eq!(
+            call(&router, "/api/simulation/input", Some(event)).await.0,
+            StatusCode::OK
+        );
+        let with_body_grant =
+            format!(r#"{{"grant_id":"{grant}","sequence":2,"event":{{"kind":"key","code":30}}}}"#);
+        assert_eq!(
+            call(&router, "/api/simulation/input", Some(&with_body_grant))
+                .await
+                .0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 
     #[tokio::test]
@@ -820,9 +1001,9 @@ mod tests {
         assert_eq!(locked["state"], "LOCAL_LOCKED");
         assert_eq!(locked["auth_blocked"], false);
 
-        let (_, active) = call_start(&router).await;
+        call_start(&router).await;
         let large = serde_json::json!({
-            "grant_id": active["input_grant"], "sequence": 1,
+            "sequence": 1,
             "event": {"kind": "key", "code": 30},
             "padding": "X".repeat(MAX_INPUT_EVENT_SIZE_BYTES),
         });
@@ -1036,8 +1217,9 @@ mod tests {
         assert_eq!(call_start(&router).await.0, StatusCode::CONFLICT);
         let (_, after_duplicate) = call(&router, "/api/simulation", None).await;
         assert_eq!(after_duplicate["state"], "REMOTE_ACTIVE");
+        let first_cookie = jar().unwrap();
         let old_input = serde_json::json!({
-            "grant_id": after_duplicate["input_grant"], "sequence": 1,
+            "sequence": 1,
             "event": {"kind": "key", "code": 30},
         })
         .to_string();
@@ -1064,13 +1246,18 @@ mod tests {
         assert_eq!(state["state"], "LOCAL_LOCKED");
         assert_eq!(state["epoch"], 2);
         assert!(state["events"].as_array().unwrap().is_empty());
-        let (status, fresh) = call_start(&restarted).await;
+        let (status, _) = call_start(&restarted).await;
         assert_eq!(status, StatusCode::OK);
-        assert_ne!(fresh["input_grant"], after_duplicate["input_grant"]);
+        assert_ne!(jar().unwrap(), first_cookie);
         assert_eq!(
-            call(&restarted, "/api/simulation/input", Some(&old_input))
-                .await
-                .0,
+            call_as(
+                &restarted,
+                "/api/simulation/input",
+                Some(&old_input),
+                Some(&first_cookie)
+            )
+            .await
+            .0,
             StatusCode::CONFLICT
         );
         let (_, current) = call(&restarted, "/api/simulation", None).await;

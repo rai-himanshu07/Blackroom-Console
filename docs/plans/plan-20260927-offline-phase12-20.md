@@ -15,8 +15,10 @@ a feasibility, security, Go/No-Go or release gate from simulation.
 - [x] Phase 12: loopback HTTP Start/revoke/status/input with strict JSON, fixed
   Host header and allow-listed supplied Origin (Origin-less CLI is accepted),
   shared 64-KiB message and 512-byte input bounds.
-  Each acknowledged fake grant gets a random, non-secret input ID; input
-  requires that ID and the exact next sequence before the fake sink is called.
+  Each acknowledged fake grant gets a random input ID; the gateway carries it
+  in an HttpOnly SameSite=Strict cookie, never in status JSON, and input
+  requires that cookie and the exact next sequence before the fake sink is
+  called. Revoke clears the cookie.
   Invalid, replayed, gapped and stale envelopes leave the event log unchanged.
   Separated hostd also requires the active signed lease epoch and its own
   increasing sequence before it forwards fake input to the agent.
@@ -51,7 +53,7 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   privilege separation, hardened LAN HTTPS/WebSocket/IPC and CSRF/origin
   enforcement. In-process, persisted and one-shot `--offline-sim-host` paths
   still issue a fixed synthetic lease without a session. The public demo code
-  and exposed input ID are not credentials.
+  and the loopback cookie (not port-isolated) are not credentials.
 - [ ] Phase 13: real browser identity, reconnect, trusted device and remote
   interaction flows require the authenticated product protocol; synthetic
   controls are not a desktop client.
@@ -70,9 +72,9 @@ a feasibility, security, Go/No-Go or release gate from simulation.
 
 Run focused gateway/web checks per change; one workspace checkpoint only for
 cross-crate integration and one independent review for a new high-risk
-mechanism. Live system tests stay ignored. Next independent code work is an
-authenticated browser-to-gateway session (HttpOnly cookie) so the unauthenticated
-status endpoint stops exposing the input grant, before any
+mechanism. Live system tests stay ignored. Next independent code work is
+session logout/renewal (heartbeat) commands and per-(client, account) rate
+limits in the hostd registry, before any
 LAN/real-media implementation. FEAS-C remains
 STOP after the HDMI connector-loss incident; no unattended live experiment is
 authorized by this plan.

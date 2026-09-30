@@ -102,7 +102,8 @@ pub fn mint_input_grant() -> Result<String, BlackroomError> {
     Ok(hex::encode(bytes))
 }
 
-fn same_bytes(left: &[u8], right: &[u8]) -> bool {
+/// Length-then-XOR comparison that does not short-circuit on the first difference.
+pub fn same_bytes(left: &[u8], right: &[u8]) -> bool {
     left.len() == right.len()
         && left
             .iter()

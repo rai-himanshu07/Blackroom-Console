@@ -24,14 +24,18 @@ synthetic epoch. The gateway only binds `127.0.0.1:8787` and
 requires the exact `--offline-sim` flag. It does not launch the GNOME agent.
 Closing the gateway discards the simulated session and log.
 
-After each fake Start, the browser uses the current non-secret `input_grant`
-and `next_sequence` from the gateway snapshot for every input event. Old,
-repeated and out-of-order event envelopes are refused; failed events do not
-consume a sequence. The input body is limited to 512 bytes and other JSON
-requests to 64 KiB. The browser hides fake control if the grant or sequence
-is missing, and discards status replies that started before a later command.
-These guards prevent stale local requests, not unauthorized clients: no
-production authentication, WebRTC or media channel is enabled.
+After each fake Start, the gateway sets an HttpOnly, SameSite=Strict
+`blackroom_input` cookie (path `/api/simulation`) holding the input grant; the
+snapshot never contains it. Status reports `input_bound` and `next_sequence`
+only to the cookie holder, and every input event needs that cookie plus the
+next sequence. Old, repeated and out-of-order event envelopes are refused;
+failed events do not consume a sequence. Revoke clears the cookie. The input
+body is limited to 512 bytes and other JSON requests to 64 KiB. The browser
+hides fake control if it is not bound or the sequence is missing, and discards
+status replies that started before a later command.
+These guards prevent stale local requests, not unauthorized clients: anyone
+who knows the public demo code can Start, and cookies are not isolated by port
+on `127.0.0.1`. No production authentication, WebRTC or media channel is enabled.
 In `SEPARATE` mode hostd independently refuses a wrong lease epoch or repeated
 input sequence before it contacts the fake agent.
 

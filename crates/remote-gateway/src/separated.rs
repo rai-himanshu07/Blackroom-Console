@@ -227,6 +227,7 @@ impl SeparatedHost {
             epoch: self.epoch,
             auth_blocked: false,
             input_grant: None,
+            input_bound: false,
             next_sequence: None,
             events: self.events.clone(),
             pointer: self.pointer,

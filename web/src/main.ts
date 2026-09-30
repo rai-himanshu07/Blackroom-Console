@@ -14,7 +14,7 @@ interface Snapshot {
   state: string;
   epoch: number;
   auth_blocked: boolean;
-  input_grant: string | null;
+  input_bound: boolean;
   next_sequence: number | null;
   events: InputEvent[];
   pointer: { x: number; y: number };
@@ -99,7 +99,7 @@ function describe(event: InputEvent): string {
 function render(value: Snapshot): void {
   snapshot = value;
   const granted = value.state === 'REMOTE_ACTIVE';
-  const active = granted && typeof value.input_grant === 'string' && /^[0-9a-f]{32}$/.test(value.input_grant)
+  const active = granted && value.input_bound === true
     && value.next_sequence !== null
     && Number.isSafeInteger(value.next_sequence) && value.next_sequence > 0;
   const bindingMissing = granted && !active;
@@ -174,11 +174,12 @@ async function request(path: string, event?: InputEvent): Promise<void> {
   try {
     const response = await fetch(`/api/simulation${path}`, {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(path === '/start'
         ? { demo_code: $<HTMLInputElement>('#demo-code').value }
         : path === '/input'
-          ? { grant_id: snapshot?.input_grant ?? '', sequence: snapshot?.next_sequence ?? 0, event }
+          ? { sequence: snapshot?.next_sequence ?? 0, event }
           : {}),
     });
     const result: Snapshot | { code: string; message: string } = response.headers.get('content-type')?.includes('application/json')
@@ -207,7 +208,7 @@ async function refresh(force = false): Promise<void> {
   if (pending && !force) return;
   const generation = ++refreshGeneration;
   try {
-    const response = await fetch('/api/simulation', { cache: 'no-store' });
+    const response = await fetch('/api/simulation', { cache: 'no-store', credentials: 'same-origin' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const current = await response.json() as Snapshot;
     if (generation !== refreshGeneration || (pending && !force)) return;
