@@ -139,8 +139,15 @@ activation; live FEAS-D proof requires a separate supervised approval.
   - Verify: representative target-window input, session identity, teardown,
     and no-input-when-unauthorized; expand the app/hardware matrix only for a
     specific failure or additional support claim.
-- [ ] 4. Review recorded evidence for the supported configuration and determine FEAS-D PASS or
+- [x] 4. Review recorded evidence for the supported configuration and determine FEAS-D PASS or
       stop-and-report; only then consider Phase 7's separate Gate E plan.
+      **Outcome 2026-09-30: stop-and-report, FEAS-D not PASS.** Independent
+      review: the only complete run failed the pointer-magnitude check, revoke
+      is proven only at the local authorization boundary and post-stop refusal
+      cannot be attributed to Mutter. `REMOTE_INPUT_CAPABLE` -> `EXPERIMENTAL`,
+      `REMOTE_DESKTOP_CAPABLE` -> `SUPPORTED_WITH_LIMITATIONS` (report and
+      `capability.rs`). Closing FEAS-D needs one more live run with the
+      position-based check (separate approval) or an accepted documented limit.
   - Files: `docs/gnome/capability-report.md`, `docs/HANDOFF.md`
   - Depends on: step 3
   - Verify: no gate promotion on source reading or unobserved assertions.
@@ -457,3 +464,9 @@ Exit codes: 0 PASS, 1 FAIL, 2 BLOCKED, 3 inconclusive.
   arrive). The page now records positions and the evaluator checks them. FEAS-D
   stays UNPROVEN pending Step 4 review; run 3 is optional and needs its own
   approval. Evidence: `docs/experiments/evidence/exp08/2026-09-30-2/`.
+- 2026-09-30 (Step 4 review): a read-only review of both runs found no PASS;
+  keyboard, click, scroll and relative-motion delivery, lifecycle and
+  non-delivery after revoke and stop are supported, pointer magnitude is not.
+  Stale claims in `capability-report.md`, `capability.rs` and
+  `virtual-display.md` (ConnectToEIS unexercised, no real `Start`) were
+  corrected; FEAS-D stays open.
