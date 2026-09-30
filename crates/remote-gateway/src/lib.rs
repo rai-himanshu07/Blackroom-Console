@@ -1025,6 +1025,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cookie_surface_refuses_cross_origin_and_ambiguous_credentials() {
+        let router = router();
+        call_start(&router).await;
+        let grant = jar().unwrap();
+        let wrong = "0".repeat(32);
+        let event = r#"{"sequence":1,"event":{"kind":"key","code":30}}"#;
+        let post = |path: &'static str, headers: Vec<(&'static str, Vec<u8>)>| {
+            let router = router.clone();
+            async move {
+                let mut builder = Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("host", "127.0.0.1:8787")
+                    .header("content-type", "application/json");
+                for (name, value) in headers {
+                    builder =
+                        builder.header(name, header::HeaderValue::from_bytes(&value).unwrap());
+                }
+                let body = if path.ends_with("input") { event } else { "{}" };
+                router
+                    .oneshot(builder.body(Body::from(body)).unwrap())
+                    .await
+                    .unwrap()
+                    .status()
+            }
+        };
+        let cookie = |pairs: &str| ("cookie", pairs.as_bytes().to_vec());
+        let evil = ("origin", b"http://evil.example".to_vec());
+
+        for path in [
+            "/api/simulation/input",
+            "/api/simulation/renew",
+            "/api/simulation/revoke",
+        ] {
+            let headers = vec![cookie(&format!("blackroom_input={grant}")), evil.clone()];
+            assert_eq!(post(path, headers).await, StatusCode::FORBIDDEN, "{path}");
+        }
+        let (_, active) = call(&router, "/api/simulation", None).await;
+        assert_eq!(active["state"], "REMOTE_ACTIVE");
+        assert_eq!(active["events"].as_array().unwrap().len(), 0);
+
+        let refused = [
+            format!("Blackroom_Input={grant}"),
+            format!("blackroom_input={grant}x"),
+            format!("blackroom_input={wrong}; blackroom_input={grant}"),
+            format!("blackroom_input:{grant}"),
+            format!("theme=dark; blackroom_input=; blackroom_input={grant}"),
+        ];
+        for pairs in refused {
+            assert_eq!(
+                post("/api/simulation/input", vec![cookie(&pairs)]).await,
+                StatusCode::CONFLICT,
+                "{pairs}"
+            );
+        }
+        let split = vec![
+            cookie(&format!("blackroom_input={wrong}")),
+            cookie(&format!("blackroom_input={grant}")),
+        ];
+        assert_eq!(
+            post("/api/simulation/input", split).await,
+            StatusCode::CONFLICT
+        );
+        let mut binary = b"blackroom_input=".to_vec();
+        binary.extend([0xff, 0xfe]);
+        assert_eq!(
+            post("/api/simulation/input", vec![("cookie", binary)]).await,
+            StatusCode::CONFLICT
+        );
+        let (_, untouched) = call(&router, "/api/simulation", None).await;
+        assert_eq!(untouched["next_sequence"], 1);
+        assert_eq!(untouched["events"].as_array().unwrap().len(), 0);
+
+        // The first occurrence wins, so a shadowing cookie can only deny service.
+        let shadowed = format!("blackroom_input={grant}; blackroom_input={wrong}");
+        assert_eq!(
+            post("/api/simulation/input", vec![cookie(&shadowed)]).await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
     async fn in_process_hosts_refuse_renewal_and_stay_unchanged() {
         let router = router();
         let renew = |cookie: Option<String>| {

@@ -64,8 +64,8 @@ bootstrap pipe. In separate-process mode hostd requires both that proof and
 the public fake demo code. A fake adapter turns them into a synthetic
 principal and hostd opens its own short-lived, epoch-bound in-memory session;
 the signed lease takes its user/client from that session, never outlives it,
-and hostd revokes the grant if the session ends (unit-tested; no control
-command ends a session yet). The session credential is not
+and hostd revokes the grant if the session ends (Revoke is the logout: it ends
+both; expiry is capped by the lease). The session credential is not
 sent to the gateway or browser. Hostd also mints the random input grant
 returned to the browser and requires it, with the epoch and next sequence, on
 every input; it dies with the session. It is an opaque label carried only in

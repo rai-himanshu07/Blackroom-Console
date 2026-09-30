@@ -43,9 +43,10 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   documented 30 s (`CONTROL_LEASE_TTL`); a `Renew` control command re-signs
   the active lease for the same epoch and session only for the grant holder,
   the gateway forwards a browser heartbeat every 10 s (separated mode only),
-  and silence lets the lease lapse (real-process test, ~70 s). Session
-  revocation/expiry stays a unit-tested `expire_grant` seam with no logout
-  command yet. The session credential never leaves
+  and silence lets the lease lapse (real-process test, ~70 s). Revoke is the
+  logout (it ends the session and grant); the 5-minute session end is capped
+  into the lease expiry, so no separate logout command exists. The session
+  credential never leaves
   hostd. Hostd also mints the input grant (returned on Start, echoed on every
   Input, dead with the session) instead of the gateway in SEPARATE mode; the
   control protocol gained that field. In-process modes keep gateway-issued IDs.
@@ -76,9 +77,11 @@ a feasibility, security, Go/No-Go or release gate from simulation.
 
 Run focused gateway/web checks per change; one workspace checkpoint only for
 cross-crate integration and one independent review for a new high-risk
-mechanism. Live system tests stay ignored. Next independent code work is
-an explicit session logout command and per-(client, account) rate limits in
-the hostd registry, before any
-LAN/real-media implementation. FEAS-C remains
+mechanism. Live system tests stay ignored. Remaining hostd-side work needs a
+real credential verifier (PAM/TOTP/device key), whose design, privilege
+separation and per-(client, account) rate limits need an explicit operator
+decision on credential provisioning; do not add a fake limiter first. Offline
+candidates meanwhile: sessions for the in-process modes and Phase 13 UI
+state. FEAS-C remains
 STOP after the HDMI connector-loss incident; no unattended live experiment is
 authorized by this plan.
