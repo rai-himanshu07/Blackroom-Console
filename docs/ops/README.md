@@ -5,6 +5,8 @@ safely on real hardware.
 
 - `experiment-safety.md` — out-of-band recovery procedure required before any experiment
   that changes display or input state (assessment §8).
+- `live-grab-runbook.md` + `live-grab-session.sh` — supervised live test of the physical-input
+  grab through gateway, hostd and `remote-emergencyd`, driven from a second device over SSH.
 
 Offline simulation state (never a live host): hostd appends security events to
 `audit.log` in its state directory (owner-only, 1 MiB then one rotation; static
