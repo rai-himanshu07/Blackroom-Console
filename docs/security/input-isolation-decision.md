@@ -1,6 +1,9 @@
 # Input isolation decision (Phase 7, Gate FEAS-E)
 
-**Status:** design only, not approved, nothing implemented or run (2026-09-30).
+**Status:** the daemon (`remote-emergencyd`) is built and was observed in supervised runs (probe runs
+2026-09-30/10-01 and one gateway/hostd/daemon run 2026-10-01); Gate FEAS-E is **UNPROVEN** after the
+independent review of 2026-10-01 (not STOP). Not installed; privilege unaccepted. Originally written as
+design only (2026-09-30).
 Plan: `docs/plans/plan-20260930-phase7-physical-input-isolation.md`.
 Research: `docs/gnome/input-isolation-research.md`.
 
@@ -102,12 +105,22 @@ grab (unobserved), so they must not be counted as recovery paths.
 
 All with the operator present, an external kill timer and second-device SSH; counts only, no key codes.
 
-- While a grab is held, physical keyboard, mouse and touchpad input stops reaching the session (the observer page saw nothing while the holder read hundreds of events) and an injected EIS Shift tap still arrives: dongle in-process, dongle in a separate helper process, and the built-in keyboard, touchpad and dongle together.
+- While a grab is held, physical keyboard, mouse and touchpad input stops reaching the session (the observer page saw nothing while the holder read hundreds of events) and an injected EIS Shift tap still arrives: dongle in-process, dongle in a separate helper process, and the built-in keyboard and touchpad with the dongle grabbed in the same run (no window had keyboard, touchpad and dongle all active).
 - Releasing: SIGKILL of the holder releases the grab and input returns within seconds; a frozen holder (SIGSTOP) keeps the grab, so a lease thread cannot help and only an external kill does (24 s with a 1 s accurate timer); killing the holder releases the built-in devices too; an emergency chord detected inside the helper releases cleanly (experiment chord Left Ctrl + Left Shift + Left Alt + Esc, held 2 s, from the built-in keyboard).
 - A key or button held when the grab starts is never released to the session, which then auto-repeats it for the whole grab (347 repeats in 10 s). The helper therefore must wait until every key and button is up before grabbing (the probe now does, bounded, with a prompt) and should release stragglers afterwards through the authorized input path (not built).
 - systemd timers default to 1 min accuracy, so `systemd-run --on-active=N` can fire up to a minute late; every kill and watchdog timer must set `AccuracySec=1s` (done in the probe and in the exp06 watchdog).
 - A chord made of keys that a laptop may not have or that the operator cannot press is a lock-out risk; the chord must be confirmed on each machine's built-in keyboard (a first chord using both Right keys did not release in one run, cause unknown).
 - Through the real gateway, hostd and `remote-emergencyd` (2026-10-01, `docs/experiments/evidence/exp09/2026-10-01-gateway-grab/observation.md`): the grab held the built-in keyboard, mouse and touchpad; Revoke released it; with no heartbeat it lapsed about 25 s after the last renew (hostd logged `isolation_lost`); with hostd SIGSTOPped the daemon's 10 s lease released it by itself; the Left-key chord released it and the daemon wrote hostd's stop marker (`emergency-stop`, epoch bumped, gateway FAILED_SAFE) with no key stuck. The chord exit leaves `recovery-pending` and no audit line. Timings include the operator's 1 to 5 s reaction.
+
+## Review result (2026-10-01) and what is built
+
+Independent read-only review: FEAS-E stays **UNPROVEN**. As built: the daemon runs as the same uid as hostd (the
+stop marker store and hostd's peer check require it) plus group `input` or ACLs, so hostd's uid can SIGSTOP or
+SIGKILL the holder; the socket is 0600; hotplug is a 250 ms directory rescan and a node that cannot be opened or
+set non-blocking stays uncovered; nodes with fewer than 20 letter keys, Fn-row (Dell WMI, Intel HID), consumer,
+power-button and lid nodes are **not** grabbed. The dedicated uid, 0660 group socket and udev monitor of the
+contract above are design only. A frozen holder keeps the grab (observed); the unit's `WatchdogSec` is unobserved.
+The daemon links `remote-hostd` (about 88 crates), not the "tiny" helper the contract asks for.
 
 ## Still not verified
 

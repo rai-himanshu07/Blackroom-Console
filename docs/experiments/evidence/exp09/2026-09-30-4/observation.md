@@ -1,5 +1,8 @@
 # Exp 9b run 3: full session stopped at stage 1, instructions were not visible (Phase 7 step 5)
 
+**Status (independent review 2026-10-01): anomalous and unexplained (page tally shows two key downs, no up),
+not counted as evidence.** The stated cause below does not explain the missing release.
+
 Date: 2026-10-01 local. Same setup, safeguards and command as run 2 (all preflight checks passed, 720 s kill timer armed and stopped, `gnome-remote-desktop` masked then unmasked, no stray process or timer, Shell PID 6842 unchanged).
 
 ## Result: PARTIAL, no stage 2 to 4 evidence

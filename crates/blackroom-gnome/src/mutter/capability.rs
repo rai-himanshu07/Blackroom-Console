@@ -314,20 +314,29 @@ fn screensaver_reachable(conn: &Connection) -> bool {
     .is_ok()
 }
 
-/// 2 of the 16 Doc 20 §8 constants (`PHYSICAL_INPUT_ISOLATION_CAPABLE`,
-/// `EMERGENCY_CAPABLE`) cannot be resolved without violating the
-/// non-mutation rule for *their* mechanism (physical input isolation, or a
-/// component — `remote-emergencyd` — that does not exist yet). Unlike
-/// every other `CapabilityReport` field, these are **not** computed from any
-/// runtime evidence gathered so far; they are fixed at `Unknown` (matching
-/// `docs/gnome/capability-report.md`'s own classification, arrived at by the
-/// same non-mutation reasoning, not by live computation) until the phase
-/// named at each use site adds the mutating call each one requires.
-/// (`VIRTUAL_DISPLAY_CAPABLE` was the 4th member of this group through Phase
-/// 3; Phase 4 promoted it — see [`VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS`].
-/// `REMOTE_INPUT_CAPABLE` left the group after Experiment 8, see
-/// [`REMOTE_INPUT_PROVEN_WITH_LIMITATIONS`].)
+/// `EMERGENCY_CAPABLE` is the one Doc 20 §8 constant that is still fixed at
+/// `Unknown`: it is **not** computed from runtime evidence, matching
+/// `docs/gnome/capability-report.md`'s own classification, until Phase 10
+/// observes the daemon as a hardened, installed component (the offline
+/// `remote-emergencyd` exists and was observed only under the operator's own
+/// uid). (`VIRTUAL_DISPLAY_CAPABLE` left the group in Phase 4, see
+/// [`VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS`]; `REMOTE_INPUT_CAPABLE` after
+/// Experiment 8, see [`REMOTE_INPUT_PROVEN_WITH_LIMITATIONS`];
+/// `PHYSICAL_INPUT_ISOLATION_CAPABLE` after the Phase 7 review, see
+/// [`PHYSICAL_INPUT_ISOLATION_OBSERVED_EXPERIMENTAL`].)
 const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
+
+/// `PHYSICAL_INPUT_ISOLATION_CAPABLE` (Gate E): `Experimental` after the Phase 7
+/// review of 2026-10-01 (`docs/security/input-isolation-decision.md`, evidence
+/// `docs/experiments/evidence/exp09/`). An exclusive `EVIOCGRAB` on event2-7 hid
+/// physical input from an observer page while an injected Shift arrived, and the
+/// gateway/hostd/daemon path released on revoke, heartbeat loss, a frozen hostd
+/// and the chord. Gate E stays UNPROVEN: privilege is unaccepted (same uid as
+/// hostd, unit never run), a frozen holder keeps the grab, the product daemon had
+/// no independent observer, hotplug and the held-key negative test were not run,
+/// and remote pointer/click/scroll under a grab were not observed. Never read as
+/// permission to activate remote mode.
+const PHYSICAL_INPUT_ISOLATION_OBSERVED_EXPERIMENTAL: CapabilityTier = CapabilityTier::Experimental;
 
 /// `VIRTUAL_DISPLAY_CAPABLE`: promoted from `Unknown` this phase (Phase 4,
 /// Experiments 4–5, `docs/experiments/evidence/exp0{4,5}/`) —
@@ -477,7 +486,7 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
         remote_input_capable: REMOTE_INPUT_PROVEN_WITH_LIMITATIONS,
         // Not evidence-computed this phase: Gate E, the highest project
         // risk, stays UNKNOWN until Phase 7.
-        physical_input_isolation_capable: NOT_YET_DETERMINABLE,
+        physical_input_isolation_capable: PHYSICAL_INPUT_ISOLATION_OBSERVED_EXPERIMENTAL,
         session_lock_capable,
         // Not evidence-computed this phase: `remote-emergencyd` does not
         // exist yet (Phase 10).

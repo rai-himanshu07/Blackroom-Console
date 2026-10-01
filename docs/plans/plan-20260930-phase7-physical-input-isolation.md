@@ -1,8 +1,8 @@
 # Plan: Phase 7 physical input isolation (Gate FEAS-E)
 
 **Created:** 2026-09-30
-**Status:** draft; offline research and code only, no live run approved
-**Approved by:** not yet approved (live steps need their own approval)
+**Status:** live probe runs and one gateway/hostd/daemon run done; step 6 review done 2026-10-01: FEAS-E UNPROVEN (not STOP)
+**Approved by:** operator, separately for each live run (see Execution Log)
 **Task tier:** governed (live input mechanism, recovery)
 
 ## Goal
@@ -23,6 +23,8 @@ observes it; an unsafe or failed mechanism is reported as STOP.
 - Helper death or a failed release restores local input, and a local and a remote
   recovery path are named and checked before any live grab is approved.
 - Privilege is minimal and stated; the helper is allow-listed and reviewed.
+  (Not met 2026-10-01: the daemon ran under the operator's uid with temporary
+  ACLs; the template unit shares hostd's uid and was never loaded.)
 
 ## Non-Goals
 
@@ -164,10 +166,20 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   - Files: `crates/blackroom-experiments/src/bin/exp09_grab_probe.rs`
   - Depends on: 5a and a new approval
   - Verify: as 5a, plus chord release and lock-out recovery by SSH.
-- [ ] 6. Independent review and FEAS-E decision or STOP-and-report.
+- [x] 6. Independent review and FEAS-E decision or STOP-and-report.
   - Files: `docs/gnome/capability-report.md`, `docs/HANDOFF.md`
   - Depends on: step 5
   - Verify: no promotion on source reading or unobserved assertions.
+  - Outcome 2026-10-01: independent read-only review, **FEAS-E stays UNPROVEN,
+    not STOP**. `PHYSICAL_INPUT_ISOLATION_CAPABLE` `UNKNOWN` -> `EXPERIMENTAL`.
+    Met on the probe path: physical keyboard, mouse and touchpad hidden from an
+    observer page on event2-7 while an injected Shift arrived; release by
+    revoke, lease lapse, frozen hostd, SIGKILL of the probe helper and chord.
+    Unmet: acceptable privilege (see Blockers); a frozen holder keeps the grab
+    and the unit watchdog is unobserved; the product daemon had no independent
+    observer; hotplug; held-key negative test; remote pointer/click/scroll
+    under a grab; event3/event4 individually; 50 cycles. Run
+    `2026-09-30-4` is anomalous and not counted.
 
 ## Final Verification
 
@@ -178,6 +190,19 @@ observes it; an unsafe or failed mechanism is reported as STOP.
 
 - Live steps need operator presence, a second-device SSH session and a named
   recovery path. FEAS-C STOP and unproven FEAS-A/D do not block offline steps.
+- FEAS-E needs, per the 2026-10-01 review: (A) one supervised run through the
+  real gateway, hostd and daemon on all six nodes (event2-7, dongle plugged in)
+  with the Exp 8 run 4 observer page: the page sees only the injected Shift, `a`,
+  Left, pointer, click and scroll while the daemon reads non-zero on event2,
+  event5, event6 and event7, plus a Start with Left Shift held (expect a wait or
+  `keys_held`, no repeats); (B) SIGSTOP of the daemon holding all six nodes under
+  `systemd-run --user -p Type=notify -p WatchdogSec=10` with a 1 s external timer,
+  measuring the time until local input returns (accept 30 s or less, otherwise an
+  independent supervisor is required); (C) a written operator decision on
+  privilege (accept same uid plus `input` as a stated limit, or build the
+  dedicated uid) with `systemd-analyze verify` and `security` on the template;
+  (D) recommended: dongle replug during a grab, typing within 1 s, or write
+  "hotplug unclaimed" and fix the silent open failure for a hotplugged node.
 
 ## Execution Log
 
@@ -214,3 +239,5 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   No repeat, SIGKILL or built-in run authorized.
 - 2026-10-01 (step 5a, runs 2 to 5, evidence exp09/2026-09-30-3..6): one-session `--full` probe built and reviewed (separate helper process, SIGKILL, frozen helper with its own timer, built-in nodes released by an experiment chord). Stage 1 and the SIGKILL release were observed on the dongle (run 4: helper killed, input back in 10 s). Findings: systemd timers default to 1 min accuracy (frozen-helper kill fired at 48 s, not 24 s; all probe and exp06 timers now use `AccuracySec=1s`); a frozen holder keeps the grab (observed, page silent); a key held at grab start auto-repeats into the session for the whole window (run 5, 347 repeats), so the helper must wait for all keys up before grabbing and release stragglers afterwards. Stages 3 and 4 and Exp 8 run 3 still open. FEAS-E not claimed.
 - 2026-10-01 (steps 5a and 5b done, runs 4 to 8 and Exp 8 run 3): in one supervised session series the probe observed, on the dongle and on the built-in keyboard and touchpad, that the grab hides physical input from the session while an injected tap still arrives, release on SIGKILL, a frozen holder keeping the grab until its own 24 s timer killed it, and release by an experiment chord (Left Ctrl + Left Shift + Left Alt + Esc) for the built-in devices; Exp 8 run 3 passed with the pointer magnitude observed. Findings recorded in `docs/security/input-isolation-decision.md` (stuck key at grab start, 1 min timer accuracy, chord must exist on the machine). Not observed: SysRq and power button, hotplug, LED and repeat state, synthetic release of stuck keys, real privileged helper. Step 6 (independent review and the FEAS-E decision) is open; FEAS-E and FEAS-D are not promoted.
+- 2026-10-01 (gateway/hostd/daemon run, evidence exp09/2026-10-01-gateway-grab): the real path held event2-5, released on revoke, heartbeat loss, a frozen hostd and the chord (marker written). Probe-path evidence only for the page observer.
+- 2026-10-01 (step 6, independent read-only review): FEAS-E STAY UNPROVEN, not STOP; nothing observed contradicts feasibility. Capability tier recorded as `EXPERIMENTAL`. Open items A to D are listed under Blockers. The reviewer also found stale or overstated statements, now corrected: the decision record said "together" although no window had keyboard, touchpad and dongle all active, its header said design only, its helper contract promised a udev monitor although the code rescans every 250 ms, and a hotplugged node that cannot be opened stays silently uncovered. Step 6 is marked done as a review; the gate is not.

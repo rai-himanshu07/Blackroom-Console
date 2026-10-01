@@ -239,6 +239,9 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     `exp09_isolate_input.rs` (armed watchdog, ≤ 45 s windows), `exp10_restore_input.rs`,
     `exp38_physical_verification.rs`; `docs/security/input-isolation-decision.md`.
   - Depends on: Phases 5–6; safety plan.
+  - Status 2026-10-01: independent review done, **FEAS-E UNPROVEN (not STOP)**;
+    `PHYSICAL_INPUT_ISOLATION_CAPABLE` is `EXPERIMENTAL`. Open: privilege decision, a frozen
+    holder, a product-path observer run, hotplug (`docs/plans/plan-20260930-phase7-physical-input-isolation.md`, Blockers).
   - Verify: while isolated, physical keyboard and mouse (USB combo + internal
     keyboard/touchpad) produce no effect in the session while remote input works;
     hotplugged keyboard is covered within one second; emergency chord still observable by
