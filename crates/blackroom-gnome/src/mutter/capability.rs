@@ -326,7 +326,7 @@ fn screensaver_reachable(conn: &Connection) -> bool {
 /// (`VIRTUAL_DISPLAY_CAPABLE` was the 4th member of this group through Phase
 /// 3; Phase 4 promoted it — see [`VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS`].
 /// `REMOTE_INPUT_CAPABLE` left the group after Experiment 8, see
-/// [`REMOTE_INPUT_OBSERVED_EXPERIMENTAL`].)
+/// [`REMOTE_INPUT_PROVEN_WITH_LIMITATIONS`].)
 const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
 
 /// `VIRTUAL_DISPLAY_CAPABLE`: promoted from `Unknown` this phase (Phase 4,
@@ -347,15 +347,20 @@ const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
 const VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS: CapabilityTier =
     CapabilityTier::SupportedWithLimitations;
 
-/// `REMOTE_INPUT_CAPABLE`: `Experimental` after Experiment 8 (runs 1-2,
-/// `docs/experiments/evidence/exp08/`). Observed on the single built-in
-/// display with a Firefox observer page and a fake in-process authority:
-/// keyboard and modifier chord, click, scroll and relative-pointer delivery,
-/// and no delivery after a revoke or after session stop. Not proven: pointer
-/// magnitude, a Mutter-side refusal (as opposed to the local authorization
-/// check) and any product-path authority. Structurally fixed, not computed in
-/// `detect()`, because observing it injects input into the live session.
-const REMOTE_INPUT_OBSERVED_EXPERIMENTAL: CapabilityTier = CapabilityTier::Experimental;
+/// `REMOTE_INPUT_CAPABLE`: `SupportedWithLimitations` after Experiment 8 (runs
+/// 1-4, `docs/experiments/evidence/exp08/`; run 4, 2026-10-01, passed every
+/// stage). Observed on the single built-in display, in an input-only session,
+/// with a browser observer page and a fake in-process authority: Shift, a
+/// Shift+Right Ctrl chord, `a` and Left, a click, a scroll, a pointer path of
+/// +40, -40, -10 from a captured start, and no delivery after a revoke or after
+/// session stop. Limits: no virtual-monitor routing, no hostd-to-agent-to-EIS
+/// authority, owner-loss teardown unobserved (Gate F), relative pointer only,
+/// no cursor or absolute mapping (Exp 28), a browser page as the only target,
+/// and the revoke refusal is the local authorization check, not Mutter.
+/// Structurally fixed, not computed in `detect()`, because observing it
+/// injects input into the live session.
+const REMOTE_INPUT_PROVEN_WITH_LIMITATIONS: CapabilityTier =
+    CapabilityTier::SupportedWithLimitations;
 
 /// Detects all 16 Doc 20 §8 capability constants for the already-discovered
 /// `session`. Strictly read-only throughout. 12 of the 16 are computed from
@@ -412,8 +417,7 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
             // Promoted `Experimental`→`Supported` this phase: Phase 4
             // Experiments 3-5 proved real `CreateSession`/`RecordMonitor`/
             // `RecordVirtual`/`Start`/`Stop` calls with verified cleanup
-            // (unlike `RemoteDesktop` above, `ScreenCast`'s full lifecycle
-            // was actually exercised, not just a Stop-without-Start probe).
+            // (`RemoteDesktop` above is limited to the input-only session).
             let screencast_capable = if screencast_version.is_some() {
                 CapabilityTier::Supported
             } else {
@@ -467,7 +471,7 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
         virtual_display_capable: VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS,
         display_config_capable,
         // Observed in Experiment 8 but not computed live (see the constant).
-        remote_input_capable: REMOTE_INPUT_OBSERVED_EXPERIMENTAL,
+        remote_input_capable: REMOTE_INPUT_PROVEN_WITH_LIMITATIONS,
         // Not evidence-computed this phase: Gate E, the highest project
         // risk, stays UNKNOWN until Phase 7.
         physical_input_isolation_capable: NOT_YET_DETERMINABLE,

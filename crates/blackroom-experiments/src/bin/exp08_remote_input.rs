@@ -41,6 +41,9 @@ const EXP_ID: &str = "exp08";
 // F13 is evdev 183 = XF86Tools, which GNOME binds to Settings: not inert (2026-09-30 run).
 const KEY_LEFTSHIFT: u32 = 42;
 const KEY_RIGHTCTRL: u32 = 97;
+// Checked 2026-10-01 against gsettings and xkb: no bare binding for `a` (30) or Left (105).
+const KEY_A: u32 = 30;
+const KEY_LEFT: u32 = 105;
 const BTN_LEFT: u32 = 272;
 const OBSERVER_PAGE: &str = include_str!("../../assets/exp08_observer.html");
 
@@ -179,9 +182,10 @@ fn require_operator(args: &Args) -> anyhow::Result<()> {
 }
 
 /// Judges the page's own tally (cleared at arming) against the exact sequence
-/// sent: Shift twice (tap, chord), Right Ctrl once while Shift is held, one left
-/// click, net-zero pointer motion, a positive scroll, and nothing from the
-/// revoked or post-stop attempts.
+/// sent: Shift twice (tap, chord), Right Ctrl once while Shift is held, `a` and
+/// Left once without modifiers, one left click, a pointer path of +40, -40, -10
+/// steps from a start position the page captured after a leading +10 move, a
+/// positive scroll, and nothing from the revoked or post-stop attempts.
 fn evaluate_tally(tally: &Value) -> (bool, Vec<String>) {
     let mut notes = Vec::new();
     let keys = tally["keys"].as_array().cloned().unwrap_or_default();
@@ -213,9 +217,24 @@ fn evaluate_tally(tally: &Value) -> (bool, Vec<String>) {
         }),
         "Right Ctrl did not arrive while Shift was held".to_string(),
     );
+    for code in ["KeyA", "ArrowLeft"] {
+        check(
+            key_count("down", code) == 1
+                && key_count("up", code) == 1
+                && keys.iter().all(|key| {
+                    key["code"] != code || (key["shift"] == false && key["repeat"] != true)
+                }),
+            format!("{code} not exactly one plain down/up"),
+        );
+    }
     let other = keys
         .iter()
-        .filter(|key| key["code"] != "ControlRight" && key["code"] != "ShiftLeft")
+        .filter(|key| {
+            !matches!(
+                key["code"].as_str(),
+                Some("ControlRight" | "ShiftLeft" | "KeyA" | "ArrowLeft")
+            )
+        })
         .count();
     check(other == 0, format!("{other} unexpected key events"));
     let buttons = tally["buttons"].as_array().cloned().unwrap_or_default();
@@ -228,35 +247,38 @@ fn evaluate_tally(tally: &Value) -> (bool, Vec<String>) {
         format!("{clicks} left clicks or a non-left button seen"),
     );
     // Positions, not movementX: the browser reports 0 for the first move after
-    // an idle period, which hid the +40 step in run 2.
+    // an idle period. The leading +10 move makes the page capture a start
+    // position, so the +40 step is measured and not inferred.
     let pointer = &tally["pointer"];
     let number = |value: &Value| value.as_f64().unwrap_or(f64::NAN);
-    let positions = pointer["positions"].as_array().cloned().unwrap_or_default();
     let (width, height) = (
         number(&tally["viewport"]["w"]),
         number(&tally["viewport"]["h"]),
     );
-    let pointer_ok = match (positions.first(), positions.last()) {
-        (Some(first), Some(last)) if positions.len() >= 2 => {
-            let (dx, dy) = (
-                number(&last["x"]) - number(&first["x"]),
-                number(&last["y"]) - number(&first["y"]),
-            );
-            // The +40 step must land inside the viewport (a clamped edge move
-            // also looks like a -40 return) and the -40 step must undo it.
-            // Extra same-position moves are tolerated: browsers re-dispatch
-            // mousemove after a scroll or click.
-            let inside = (2.0..=width - 3.0).contains(&number(&first["x"]))
-                && (2.0..=height - 3.0).contains(&number(&first["y"]));
-            (dx + 40.0).abs() <= 4.0 && dy.abs() <= 2.0 && inside
+    let mut path: Vec<(f64, f64)> = Vec::new();
+    for position in pointer["positions"].as_array().cloned().unwrap_or_default() {
+        let point = (number(&position["x"]), number(&position["y"]));
+        // Browsers re-dispatch mousemove after a scroll or click; only changes count.
+        if path.last() != Some(&point) {
+            path.push(point);
         }
-        _ => false,
-    };
+    }
+    // Positions after +10, +40, -40, -10: steps +40, -40, -10, none clamped at an edge.
+    let pointer_ok = path.len() >= 4
+        && [40.0, -40.0, -10.0]
+            .iter()
+            .enumerate()
+            .all(|(index, step)| {
+                let (from, to) = (path[index], path[index + 1]);
+                (to.0 - from.0 - step).abs() <= 3.0 && (to.1 - from.1).abs() <= 2.0
+            })
+        && path
+            .iter()
+            .take(4)
+            .all(|(x, y)| (2.0..=width - 3.0).contains(x) && (2.0..=height - 3.0).contains(y));
     check(
         pointer_ok,
-        format!(
-            "pointer motion did not show +40 then -40 away from an edge (positions {positions:?})"
-        ),
+        format!("pointer path was not +40, -40, -10 away from an edge (positions {path:?})"),
     );
     let wheel = &tally["wheel"];
     let delta = number(&wheel["deltaY"]);
@@ -594,11 +616,23 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
         Expect::Accept,
         |d| { eis.send_key_chord(&auth, &d, KEY_LEFTSHIFT, KEY_RIGHTCTRL) }
     );
+    stage!("key_tap_letter_a", keyboard, Expect::Accept, |d| {
+        eis.send_key_tap(&auth, &d, KEY_A)
+    });
+    stage!("key_tap_arrow_left", keyboard, Expect::Accept, |d| {
+        eis.send_key_tap(&auth, &d, KEY_LEFT)
+    });
+    stage!("pointer_right_10_start", pointer, Expect::Accept, |d| {
+        eis.send_pointer_motion(&auth, &d, 10.0, 0.0)
+    });
     stage!("pointer_right_40", pointer, Expect::Accept, |d| {
         eis.send_pointer_motion(&auth, &d, 40.0, 0.0)
     });
     stage!("pointer_left_40", pointer, Expect::Accept, |d| {
         eis.send_pointer_motion(&auth, &d, -40.0, 0.0)
+    });
+    stage!("pointer_left_10_back", pointer, Expect::Accept, |d| {
+        eis.send_pointer_motion(&auth, &d, -10.0, 0.0)
     });
     stage!("button_left_click", button, Expect::Accept, |d| {
         eis.send_button_click(&auth, &d, BTN_LEFT)
@@ -784,13 +818,15 @@ fn main() -> anyhow::Result<()> {
             .to_string(),
         procedure: format!(
             "Preflight; serve the observer page on loopback; wait for a focused fullscreen page ({} s settle); \
-             CreateSession; Start; ConnectToEIS; bind seat; Shift tap, Shift+Right Ctrl chord, pointer +40/-40, left \
-             click, scroll 15; revoked-authorization tap (must be refused); Stop; valid-authorization tap \
-             after Stop (delivery judged by the page); stale-path Stop call; Shell PID unchanged.",
+             CreateSession; Start; ConnectToEIS; bind seat; Shift tap, Shift+Right Ctrl chord, `a` tap, Left tap, \
+             pointer +10 (start), +40, -40, -10, left click, scroll 15; revoked-authorization tap (must be refused); \
+             Stop; valid-authorization tap after Stop (delivery judged by the page); stale-path Stop call; Shell \
+             PID unchanged.",
             args.settle_secs
         ),
         expected: "Every injected stage accepted; the revoked stage refused as LeaseRevoked; observer tally: \
-                   ShiftLeft 2/2, ControlRight 1/1 (with Shift held), one left click, net-zero pointer motion, positive scroll, no \
+                   ShiftLeft 2/2, ControlRight 1/1 (with Shift held), KeyA 1/1, ArrowLeft 1/1, one left click, a \
+                   pointer path of +40, -40, -10 steps from a captured start, positive scroll, no \
                    untrusted events and nothing from the revoked or post-stop attempts."
             .to_string(),
         observed,
@@ -799,8 +835,9 @@ fn main() -> anyhow::Result<()> {
         failure: run.failure.clone().or_else(|| run.blocked.clone()),
         root_cause: None,
         security_impact: Some(
-            "Input injected into the live desktop; only inert keys and a net-zero pointer move were sent, \
-             gated on the observer page holding focus. PASS here does not by itself promote FEAS-D."
+            "Input injected into the live desktop; only Shift, Ctrl, the letter A and Left (checked against \
+             gsettings and xkb) and a net-zero pointer path were sent, gated on the observer page holding focus. \
+             PASS here does not by itself promote FEAS-D."
                 .to_string(),
         ),
         recommended_action: None,
@@ -835,11 +872,17 @@ mod tests {
                 {"type": "down", "code": "ControlRight", "shift": true},
                 {"type": "up", "code": "ControlRight", "shift": true},
                 {"type": "up", "code": "ShiftLeft", "shift": false},
+                {"type": "down", "code": "KeyA", "shift": false, "repeat": false},
+                {"type": "up", "code": "KeyA", "shift": false, "repeat": false},
+                {"type": "down", "code": "ArrowLeft", "shift": false, "repeat": false},
+                {"type": "up", "code": "ArrowLeft", "shift": false, "repeat": false},
             ],
             "buttons": [
                 {"type": "down", "button": 0}, {"type": "up", "button": 0}, {"type": "click", "button": 0},
             ],
-            "pointer": {"moves": 2, "positions": [{"x": 540, "y": 400}, {"x": 500, "y": 400}]},
+            "pointer": {"moves": 4, "positions": [
+                {"x": 510, "y": 400}, {"x": 550, "y": 400}, {"x": 510, "y": 400}, {"x": 500, "y": 400},
+            ]},
             "viewport": {"w": 1920, "h": 1080},
             "wheel": {"events": 1, "deltaY": 15, "scrollY": 15},
             "untrusted": 0,
@@ -926,9 +969,23 @@ mod tests {
             .push(json!({"x": 500, "y": 400}));
         assert!(evaluate_tally(&repeated).0);
 
-        // +40 clamped at the right edge still looks like a -40 return.
-        drifted["pointer"]["positions"] = json!([{"x": 1919, "y": 400}, {"x": 1879, "y": 400}]);
+        // The old two-point path cannot show the +40 step, and an edge clamp looks like a return.
+        drifted["pointer"]["positions"] = json!([{"x": 540, "y": 400}, {"x": 500, "y": 400}]);
         assert!(!evaluate_tally(&drifted).0);
+        drifted["pointer"]["positions"] = json!([
+            {"x": 1919, "y": 400}, {"x": 1919, "y": 400}, {"x": 1879, "y": 400}, {"x": 1869, "y": 400}
+        ]);
+        assert!(!evaluate_tally(&drifted).0);
+
+        let mut repeated_key = good_tally();
+        repeated_key["keys"][6]["repeat"] = json!(true);
+        assert!(!evaluate_tally(&repeated_key).0);
+        let mut missing_arrow = good_tally();
+        missing_arrow["keys"]
+            .as_array_mut()
+            .expect("keys")
+            .truncate(8);
+        assert!(!evaluate_tally(&missing_arrow).0);
 
         let mut synthetic = good_tally();
         synthetic["untrusted"] = json!(1);

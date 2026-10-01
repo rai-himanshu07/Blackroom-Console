@@ -40,12 +40,20 @@
       shift: count('down', 'ShiftLeft') === 2 && count('up', 'ShiftLeft') === 2,
       ctrl: count('down', 'ControlRight') === 1 && count('up', 'ControlRight') === 1
         && s.keys.some(k => k.type === 'down' && k.code === 'ControlRight' && k.shift),
-      otherKeys: s.keys.filter(k => k.code !== 'ShiftLeft' && k.code !== 'ControlRight').length === 0,
+      otherKeys: s.keys.filter(k => !['ShiftLeft', 'ControlRight', 'KeyA', 'ArrowLeft'].includes(k.code)).length === 0,
+      plainKeys: ['KeyA', 'ArrowLeft'].every(code => count('down', code) === 1 && count('up', code) === 1
+        && s.keys.every(k => k.code !== code || (!k.shift && !k.repeat))),
       click: s.buttons.filter(b => b.type === 'click' && b.button === 0).length === 1 && s.buttons.every(b => b.button === 0),
-      pointer: s.pointer.positions.length >= 2 && (() => {
-        const a = s.pointer.positions[0], b = s.pointer.positions[s.pointer.positions.length - 1];
-        return Math.abs(b.x - a.x + 40) <= 4 && Math.abs(b.y - a.y) <= 2
-          && a.x >= 2 && a.x <= innerWidth - 3 && a.y >= 2 && a.y <= innerHeight - 3;
+      pointer: (() => {
+        const path = [];
+        for (const p of s.pointer.positions) {
+          const last = path[path.length - 1];
+          if (!last || last.x !== p.x || last.y !== p.y) path.push(p);
+        }
+        // Positions after +10, +40, -40, -10: steps +40, -40, -10, none at an edge.
+        return path.length >= 4 && [40, -40, -10].every((step, i) =>
+            Math.abs(path[i + 1].x - path[i].x - step) <= 3 && Math.abs(path[i + 1].y - path[i].y) <= 2)
+          && path.slice(0, 4).every(p => p.x >= 2 && p.x <= innerWidth - 3 && p.y >= 2 && p.y <= innerHeight - 3);
       })(),
       wheel: s.wheel.events > 0 && s.wheel.deltaY > 0 && s.wheel.deltaY <= 500 && s.wheel.scrollY > 0,
       trusted: s.untrusted === 0,

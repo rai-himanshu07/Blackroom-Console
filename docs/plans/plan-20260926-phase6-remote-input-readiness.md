@@ -119,7 +119,7 @@ activation; live FEAS-D proof requires a separate supervised approval.
   - Files: `docs/gnome/feasibility-research.md`
   - Depends on: none (research-only exception to the implementation stop)
   - Verify: every contract claim cites a current source or is marked unknown.
-- [ ] 2. Under the approved offline exception, implement the minimal `eis.rs`
+- [x] 2. Under the approved offline exception, implement the minimal `eis.rs`
       owner and an explicit per-event authorization boundary behind fake
       transports, without connecting to Mutter or agent startup.
   - Files: `crates/blackroom-core/src/lease.rs`,
@@ -128,7 +128,7 @@ activation; live FEAS-D proof requires a separate supervised approval.
   - Depends on: step 1 and the 2026-09-27 offline-only exception
   - Verify: focused fake-hostd negative tests for all five authority terms;
     no input after revoke, teardown, or stale epoch.
-- [ ] 3. Only after a separate live-test approval with an operator and recovery
+- [x] 3. Only after a separate live-test approval with an operator and recovery
       path, run one bounded Experiment 8 proof for keyboard, pointer, click,
       scroll, revoke, and teardown in the selected existing session. Add the
       Experiment 28 cursor/absolute-coordinate check only if that unknown
@@ -148,6 +148,17 @@ activation; live FEAS-D proof requires a separate supervised approval.
       `REMOTE_DESKTOP_CAPABLE` -> `SUPPORTED_WITH_LIMITATIONS` (report and
       `capability.rs`). Closing FEAS-D needs one more live run with the
       position-based check (separate approval) or an accepted documented limit.
+      **Outcome 2026-10-01: FEAS-D PASS with documented limits** (supported
+      scope: input-only session on the single built-in display). Run 3 passed;
+      a second independent read-only review asked for a printable key, a
+      non-modifier key and a measured pointer start; run 4 supplied them and
+      passed every stage. `REMOTE_INPUT_CAPABLE` -> `SUPPORTED_WITH_LIMITATIONS`.
+      Limits (deferred, none blocks offline Phases 7-11): no virtual-monitor
+      routing (Phase 5 stopped), fake in-process authority (hostd to agent to
+      EIS not live), owner-loss teardown (Gate F, Phase 9), absolute mapping
+      and cursor shape (Exp 28), other target apps, right/middle button, drag,
+      horizontal scroll; the revoke refusal is the project's own authorization
+      check, not Mutter (Mutter closes the channel on `Stop`, observed).
   - Files: `docs/gnome/capability-report.md`, `docs/HANDOFF.md`
   - Depends on: step 3
   - Verify: no gate promotion on source reading or unobserved assertions.
@@ -470,3 +481,20 @@ Exit codes: 0 PASS, 1 FAIL, 2 BLOCKED, 3 inconclusive.
   Stale claims in `capability-report.md`, `capability.rs` and
   `virtual-display.md` (ConnectToEIS unexercised, no real `Start`) were
   corrected; FEAS-D stays open.
+- 2026-10-01 (Experiment 8 run 3, operator-approved, PASS by rule): the
+  position-based pointer check passed (a 40 px move seen as 40 px), all nine
+  stages matched the page tally, revoked send refused `LeaseRevoked`, post-stop
+  send refused, Shell PID unchanged. Net-zero motion was inferred from two
+  positions; evidence `docs/experiments/evidence/exp08/2026-09-30-3/`.
+- 2026-10-01 (second independent review, read-only): FEAS-D PASS-WITH-LIMITS;
+  Mutter-side revoke attribution is not required by Gate D; to remove the
+  qualifiers it asked for a printable key, a non-modifier key and a captured
+  pointer start. Stale claims in `capability-report.md`, `capability.rs` and
+  `HANDOFF.md` were corrected.
+- 2026-10-01 (Experiment 8 run 4, operator-approved, PASS by rule): `a` and Left
+  (checked against gsettings and xkb) arrived plain, pointer path +40, -40, -10
+  from a captured start (381, 421, 381, 371), click, scroll, revoked and
+  post-stop sends refused with nothing delivered, Shell PID 6842 unchanged,
+  `gnome-remote-desktop` restored. Evidence
+  `docs/experiments/evidence/exp08/2026-10-01/`. FEAS-D recorded PASS with the
+  limits listed in Step 4; Phase 6 closed for the supported scope.
