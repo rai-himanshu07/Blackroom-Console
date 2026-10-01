@@ -9,6 +9,7 @@ stage was seen exactly (ShiftLeft 2/2, ControlRight 1/1, KeyA 1/1, ArrowLeft 1/1
 Failure: one extra `KeyF` down (no up) at page time 38.78 s. The stage timings put the release at about
 38.33 s (last stage at 4.97 s after the tally reset at page time 30.36 s, plus the fixed 3 s of
 operator typing, plus the status call), so the key is about 0.45 s after the release, when the operator
-had been told to type until the prompt cleared. The old harness took the verdict tally 3 s after the
-release, so it counted it, and the record cannot prove the timing. Treated as a harness defect (verdict
-window), not as evidence either way. The rerun is `2026-10-01-3`.
+had been told to type until the prompt cleared. The old harness took the verdict tally about 0.5 s after the
+release (the fixed 3 s of typing came before it, then two page heartbeats), so it counted the key, and the
+record has no release timestamp: the explanation is reconstructed from stage timings. Treated as a harness
+defect (verdict window), not as evidence either way. The rerun is `2026-10-01-3`.

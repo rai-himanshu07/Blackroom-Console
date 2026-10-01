@@ -229,7 +229,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     (fake-hostd test).
   - Gate: **FEAS-D** PASS. Report.
 
-- [ ] **Phase 7 — Physical input isolation** (`11.P7`; Docs 10 Exp 9–10, 38; 02 §15–§16, §40; 05 §44–§47; 06 §41–§45, §88; 20 §25–§27) — **hard gate**
+- [x] **Phase 7 — Physical input isolation** (`11.P7`; Docs 10 Exp 9–10, 38; 02 §15–§16, §40; 05 §44–§47; 06 §41–§45, §88; 20 §25–§27) — **hard gate**
   - Files: research note `docs/gnome/input-isolation-research.md` evaluating, in order,
     (1) Mutter `InputCapture`, (2) RemoteDesktop/InputMapping options, (3) minimal
     `EVIOCGRAB` helper, each with evidence and a privilege/hotplug/emergency analysis;
@@ -239,9 +239,13 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     `exp09_isolate_input.rs` (armed watchdog, ≤ 45 s windows), `exp10_restore_input.rs`,
     `exp38_physical_verification.rs`; `docs/security/input-isolation-decision.md`.
   - Depends on: Phases 5–6; safety plan.
-  - Status 2026-10-01: independent review done, **FEAS-E UNPROVEN (not STOP)**;
-    `PHYSICAL_INPUT_ISOLATION_CAPABLE` is `EXPERIMENTAL`. Open: privilege decision, a frozen
-    holder, a product-path observer run, hotplug (`docs/plans/plan-20260930-phase7-physical-input-isolation.md`, Blockers).
+  - Status 2026-10-01: **FEAS-E PASS-WITH-LIMITS for the built-in keyboard, PS/2 mouse and touchpad
+    (event2-5) only**, after runs A and B and a second independent review (the first review had
+    stayed UNPROVEN); `PHYSICAL_INPUT_ISOLATION_CAPABLE` is `SUPPORTED_WITH_LIMITATIONS`. Limits: same-uid
+    privilege accepted by the operator, nothing installed, dongle/USB keyboards/hotplug uncovered, no
+    key-held Start test, no cycles, the page observer and the gateway chain never one run (`docs/plans/
+    plan-20260930-phase7-physical-input-isolation.md`, `docs/security/input-isolation-decision.md`).
+    Activation stays disabled.
   - Verify: while isolated, physical keyboard and mouse (USB combo + internal
     keyboard/touchpad) produce no effect in the session while remote input works;
     hotplugged keyboard is covered within one second; emergency chord still observable by

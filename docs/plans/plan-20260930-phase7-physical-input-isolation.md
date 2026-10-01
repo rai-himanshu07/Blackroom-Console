@@ -1,7 +1,7 @@
 # Plan: Phase 7 physical input isolation (Gate FEAS-E)
 
 **Created:** 2026-09-30
-**Status:** live probe runs and one gateway/hostd/daemon run done; step 6 review done 2026-10-01: FEAS-E UNPROVEN (not STOP)
+**Status:** FEAS-E **PASS-WITH-LIMITS for the built-in layout (event2-5) only**, decided 2026-10-01 after runs A and B and a second independent review; limits in `docs/security/input-isolation-decision.md`; activation stays disabled
 **Approved by:** operator, separately for each live run (see Execution Log)
 **Task tier:** governed (live input mechanism, recovery)
 
@@ -23,8 +23,9 @@ observes it; an unsafe or failed mechanism is reported as STOP.
 - Helper death or a failed release restores local input, and a local and a remote
   recovery path are named and checked before any live grab is approved.
 - Privilege is minimal and stated; the helper is allow-listed and reviewed.
-  (Not met 2026-10-01: the daemon ran under the operator's uid with temporary
-  ACLs; the template unit shares hostd's uid and was never loaded.)
+  (Accepted as a stated limit by the operator 2026-10-01: the daemon ran under the operator's uid with
+  temporary ACLs; the template unit shares hostd's uid and was never loaded; a dedicated uid is a product
+  item, not built.)
 
 ## Non-Goals
 
@@ -203,6 +204,10 @@ observes it; an unsafe or failed mechanism is reported as STOP.
   dedicated uid) with `systemd-analyze verify` and `security` on the template;
   (D) recommended: dongle replug during a grab, typing within 1 s, or write
   "hotplug unclaimed" and fix the silent open failure for a hotplugged node.
+- Update 2026-10-01 (later): a reduced A observed on the built-in layout (event2-5; no gateway, no per-node
+  counts, no held-Shift Start); B observed (9.883 s, journal shows the watchdog kill); C and D recorded as
+  stated limits in `docs/security/input-isolation-decision.md`. A second independent review found
+  PASS-WITH-LIMITS justified for event2-5 only and the operator accepted it.
 
 ## Execution Log
 
@@ -241,3 +246,4 @@ observes it; an unsafe or failed mechanism is reported as STOP.
 - 2026-10-01 (steps 5a and 5b done, runs 4 to 8 and Exp 8 run 3): in one supervised session series the probe observed, on the dongle and on the built-in keyboard and touchpad, that the grab hides physical input from the session while an injected tap still arrives, release on SIGKILL, a frozen holder keeping the grab until its own 24 s timer killed it, and release by an experiment chord (Left Ctrl + Left Shift + Left Alt + Esc) for the built-in devices; Exp 8 run 3 passed with the pointer magnitude observed. Findings recorded in `docs/security/input-isolation-decision.md` (stuck key at grab start, 1 min timer accuracy, chord must exist on the machine). Not observed: SysRq and power button, hotplug, LED and repeat state, synthetic release of stuck keys, real privileged helper. Step 6 (independent review and the FEAS-E decision) is open; FEAS-E and FEAS-D are not promoted.
 - 2026-10-01 (gateway/hostd/daemon run, evidence exp09/2026-10-01-gateway-grab): the real path held event2-5, released on revoke, heartbeat loss, a frozen hostd and the chord (marker written). Probe-path evidence only for the page observer.
 - 2026-10-01 (step 6, independent read-only review): FEAS-E STAY UNPROVEN, not STOP; nothing observed contradicts feasibility. Capability tier recorded as `EXPERIMENTAL`. Open items A to D are listed under Blockers. The reviewer also found stale or overstated statements, now corrected: the decision record said "together" although no window had keyboard, touchpad and dongle all active, its header said design only, its helper contract promised a udev monitor although the code rescans every 250 ms, and a hotplugged node that cannot be opened stays silently uncovered. Step 6 is marked done as a review; the gate is not.
+- 2026-10-01 (FEAS-E runs A and B, offline harness `3087e77`/`519d2a8`, evidence exp08/2026-10-01-2 and -3, exp09/2026-10-01): run A passed on the rerun (the page saw only the injected input while the real daemon read 304 events, 290 inside the judged window, from 2 nodes; the first try failed on a harness verdict-window defect, fixed and recorded). Run B passed: a SIGSTOPped daemon under `WatchdogSec=10` + `WatchdogSignal=SIGKILL` released the grab after 9.883 s (target 30 s). The unit needed `WatchdogSignal=SIGKILL`. Item C: operator accepted the same-uid plus input/ACL limit; item D: hotplug and the dongle are unclaimed. Not done: Start with a key held, one run through gateway plus page, cycles. A second independent review found PASS-WITH-LIMITS justified for event2-5 only and the operator accepted it (see the Status line).

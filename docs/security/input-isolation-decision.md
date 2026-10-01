@@ -2,7 +2,11 @@
 
 **Status:** the daemon (`remote-emergencyd`) is built and was observed in supervised runs (probe runs
 2026-09-30/10-01 and one gateway/hostd/daemon run 2026-10-01); Gate FEAS-E is **UNPROVEN** after the
-independent review of 2026-10-01 (not STOP). Not installed; privilege unaccepted. Originally written as
+independent review of 2026-10-01 (not STOP). Runs A and B of that review were then observed (section
+"FEAS-E runs A and B" below) and a second independent review found PASS-WITH-LIMITS justified for the built-in
+layout (event2-5) only; the operator accepted it on 2026-10-01. **Gate FEAS-E: PASS-WITH-LIMITS (built-in
+event2-5 only), limits in the section below.**
+Not installed; privilege accepted only as a stated limit. Originally written as
 design only (2026-09-30).
 Plan: `docs/plans/plan-20260930-phase7-physical-input-isolation.md`.
 Research: `docs/gnome/input-isolation-research.md`.
@@ -29,7 +33,8 @@ observable by the emergency observer path. FEAS-G (emergency path) remains its
 own open gate.
 
 - Commands over a Unix socket, peer-credential checked, only `ISOLATE_INPUT`
-  and `RESTORE_INPUT` plus a status read. No event data leaves the helper.
+  and `RESTORE_INPUT` plus a status read. No key codes or positions leave the helper; the status read returns
+  counts (reads, active nodes), which still tell the client uid when the operator is active.
 - Device allow-list, decided by capability bits, not by name, per evdev node:
   - grab whole nodes: keyboards (`EV_KEY` with letter keys), mice and touchpads
     (`EV_REL` or `EV_ABS` with buttons), touchscreens (`EV_ABS` multitouch);
@@ -40,7 +45,8 @@ own open gate.
     working. The built-in keyboard and touchpad node layout on this laptop is
     unverified until the read-only enumeration in plan step 5.
 - Isolation is all-or-nothing: if any allow-listed grab fails, release every
-  grab taken, report failure, and the caller stays `LOCAL_LOCKED`.
+  grab taken, report failure, and the caller stays `LOCAL_LOCKED`. (As built this holds at the isolate
+  call only; a node that appears later and cannot be opened stays uncovered, see Review result.)
 - Hotplug: a udev `input` monitor classifies new nodes and grabs allow-listed ones
   within one second while isolated; a classification or grab error fails closed
   (release all, tell hostd).
@@ -119,8 +125,52 @@ stop marker store and hostd's peer check require it) plus group `input` or ACLs,
 SIGKILL the holder; the socket is 0600; hotplug is a 250 ms directory rescan and a node that cannot be opened or
 set non-blocking stays uncovered; nodes with fewer than 20 letter keys, Fn-row (Dell WMI, Intel HID), consumer,
 power-button and lid nodes are **not** grabbed. The dedicated uid, 0660 group socket and udev monitor of the
-contract above are design only. A frozen holder keeps the grab (observed); the unit's `WatchdogSec` is unobserved.
+contract above are design only. A frozen holder keeps the grab (observed); the unit's `WatchdogSec` was unobserved
+at that review and is observed since (run B below).
 The daemon links `remote-hostd` (about 88 crates), not the "tiny" helper the contract asks for.
+
+## FEAS-E runs A and B (2026-10-01, built-in layout event2-5 only)
+
+Operator present, external kill timer (1 s accuracy), tablet SSH, gnome-remote-desktop masked, temporary ACLs
+on event2-5, `remote-emergencyd --enable-grabs` started as the operator uid. Counts only.
+
+- **Run A, the real daemon under the observer page** (`docs/experiments/evidence/exp08/2026-10-01-3`, PASS):
+  baseline on the page 11 key downs and 96 pointer moves; the daemon isolated 4 nodes and counted 304 reads
+  (key presses and releases, and 4 ms poll passes with pointer activity) from 2 nodes, 290 of them inside the
+  judged window; it stayed `isolated`, pushed no release and restored. Inside that window the page saw only
+  the injected input (ShiftLeft 2/2, ControlRight 1/1, KeyA 1/1, ArrowLeft 1/1, one click, pointer +40/-40/-10,
+  one wheel event, nothing untrusted) and no other physical event. The window starts at the tally reset (about
+  2 s after the grab landed) and ends about 0.25 s before the release; the thresholds (20, 15, 2 nodes) are met
+  by about 1 s of touchpad alone, so keyboard typing in the window is inferred, not counted (the earlier probe
+  `exp09/2026-09-30-9` did count keyboard presses and touchpad events with the page seeing none). A first try
+  (`2026-10-01-2`) failed only because the harness judged the tally about 0.5 s after the release (the 3 s of
+  operator typing came before it) and counted a key typed about 0.45 s after the release; the release time is
+  reconstructed from stage timings because none was recorded. The verdict tally is now taken while the grab is
+  held and the daemon's reads must cover that window (harness defect; thresholds unchanged, one clean run out
+  of two).
+- **Run B, a frozen daemon under a supervisor** (`docs/experiments/evidence/exp09/2026-10-01`, PASS): the daemon ran
+  as a transient user unit with `Type=notify`, `WatchdogSec=10` and `WatchdogSignal=SIGKILL` (not the shipped
+  unit, which was never loaded); the probe isolated 4 nodes, renewed 8 s, SIGSTOPped the verified daemon
+  (uid, comm) and its control connection closed 9.883 s later (target 30 s or less). The journal records the
+  cause (`watchdog-journal.txt`: watchdog timeout, SIGKILL, result `watchdog`). The probe measures the
+  connection closing, which follows from the process dying and the kernel dropping its grabs; the pointer
+  returning to the operator was not recorded. `WatchdogSignal=SIGKILL` is needed because a stopped process
+  cannot act on the default SIGABRT, so the unit template now sets it; `unit-analysis.txt` holds its read-only
+  `systemd-analyze verify` (only the missing installed binary) and `security --offline` (0.8 SAFE) output, a
+  static score and not evidence of operation.
+- **Privilege limit (item C), stated and accepted by the operator on 2026-10-01:** the daemon runs as the same
+  uid as hostd plus the `input` group or ACLs, so hostd's uid (or any process of that uid) can SIGSTOP or
+  SIGKILL the holder, and it can read every grabbed node. A dedicated uid with a 0660 group socket and the
+  hostd stop-marker handover is a product item, not built.
+- **Hotplug (item D), unclaimed:** only the built-in keyboard, PS/2 mouse and the touchpad's two nodes were
+  claimed; the wireless dongle and any hotplugged node are not claimed and a hotplugged node that cannot be
+  opened stays silently uncovered.
+- **Limits that remain:** one run per question on one layout (no cycle counts); run A is a reduced A (no gateway,
+  4 of the 6 inventoried nodes, no per-node counts, no Start with a key held); the gateway to hostd to daemon
+  grab chain and the page observer were observed in separate runs (`exp09/2026-10-01-gateway-grab` without a
+  page, run A without the gateway); the shipped unit file was never loaded; SysRq and the power button under a
+  grab are unobserved; the chord exit still writes no audit line; a USB keyboard plugged in during a grab is
+  not covered.
 
 ## Still not verified
 

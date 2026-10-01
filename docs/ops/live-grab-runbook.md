@@ -137,8 +137,8 @@ state dir are needed. The agent runs the experiment binaries; you act only on th
   **G** the agent runs `target/debug/exp08_remote_input --operator-present --daemon-socket "$SOCK"` and shows
   you a URL. Open it in Firefox, F11, keep it focused, then follow the PAGE prompts: baseline 6 s (type LETTER
   keys only, move the touchpad: the page must see it), hands off 4 s, grab on (keep typing letters and moving
-  until the prompt clears, about 25 s while the injected Shift, `a`, Left, pointer, click and scroll run),
-  released. The verdict tally is taken while the grab is still held, so what you type after the prompt
+  until the prompt clears (the page says about 25 s; the grab was held about 10 to 15 s) while the injected
+  Shift, `a`, Left, pointer, click and scroll run), released. The verdict tally is taken while the grab is still held, so what you type after the prompt
   clears does not count. PASS needs the page to see only the injected stages, a baseline of at least 4 key
   downs and 5 moves, and the daemon's own counts (`reads` at least 20 from at least 2 nodes and at least 15
   inside the tally window, still `isolated`, no pushed release).

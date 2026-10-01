@@ -1,0 +1,10 @@
+# systemd-analyze on systemd/system/remote-emergencyd.service (read-only, 2026-10-01, offline)
+
+$ systemd-analyze verify --man=no systemd/system/remote-emergencyd.service
+remote-emergencyd.service: Command /usr/libexec/blackroom-console/remote-emergencyd is not executable: No such file or directory
+
+$ systemd-analyze security --offline=true --no-pager systemd/system/remote-emergencyd.service (last lines)
+✓ RestrictSUIDSGID=                                           SUID/SGID file creation by service is restricted                               
+✓ UMask=                                                      Files created by service are accessible only by service's own user by default  
+
+→ Overall exposure level for remote-emergencyd.service: 0.8 SAFE 😀

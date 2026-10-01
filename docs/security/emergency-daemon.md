@@ -19,8 +19,9 @@ FEAS-G are not promoted by this code.
   kill, so a slow client or logind cannot starve the lease or the chord. A loop that stalls for
   more than the 10 s watchdog is killed (the unit sets `WatchdogSignal=SIGKILL`, because a SIGSTOPped
   process cannot act on the default SIGABRT) and the kernel then drops the grabs. A frozen process
-  keeps them without a supervisor (observed with the probe); `exp09_freeze` measures the supervised
-  case, which stays unobserved until it has run.
+  keeps them without a supervisor (observed with the probe). Observed once under a transient user unit
+  with the same properties: a SIGSTOPped holder was killed by the watchdog and its connection closed 9.883 s
+  later (`exp09/2026-10-01`); the shipped unit file was never loaded.
 - **Emergency chord:** Left Ctrl + Left Shift + Left Alt + Esc held 2 s on any grabbed keyboard
   (an experiment choice, to be confirmed on each machine). Order of actions (assessment C25):
   release every grab, persist `remote-hostd`'s independent stop marker and epoch bump, optionally

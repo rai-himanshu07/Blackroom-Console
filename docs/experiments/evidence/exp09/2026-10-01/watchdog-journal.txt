@@ -1,0 +1,5 @@
+# journalctl --user -u blackroom-live-daemon (the transient unit of run B; wall clock +05:30)
+2026-10-01T19:09:07+05:30 systemd[6241]: blackroom-live-daemon.service: Watchdog timeout (limit 10s)!
+2026-10-01T19:09:07+05:30 systemd[6241]: blackroom-live-daemon.service: Killing process 3597316 (remote-emergenc) with signal SIGKILL.
+2026-10-01T19:09:07+05:30 systemd[6241]: blackroom-live-daemon.service: Main process exited, code=killed, status=9/KILL
+2026-10-01T19:09:07+05:30 systemd[6241]: blackroom-live-daemon.service: Failed with result 'watchdog'.

@@ -322,21 +322,23 @@ fn screensaver_reachable(conn: &Connection) -> bool {
 /// uid). (`VIRTUAL_DISPLAY_CAPABLE` left the group in Phase 4, see
 /// [`VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS`]; `REMOTE_INPUT_CAPABLE` after
 /// Experiment 8, see [`REMOTE_INPUT_PROVEN_WITH_LIMITATIONS`];
-/// `PHYSICAL_INPUT_ISOLATION_CAPABLE` after the Phase 7 review, see
-/// [`PHYSICAL_INPUT_ISOLATION_OBSERVED_EXPERIMENTAL`].)
+/// `PHYSICAL_INPUT_ISOLATION_CAPABLE` after FEAS-E runs A and B, see
+/// [`PHYSICAL_INPUT_ISOLATION_PROVEN_WITH_LIMITATIONS`].)
 const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
 
-/// `PHYSICAL_INPUT_ISOLATION_CAPABLE` (Gate E): `Experimental` after the Phase 7
-/// review of 2026-10-01 (`docs/security/input-isolation-decision.md`, evidence
-/// `docs/experiments/evidence/exp09/`). An exclusive `EVIOCGRAB` on event2-7 hid
-/// physical input from an observer page while an injected Shift arrived, and the
-/// gateway/hostd/daemon path released on revoke, heartbeat loss, a frozen hostd
-/// and the chord. Gate E stays UNPROVEN: privilege is unaccepted (same uid as
-/// hostd, unit never run), a frozen holder keeps the grab, the product daemon had
-/// no independent observer, hotplug and the held-key negative test were not run,
-/// and remote pointer/click/scroll under a grab were not observed. Never read as
-/// permission to activate remote mode.
-const PHYSICAL_INPUT_ISOLATION_OBSERVED_EXPERIMENTAL: CapabilityTier = CapabilityTier::Experimental;
+/// `PHYSICAL_INPUT_ISOLATION_CAPABLE` (Gate E): `SupportedWithLimitations` after
+/// FEAS-E runs A and B and a second independent review of 2026-10-01
+/// (`docs/security/input-isolation-decision.md`, evidence `docs/experiments/evidence/`
+/// `exp08/2026-10-01-3`, `exp09/2026-10-01`). Holds for the built-in keyboard, PS/2
+/// mouse and touchpad (event2-5) only: the real daemon's exclusive `EVIOCGRAB` hid
+/// physical input from an observer page while injected input arrived, a frozen daemon
+/// was killed by a watchdog 9.9 s after SIGSTOP, and the gateway/hostd/daemon path
+/// released on revoke, heartbeat loss, a frozen hostd and the chord. Limits: same
+/// uid as hostd plus `input`/ACLs (operator-accepted), nothing installed or hardened,
+/// dongle, USB keyboards and hotplug uncovered, no key-held Start test, one run per
+/// question and no cycles. Never read as permission to activate remote mode.
+const PHYSICAL_INPUT_ISOLATION_PROVEN_WITH_LIMITATIONS: CapabilityTier =
+    CapabilityTier::SupportedWithLimitations;
 
 /// `VIRTUAL_DISPLAY_CAPABLE`: promoted from `Unknown` this phase (Phase 4,
 /// Experiments 4–5, `docs/experiments/evidence/exp0{4,5}/`) —
@@ -486,7 +488,7 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
         remote_input_capable: REMOTE_INPUT_PROVEN_WITH_LIMITATIONS,
         // Not evidence-computed this phase: Gate E, the highest project
         // risk, stays UNKNOWN until Phase 7.
-        physical_input_isolation_capable: PHYSICAL_INPUT_ISOLATION_OBSERVED_EXPERIMENTAL,
+        physical_input_isolation_capable: PHYSICAL_INPUT_ISOLATION_PROVEN_WITH_LIMITATIONS,
         session_lock_capable,
         // Not evidence-computed this phase: `remote-emergencyd` does not
         // exist yet (Phase 10).

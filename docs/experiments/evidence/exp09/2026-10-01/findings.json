@@ -1,0 +1,9 @@
+{
+  "isolated_nodes": 4,
+  "daemon_pid": 3597316,
+  "daemon_comm": "remote-emergenc",
+  "closed_after_ms": 9883,
+  "ended_by": "daemon_closed",
+  "daemon_gone_after_close": true,
+  "notes": []
+}
