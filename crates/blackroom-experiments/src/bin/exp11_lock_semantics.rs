@@ -508,10 +508,10 @@ impl Drop for Capture {
     }
 }
 
-/// `strict`: too few frames is a violation. The stream is damage-driven and a quiet screen delivers
-/// none, so only the window before the lock (frames since attaching) is strict; the locked and
-/// unlocked windows are inconclusive when quiet.
-fn capture_window(run: &mut Run, capture: Option<&mut Capture>, phase: &'static str, strict: bool) {
+/// A quiet window is inconclusive, never a violation: a fullscreen observer page delivered no frames at all
+/// (2026-10-01 attempt 4: 0 since attaching with the consumer alive, 90 frames/s with a busy
+/// windowed desktop), so every window is inconclusive when quiet and none blocks the lock.
+fn capture_window(run: &mut Run, capture: Option<&mut Capture>, phase: &'static str) {
     let Some(capture) = capture else {
         return;
     };
@@ -522,11 +522,7 @@ fn capture_window(run: &mut Run, capture: Option<&mut Capture>, phase: &'static 
             "capture {phase}: {frames} frames in the phase, {total} since attaching ({})",
             capture.consumer_state()
         );
-        if strict {
-            run.violations.push(note);
-        } else {
-            run.inconclusive.push(note);
-        }
+        run.inconclusive.push(note);
     }
     run.capture.push(CaptureWindow {
         phase,
@@ -656,7 +652,7 @@ fn execute(
         observer.set_prompt(&format!("Checking the capture ({step}/4): hands off"));
         sleep(Duration::from_millis(500));
     }
-    capture_window(run, capture.as_mut(), "before_lock", true);
+    capture_window(run, capture.as_mut(), "before_lock");
     observer.wait_beats(2, Duration::from_secs(3));
     run.tally_pre = observer.snapshot(|state| state.tally.clone());
     let pre_notes = judge_pre(run.tally_pre.as_ref().unwrap_or(&Value::Null));
@@ -771,7 +767,7 @@ fn execute(
     }
     locked_key!("locked_key_tap_escape", KEY_ESC);
     if run.aborted.is_none() {
-        capture_window(run, capture.as_mut(), "during_lock", false);
+        capture_window(run, capture.as_mut(), "during_lock");
     }
     run.eis_events_during_lock = lock_events;
     run.devices_missing_after_lock = devices.missing();
@@ -830,7 +826,7 @@ fn execute(
     tap!("unlocked_key_tap_a", KEY_A);
     tap!("unlocked_key_tap_left", KEY_LEFT);
     sleep(Duration::from_secs(1));
-    capture_window(run, capture.as_mut(), "after_unlock", false);
+    capture_window(run, capture.as_mut(), "after_unlock");
     observer.wait_beats(2, Duration::from_secs(3));
     run.tally_unlocked = observer.snapshot(|state| state.tally.clone());
     if let Some(error) = capture.as_mut().and_then(Capture::finish) {

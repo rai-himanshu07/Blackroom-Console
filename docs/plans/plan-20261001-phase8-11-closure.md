@@ -96,3 +96,9 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   so the criterion was unfair. Fixed (frames counted since attaching, a deliberate prompt repaint before the
   pre-lock check, locked and unlocked windows inconclusive when quiet, consumer errors recorded), commit
   `fe50936`. The pre-lock gate did its job: it stopped the run before the lock.
+- 2026-10-01 (exp11 attempt 4, evidence exp11/2026-10-01-4, nothing locked): the deliberate repaint did not help: the
+  consumer stayed attached with no error and received 0 frames at all while the fullscreen observer page was
+  up (the same code gave about 90 frames/s on a busy windowed desktop). So a fullscreen client starves the
+  monitor stream here (direct scanout is the likely cause, unverified). Capture windows are now inconclusive
+  when quiet and no longer block the lock; capture continuity under a fullscreen page stays a named limit
+  for the FEAS-A gate unless the locked or unlocked windows deliver frames.
