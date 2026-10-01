@@ -35,7 +35,7 @@ The owner-provenance classification stayed `INDETERMINATE`, and no remote
 unlock/capture/input continuity was tested. See the unique Experiment 11
 [lock-only observation](../experiments/evidence/exp11/2026-09-28-lock-only/observation.md);
 FEAS-A remains unproven. No repeat was authorized.
-## Experiment 11 harness (built 2026-10-01, not yet run live)
+## Experiment 11 (2026-10-01): EIS and capture do not survive the lock
 
 `exp11_lock_semantics --operator-present` attaches a RemoteDesktop/EIS sender and a ScreenCast monitor
 capture, locks the selected session once, injects harmless input into the lock screen, and waits for the
@@ -49,3 +49,15 @@ is running, aborts before locking if the pre-lock checks fail, never types or re
 the physical-input grab and virtual monitor out of this first run. Lock signals (`GetActive`,
 `LockedHint`, `ActiveChanged`) stay unverified for provenance as above. FEAS-A remains unproven until a
 supervised run and the later same-session experiment (plan `plan-20261001-phase8-11-closure.md`).
+
+**Result (attempt 5, evidence `docs/experiments/evidence/exp11/2026-10-01-5/observation.md`):** the lock engaged in
+776 ms and Mutter ended the EIS connection at once (`DeviceRemoved`, `SeatRemoved`, `Disconnected`); no injection
+was possible while locked or after the unlock on the old connection. gnome-shell 50.1 calls
+`remote_access_controller.inhibit_remote_access()` for every session mode that does not allow screencast, which
+includes the locked `unlock-dialog` mode, and Mutter terminates all remote access sessions on that call and
+refuses new ones until the call is undone. Consequences: remote input cannot drive the unlock dialog through
+Mutter RemoteDesktop; the remote path must unlock the session first (logind `Unlock` after hostd-side
+authentication, untested) and create the RemoteDesktop/ScreenCast sessions only while unlocked, and again after
+every lock; the lock on teardown is unaffected. The capture continuity question is open (the stream delivered no
+frames behind a fullscreen page). FEAS-A is **not met as originally worded**; the next experiment tests the
+replacement path (plan step 2).

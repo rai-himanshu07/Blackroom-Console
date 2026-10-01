@@ -1,0 +1,132 @@
+{
+  "selected_session_id": "2",
+  "git_head": "1deca64",
+  "git_dirty": false,
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "gnome_remote_desktop_before": "inactive",
+  "gnome_remote_desktop_after": "inactive",
+  "remote_desktop_session_path": "/org/gnome/Mutter/RemoteDesktop/Session/u16",
+  "blocked": null,
+  "failure": null,
+  "aborted": "pre-lock checks failed, not locking: []",
+  "inconclusive": [],
+  "devices_seen": [
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "name": "pre_lock_key_tap_shift",
+      "outcome": "accepted",
+      "at_ms": 26993,
+      "violation": false
+    }
+  ],
+  "initial_lock": {
+    "screen_saver_active": false,
+    "logind_locked_hint": false,
+    "owner_session_verified": false
+  },
+  "lock_engaged_after_ms": null,
+  "unlock_observed_after_ms": null,
+  "locked_at_snapshot": null,
+  "active_changed": [],
+  "eis_events_during_lock": [],
+  "devices_missing_after_lock": [],
+  "eis_ready_after_unlock": null,
+  "beats_during_lock": 0,
+  "beats_total": 47,
+  "tally_pre": {
+    "buttons": [],
+    "epoch": 1,
+    "keys": [
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": true,
+        "t": 9602,
+        "type": "down"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 9603,
+        "type": "up"
+      }
+    ],
+    "pointer": {
+      "moves": 0,
+      "positions": []
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 250,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 2010,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "tally_locked": null,
+  "tally_unlocked": null,
+  "notes_pre": [],
+  "notes_locked": [],
+  "notes_unlocked": [],
+  "capture": [
+    {
+      "phase": "before_lock",
+      "frames": 0
+    }
+  ],
+  "violations": [
+    "capture before_lock: 0 frames"
+  ]
+}

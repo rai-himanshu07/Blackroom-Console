@@ -804,7 +804,7 @@ fn execute(
         Duration::from_secs(args.unlock_wait_secs),
         unlock_started,
     ) else {
-        run.aborted = Some("no unlock observed in time (unlock manually; SSH `loginctl unlock-session` is the fallback)".into());
+        run.aborted = Some("no unlock observed in time (unlock manually; `sudo loginctl unlock-session` over SSH is the unverified fallback)".into());
         return Ok(());
     };
     run.unlock_observed_after_ms = Some(unlocked);

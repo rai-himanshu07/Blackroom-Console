@@ -1,0 +1,314 @@
+{
+  "selected_session_id": "2",
+  "git_head": "6e08689",
+  "git_dirty": false,
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "gnome_remote_desktop_before": "inactive",
+  "gnome_remote_desktop_after": "inactive",
+  "remote_desktop_session_path": "/org/gnome/Mutter/RemoteDesktop/Session/u18",
+  "blocked": null,
+  "failure": null,
+  "aborted": null,
+  "inconclusive": [
+    "capture before_lock: 0 frames in the phase, 0 since attaching (consumer_ended=false, error=None)",
+    "capture during_lock: 0 frames in the phase, 0 since attaching (consumer_ended=false, error=None)",
+    "capture after_unlock: 0 frames in the phase, 0 since attaching (consumer_ended=false, error=None)"
+  ],
+  "devices_seen": [
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "removed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": []
+    },
+    {
+      "event": "removed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": []
+    }
+  ],
+  "stages": [
+    {
+      "name": "pre_lock_key_tap_shift",
+      "outcome": "accepted",
+      "at_ms": 31347,
+      "violation": false
+    },
+    {
+      "name": "locked_pointer_right_5",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 45383,
+      "violation": true
+    },
+    {
+      "name": "locked_pointer_left_5",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 45690,
+      "violation": true
+    },
+    {
+      "name": "locked_key_tap_shift",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 45997,
+      "violation": true
+    },
+    {
+      "name": "locked_key_tap_x_1",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 46303,
+      "violation": true
+    },
+    {
+      "name": "locked_key_tap_x_2",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 46611,
+      "violation": true
+    },
+    {
+      "name": "locked_key_tap_x_3",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 46916,
+      "violation": true
+    },
+    {
+      "name": "locked_key_tap_escape",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 47222,
+      "violation": true
+    },
+    {
+      "name": "unlocked_key_tap_shift",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 85901,
+      "violation": true
+    },
+    {
+      "name": "unlocked_key_tap_a",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 86201,
+      "violation": true
+    },
+    {
+      "name": "unlocked_key_tap_left",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 86501,
+      "violation": true
+    }
+  ],
+  "initial_lock": {
+    "screen_saver_active": false,
+    "logind_locked_hint": false,
+    "owner_session_verified": false
+  },
+  "lock_engaged_after_ms": 776,
+  "unlock_observed_after_ms": 34618,
+  "locked_at_snapshot": {
+    "screen_saver_active": true,
+    "logind_locked_hint": true,
+    "owner_session_verified": false
+  },
+  "active_changed": [
+    [
+      42694,
+      true
+    ],
+    [
+      82104,
+      false
+    ]
+  ],
+  "eis_events_during_lock": [
+    "Other",
+    "Other",
+    "DeviceRemoved",
+    "DeviceRemoved",
+    "SeatRemoved",
+    "Disconnected",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W2MRQFMS2NMJPD0T9QYYFH): EIS device socket closed",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W2MS11JNVABYCW2E9Z3CZ3): EIS device socket closed",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W2MSAMHD01FTQ22WXSXV1H): EIS device socket closed",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W2MSM7358YCZGFYNB9NQ6D): EIS device socket closed",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W2MSXTRJBN44C8DTNVPPCD): EIS device socket closed",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W2MT7BV19K2RKFJJA0DGRN): EIS device socket closed",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W2MTGQPRGE9VJD8CZRGZE7): EIS device socket closed",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W2MTGXXS1MKMV1RFRXTFY2): EIS device socket closed"
+  ],
+  "devices_missing_after_lock": [
+    "keyboard",
+    "pointer",
+    "button",
+    "scroll"
+  ],
+  "eis_ready_after_unlock": false,
+  "beats_during_lock": 18,
+  "beats_total": 264,
+  "tally_pre": {
+    "buttons": [],
+    "epoch": 1,
+    "keys": [
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": true,
+        "t": 8874,
+        "type": "down"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 8874,
+        "type": "up"
+      }
+    ],
+    "pointer": {
+      "moves": 0,
+      "positions": []
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 251,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 1509,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "tally_locked": {
+    "keys": 0,
+    "buttons": 0,
+    "pointer_moves": 0,
+    "wheel_events": 0
+  },
+  "tally_unlocked": {
+    "buttons": [],
+    "epoch": 3,
+    "keys": [],
+    "pointer": {
+      "moves": 0,
+      "positions": []
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 251,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 1509,
+        "visibility": "visible"
+      },
+      {
+        "focus": false,
+        "fullscreen": true,
+        "t": 21076,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 59638,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "notes_pre": [],
+  "notes_locked": [],
+  "notes_unlocked": [
+    "ShiftLeft not exactly one down/up after the unlock",
+    "KeyA not exactly one down/up after the unlock",
+    "ArrowLeft not exactly one down/up after the unlock"
+  ],
+  "capture": [
+    {
+      "phase": "before_lock",
+      "frames": 0,
+      "total": 0
+    },
+    {
+      "phase": "during_lock",
+      "frames": 0,
+      "total": 0
+    },
+    {
+      "phase": "after_unlock",
+      "frames": 0,
+      "total": 0
+    }
+  ],
+  "violations": [
+    "locked_pointer_right_5: refused:MutterUnavailable",
+    "locked_pointer_left_5: refused:MutterUnavailable",
+    "locked_key_tap_shift: refused:MutterUnavailable",
+    "locked_key_tap_x_1: refused:MutterUnavailable",
+    "locked_key_tap_x_2: refused:MutterUnavailable",
+    "locked_key_tap_x_3: refused:MutterUnavailable",
+    "locked_key_tap_escape: refused:MutterUnavailable",
+    "unlocked_key_tap_shift: refused:MutterUnavailable",
+    "unlocked_key_tap_a: refused:MutterUnavailable",
+    "unlocked_key_tap_left: refused:MutterUnavailable",
+    "unlocked tally: [\"ShiftLeft not exactly one down/up after the unlock\", \"KeyA not exactly one down/up after the unlock\", \"ArrowLeft not exactly one down/up after the unlock\"]",
+    "EIS connection not ready after the unlock"
+  ]
+}

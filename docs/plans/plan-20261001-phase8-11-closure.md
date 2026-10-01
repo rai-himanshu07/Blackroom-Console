@@ -42,7 +42,7 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
 ## Risks
 
 - Lock plus EIS plus capture is untested together; the session may need the operator's manual unlock
-  (known path, SSH `loginctl unlock-session` fallback).
+  (known path; `sudo loginctl unlock-session 2` over SSH is the unverified fallback).
 - Locking while the physical grab is on would lock the operator out; the grab stays off in Phase 8.
 - Phase 9 and 10 touch recovery of the only daily-driver display; every run needs the kill timer
   re-armed immediately before it (it expired during a 40 min approval gap on 2026-10-01).
@@ -102,3 +102,10 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   monitor stream here (direct scanout is the likely cause, unverified). Capture windows are now inconclusive
   when quiet and no longer block the lock; capture continuity under a fullscreen page stays a named limit
   for the FEAS-A gate unless the locked or unlocked windows deliver frames.
+- 2026-10-01 (exp11 attempt 5, evidence exp11/2026-10-01-5): FEAS-A original wording NOT MET. The lock engaged in 776 ms
+  and Mutter ended the EIS connection at once; gnome-shell 50.1 inhibits remote access in the locked session mode
+  (`main.js _sessionUpdated`, `sessionMode.js`), which terminates every RemoteDesktop/ScreenCast session and
+  refuses new ones. Remote input cannot drive the unlock dialog through Mutter. Replacement path to test next
+  (exp12): refusal of `CreateSession` while locked, unlock by logind `Unlock` from a user process (the product
+  mechanism after hostd-side authentication), fresh RemoteDesktop/EIS after the unlock, same Shell and page.
+  Recovery note corrected: use `sudo loginctl unlock-session 2` from SSH.

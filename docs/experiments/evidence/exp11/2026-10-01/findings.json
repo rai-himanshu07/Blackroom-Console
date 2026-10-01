@@ -1,0 +1,40 @@
+{
+  "selected_session_id": "2",
+  "git_head": "1deca64",
+  "git_dirty": false,
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "gnome_remote_desktop_before": "inactive",
+  "gnome_remote_desktop_after": "inactive",
+  "remote_desktop_session_path": null,
+  "blocked": "observer: page never reported focused and fullscreen",
+  "failure": null,
+  "aborted": null,
+  "inconclusive": [
+    "observer page not focused at the end of the run"
+  ],
+  "devices_seen": [],
+  "stages": [],
+  "initial_lock": {
+    "screen_saver_active": false,
+    "logind_locked_hint": false,
+    "owner_session_verified": false
+  },
+  "lock_engaged_after_ms": null,
+  "unlock_observed_after_ms": null,
+  "locked_at_snapshot": null,
+  "active_changed": [],
+  "eis_events_during_lock": [],
+  "devices_missing_after_lock": [],
+  "eis_ready_after_unlock": null,
+  "beats_during_lock": 0,
+  "beats_total": 0,
+  "tally_pre": null,
+  "tally_locked": null,
+  "tally_unlocked": null,
+  "notes_pre": [],
+  "notes_locked": [],
+  "notes_unlocked": [],
+  "capture": [],
+  "violations": []
+}
