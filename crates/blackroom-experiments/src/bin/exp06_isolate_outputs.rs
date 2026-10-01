@@ -25,17 +25,29 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use blackroom_experiments::eis_support::{Authority, DeviceSeen, Remote, open_remote};
+use blackroom_experiments::lock_support::{
+    LockOutcome, LockSnap, Unlock, judge_unlocked, lock_session, lock_state, locked_counts,
+    unlock_session,
+};
+use blackroom_experiments::observer::Observer;
 use blackroom_experiments::{
     CommonArgs, ExperimentReport, ExperimentResult, current_uid, discover, evidence_dir, redact,
     write_evidence,
 };
+use blackroom_gnome::backend::SessionInfo;
 use blackroom_gnome::mutter::display_config::{self, OutputBackup as CanonicalOutputBackup};
+use blackroom_gnome::mutter::pipewire_capture::capture_until_stopped;
+use blackroom_gnome::mutter::session::discover_session;
 use clap::Parser;
 use remote_emergency_client::client::{Client, Outcome};
 use serde::{Deserialize, Serialize};
+use serde_json::Value as Json;
 use time::OffsetDateTime;
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type, Value};
@@ -77,11 +89,34 @@ struct Args {
     /// With the owner-loss probe: after isolation take the real physical-input grab through a
     /// running `remote-emergencyd --enable-grabs` (absolute control socket), so the kill hits an
     /// owner that holds the display configuration and the daemon connection at once.
-    #[arg(long, requires = "auto_kill_after_isolate")]
+    #[arg(long)]
     grab_socket: Option<PathBuf>,
+    /// The core-path probe: needs `--pause-after-isolate`, `--grab-socket` and a running
+    /// `remote-emergencyd --enable-grabs`. Order: RemoteDesktop/EIS, virtual monitor with a
+    /// capture consumer, isolate the panel, physical-input grab, remote Shift/a/Left judged by
+    /// the observer page, hold, then release the grab, stop the session, restore, lock and
+    /// unlock through logind. Mutually exclusive with the automatic kill.
+    #[arg(long, requires_all = ["pause_after_isolate", "grab_socket"], conflicts_with = "auto_kill_after_isolate")]
+    integrated_probe: bool,
+    /// Seconds the isolated, grabbed state is held in the integrated probe.
+    #[arg(long, default_value_t = 25, value_parser = clap::value_parser!(u64).range(5..=40), requires = "integrated_probe")]
+    hold_secs: u64,
 }
 
 impl Args {
+    /// The grab socket belongs to the owner-loss probe or the integrated probe, nothing else.
+    fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.grab_socket.is_none() || self.auto_kill_after_isolate || self.integrated_probe,
+            "--grab-socket needs --auto-kill-after-isolate or --integrated-probe"
+        );
+        anyhow::ensure!(
+            !self.integrated_probe || self.watchdog_seconds == Some(120),
+            "--integrated-probe needs --watchdog-seconds 120 (setup, hold and restore must finish before it fires)"
+        );
+        Ok(())
+    }
+
     fn watchdog_duration(&self) -> u64 {
         if self.pause_after_isolate {
             self.watchdog_seconds.unwrap_or(WATCHDOG_SECONDS_DEFAULT)
@@ -204,8 +239,9 @@ mod tests {
     }
 
     #[test]
-    fn the_input_grab_is_only_offered_with_the_automatic_probe() {
-        assert!(Args::try_parse_from(["exp06", "--grab-socket", "/run/x.sock"]).is_err());
+    fn the_input_grab_is_only_offered_with_a_probe() {
+        let bare = Args::try_parse_from(["exp06", "--grab-socket", "/run/x.sock"]).unwrap();
+        assert!(bare.validate().is_err());
         let args = Args::try_parse_from([
             "exp06",
             "--pause-after-isolate",
@@ -217,6 +253,51 @@ mod tests {
         ])
         .unwrap();
         assert!(args.grab_socket.is_some());
+        assert!(args.validate().is_ok());
+    }
+
+    #[test]
+    fn the_integrated_probe_needs_the_pause_mode_and_a_socket_and_excludes_the_kill() {
+        let full = [
+            "exp06",
+            "--pause-after-isolate",
+            "--watchdog-seconds",
+            "120",
+            "--integrated-probe",
+            "--grab-socket",
+            "/run/x.sock",
+        ];
+        let args = Args::try_parse_from(full).unwrap();
+        assert!(args.integrated_probe && args.validate().is_ok());
+        assert_eq!(args.hold_secs, 25);
+        assert!(Args::try_parse_from(["exp06", "--integrated-probe"]).is_err());
+        assert!(
+            Args::try_parse_from([
+                "exp06",
+                "--pause-after-isolate",
+                "--watchdog-seconds",
+                "120",
+                "--integrated-probe"
+            ])
+            .is_err()
+        );
+        let mut with_kill = full.to_vec();
+        with_kill.push("--auto-kill-after-isolate");
+        assert!(Args::try_parse_from(with_kill).is_err());
+        let short_watchdog = Args::try_parse_from([
+            "exp06",
+            "--pause-after-isolate",
+            "--watchdog-seconds",
+            "90",
+            "--integrated-probe",
+            "--grab-socket",
+            "/run/x.sock",
+        ])
+        .unwrap();
+        assert!(short_watchdog.validate().is_err());
+        let mut long_hold = full.to_vec();
+        long_hold.extend(["--hold-secs", "90"]);
+        assert!(Args::try_parse_from(long_hold).is_err());
     }
 
     #[test]
@@ -1199,7 +1280,7 @@ fn current_mode_id(monitors: &[MonitorEntry], connector: &str) -> Option<String>
 fn create_virtual_monitor<'a>(
     conn: &'a Connection,
     physical_connectors_before: &[String],
-) -> anyhow::Result<(String, SessionStopGuard<'a>)> {
+) -> anyhow::Result<(String, SessionStopGuard<'a>, u32)> {
     let screencast_proxy = Proxy::new(
         conn,
         "org.gnome.Mutter.ScreenCast",
@@ -1236,7 +1317,7 @@ fn create_virtual_monitor<'a>(
     pipewire_probe::receive_a_few_frames(node_id, width, height).ok();
     let (virtual_connector, _monitors) = poll_for_new_connector(conn, physical_connectors_before)?;
     session_guard.disarmed = false; // stays armed; caller owns disarm/drop ordering
-    Ok((virtual_connector, session_guard))
+    Ok((virtual_connector, session_guard, node_id))
 }
 
 // ---------------------------------------------------------------------
@@ -1676,9 +1757,255 @@ fn diagnostic_result(
     }
 }
 
+// ---------------------------------------------------------------------
+// Integrated core-path probe (Phase 9 live test): RemoteDesktop/EIS, virtual monitor with a
+// capture consumer, isolation, the real input grab, remote input judged by the observer page,
+// orderly teardown and a lock/unlock through logind. Experiment-level composition of the
+// proven pieces, not the product agent.
+// ---------------------------------------------------------------------
+
+const OBSERVER_PAGE: &str = include_str!("../../assets/exp08_observer.html");
+const KEY_A: u32 = 30;
+const KEY_LEFTSHIFT: u32 = 42;
+const KEY_LEFT: u32 = 105;
+const PAGE_WAIT: Duration = Duration::from_secs(300);
+const ISOLATE_REPLY_TIMEOUT: Duration = Duration::from_secs(25);
+const PAGE_READY_AFTER_ISOLATION: Duration = Duration::from_secs(15);
+const ARM_TIMEOUT: Duration = Duration::from_secs(5);
+/// Heartbeats arrive every 250 ms: a stale beat means the page is not really there.
+const GATE_FRESHNESS: Duration = Duration::from_millis(600);
+
+struct IntegratedCtx<'a> {
+    observer: Observer,
+    authority: Authority,
+    remote: Option<Remote<'a>>,
+    info: SessionInfo,
+}
+
+#[derive(Debug, Serialize)]
+struct LockTeardown {
+    engaged_after_ms: Option<u64>,
+    unlock: Option<Unlock>,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct Integrated {
+    remote_session_before_isolation: bool,
+    devices_seen_before_isolation: usize,
+    page_ready_after_isolation: Option<bool>,
+    grab_nodes: Option<usize>,
+    grab_refused: Option<String>,
+    daemon_phase_during: Option<String>,
+    daemon_reads_during: Option<u64>,
+    injections: Vec<String>,
+    tally: Option<Json>,
+    tally_notes: Vec<String>,
+    capture_frames_at_isolation: u32,
+    capture_frames_in_hold: u32,
+    capture_error: Option<String>,
+    grab_restored: Option<bool>,
+    /// Releases the daemon pushed on its own (lease, chord, node loss) before our restore.
+    released_early: Vec<String>,
+    daemon_phase_after: Option<String>,
+    non_key_events: Option<u64>,
+    lock_teardown: Option<LockTeardown>,
+    notes: Vec<String>,
+    /// True only when every success condition in `integrated_pass` held.
+    pass: bool,
+}
+
+/// The page saw exactly the injected keys and nothing else, the daemon held the grab and handed
+/// it back, and the session unlocked through logind after the teardown lock. Frames are an
+/// observation only.
+fn integrated_pass(run: &Integrated) -> bool {
+    run.tally.is_some()
+        && run.tally_notes.is_empty()
+        && run.non_key_events == Some(0)
+        && run.grab_nodes == Some(4)
+        && run.daemon_phase_during.as_deref() == Some("isolated")
+        && run.released_early.is_empty()
+        && run.grab_restored == Some(true)
+        && run.daemon_phase_after.as_deref() == Some("idle")
+        && run.lock_teardown.as_ref().is_some_and(|lock| {
+            lock.unlock
+                .as_ref()
+                .is_some_and(|unlock| unlock.method == Some("loginctl"))
+        })
+}
+
+fn prepare_integrated<'a>(conn: &'a Connection, args: &Args) -> anyhow::Result<IntegratedCtx<'a>> {
+    let socket = args
+        .grab_socket
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("--integrated-probe needs --grab-socket"))?;
+    let mut client = Client::connect(socket, Duration::from_secs(10))?;
+    let status = client.status()?;
+    anyhow::ensure!(
+        status.phase.as_deref() == Some("idle") && status.grabs_enabled == Some(true),
+        "the daemon is not idle with grabs enabled: {status:?}"
+    );
+    drop(client);
+    let info = discover_session().map_err(|error| anyhow::anyhow!("session discovery: {error}"))?;
+    anyhow::ensure!(
+        lock_state(&info).is_some_and(LockSnap::unlocked),
+        "the session is locked or its lock state is unreadable"
+    );
+    let observer = Observer::start(OBSERVER_PAGE)?;
+    println!("Open this in a browser on the desktop, press F11, keep it focused, touch nothing:");
+    println!("  {}", observer.url());
+    anyhow::ensure!(
+        observer.wait_ready(PAGE_WAIT, Duration::from_secs(5)),
+        "the observer page never reported focused and fullscreen"
+    );
+    let authority = Authority::new(Duration::from_secs(900));
+    let mut seen: Vec<DeviceSeen> = Vec::new();
+    let remote = open_remote(conn, &authority, &mut seen)
+        .map_err(|(step, detail)| anyhow::anyhow!("remote session {step}: {detail}"))?;
+    println!("remote session ready ({} devices)", seen.len());
+    Ok(IntegratedCtx {
+        observer,
+        authority,
+        remote: Some(remote),
+        info,
+    })
+}
+
+/// Runs while the panel is isolated. Never returns early with `?`: the caller must reach the
+/// orderly restore whatever happens here.
+fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) -> Integrated {
+    let mut out = Integrated {
+        remote_session_before_isolation: ctx.remote.is_some(),
+        capture_frames_at_isolation: frames.load(Ordering::Relaxed),
+        ..Integrated::default()
+    };
+    let hold_started = Instant::now();
+    let mut client = None;
+    if let Some(socket) = &args.grab_socket {
+        match Client::connect(socket, ISOLATE_REPLY_TIMEOUT) {
+            Ok(mut connected) => match connected.isolate(GRAB_LEASE_MS) {
+                Ok(Outcome::Isolated { nodes }) => {
+                    out.grab_nodes = Some(nodes);
+                    let _ = connected.set_reply_timeout(Duration::from_secs(5));
+                    client = Some(connected);
+                }
+                Ok(other) => out.grab_refused = Some(format!("{other:?}")),
+                Err(error) => out.grab_refused = Some(error.to_string()),
+            },
+            Err(error) => out.grab_refused = Some(error.to_string()),
+        }
+    }
+
+    if client.is_none() {
+        out.notes
+            .push("no grab was taken: nothing is injected and the hold is skipped".into());
+        ctx.remote = None;
+        return out;
+    }
+
+    let ready = ctx
+        .observer
+        .wait_ready(PAGE_READY_AFTER_ISOLATION, Duration::from_secs(1));
+    out.page_ready_after_isolation = Some(ready);
+    if !ready {
+        out.notes.push(
+            "the observer page was not focused and fullscreen after isolation: no input injected"
+                .into(),
+        );
+    } else if !ctx.observer.arm(ARM_TIMEOUT) {
+        out.notes
+            .push("the observer did not acknowledge the tally reset: no input injected".into());
+    } else if let Some(remote) = ctx.remote.as_mut() {
+        for (name, key) in [
+            ("remote_key_tap_shift", KEY_LEFTSHIFT),
+            ("remote_key_tap_a", KEY_A),
+            ("remote_key_tap_left", KEY_LEFT),
+        ] {
+            if !ctx.observer.ready_now(GATE_FRESHNESS) {
+                out.injections
+                    .push(format!("{name}: skipped, page lost focus"));
+                break;
+            }
+            let outcome = match remote.tap(&ctx.authority, key) {
+                Ok(()) => "accepted".to_string(),
+                Err(error) => format!("refused:{:?}", error.code),
+            };
+            out.injections.push(format!("{name}: {outcome}"));
+            thread::sleep(Duration::from_millis(300));
+        }
+    }
+
+    let hold = Duration::from_secs(args.hold_secs);
+    let halfway = hold / 2;
+    let mut sampled = false;
+    while hold_started.elapsed() < hold {
+        if !sampled && hold_started.elapsed() >= halfway {
+            sampled = true;
+            if let Some(connected) = client.as_mut()
+                && let Ok(status) = connected.status()
+            {
+                out.daemon_phase_during = status.phase;
+                out.daemon_reads_during = status.reads;
+            }
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    // Judged at the end of the hold, so anything the grab let through would be in it.
+    ctx.observer.wait_beats(2, Duration::from_secs(3));
+    out.tally = ctx.observer.snapshot(|state| state.tally.clone());
+    if let Some(tally) = &out.tally {
+        out.tally_notes = judge_unlocked(tally)
+            .into_iter()
+            .map(|note| note.replace("after the unlock", "during the hold"))
+            .collect();
+        let counts = locked_counts(tally);
+        out.non_key_events = Some(
+            counts
+                .buttons
+                .saturating_add(counts.pointer_moves)
+                .saturating_add(counts.wheel_events),
+        );
+    }
+    out.capture_frames_in_hold = frames
+        .load(Ordering::Relaxed)
+        .saturating_sub(out.capture_frames_at_isolation);
+
+    if let Some(mut connected) = client.take() {
+        out.released_early = connected.take_released();
+        out.grab_restored = Some(connected.restore().is_ok());
+        if let Ok(status) = connected.status() {
+            out.daemon_phase_after = status.phase;
+        }
+    }
+    ctx.remote = None;
+    out
+}
+
+/// Teardown locks the session (the kill switch) and the program unlocks it again through logind.
+fn lock_teardown(info: &SessionInfo) -> LockTeardown {
+    let manual = Duration::from_secs(120);
+    match lock_session(info) {
+        LockOutcome::Engaged(_, ms) => {
+            thread::sleep(Duration::from_secs(3));
+            LockTeardown {
+                engaged_after_ms: Some(ms),
+                unlock: Some(unlock_session(info, manual)),
+            }
+        }
+        LockOutcome::Uncertain => LockTeardown {
+            engaged_after_ms: None,
+            unlock: Some(unlock_session(info, manual)),
+        },
+        LockOutcome::Failed => LockTeardown {
+            engaged_after_ms: None,
+            unlock: None,
+        },
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::try_init().ok();
     let args = Args::parse();
+    args.validate()?;
     require_remote_desktop_masked()?;
     let redact_on = args.common.redact_enabled();
     let now = OffsetDateTime::now_utc();
@@ -1703,6 +2030,13 @@ fn main() -> anyhow::Result<()> {
     anyhow::ensure!(
         backup.primary_output.is_some(),
         "refusing isolation without an identifiable primary output"
+    );
+    anyhow::ensure!(
+        !args.integrated_probe
+            || (logical0.len() == 1
+                && logical0[0].monitors.len() == 1
+                && logical0[0].monitors[0].connector == "eDP-1"),
+        "the integrated probe is only supported with eDP-1 as the sole active output"
     );
     let shell_pid_before = if args.auto_kill_after_isolate {
         anyhow::ensure!(
@@ -1734,6 +2068,14 @@ fn main() -> anyhow::Result<()> {
         .map(|m| m.connector_info.connector.clone())
         .collect();
 
+    // New activation order: the remote session exists before the virtual monitor is created.
+    let mut integrated_ctx = if args.integrated_probe {
+        Some(prepare_integrated(&conn, &args)?)
+    } else {
+        None
+    };
+    let mut integrated: Option<Integrated> = None;
+
     let apply_allowed = apply_monitors_config_allowed(&conn)?;
     if !apply_allowed {
         // Doc 05 §30 / Doc 00 §49: report, do not attempt a workaround.
@@ -1763,11 +2105,34 @@ fn main() -> anyhow::Result<()> {
     }
 
     // 2. Create + confirm the virtual monitor.
-    let (virtual_connector, mut session_guard) =
+    let (virtual_connector, mut session_guard, virtual_node) =
         create_virtual_monitor(&conn, &physical_connectors_before)?;
     let (_serial1, monitors1, _logical1) = read_state(&conn)?;
     let virtual_mode_id = current_mode_id(&monitors1, &virtual_connector)
         .ok_or_else(|| anyhow::anyhow!("no current mode reported for the virtual connector"))?;
+
+    let capture_stop = Arc::new(AtomicBool::new(false));
+    let capture_frames = Arc::new(AtomicU32::new(0));
+    let capture_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let mut capture_handle = args.integrated_probe.then(|| {
+        let (stop, frames, error) = (
+            Arc::clone(&capture_stop),
+            Arc::clone(&capture_frames),
+            Arc::clone(&capture_error),
+        );
+        thread::spawn(move || {
+            if let Err(failure) = capture_until_stopped(
+                virtual_node,
+                1920,
+                1080,
+                stop,
+                frames,
+                Duration::from_secs(900),
+            ) {
+                *error.lock().unwrap_or_else(PoisonError::into_inner) = Some(failure.to_string());
+            }
+        })
+    });
 
     // 3. Arm the restore watchdog before the first real disable.
     let watchdog_unit = format!("blackroom-exp06-watchdog-{}", now.unix_timestamp());
@@ -1881,21 +2246,33 @@ fn main() -> anyhow::Result<()> {
                 .status()?;
             anyhow::bail!("self-SIGKILL unexpectedly returned with status {status}");
         }
-        println!(
-            "Isolated. PID={}, backup={}, watchdog={} ({}s)",
-            std::process::id(),
-            backup_path.display(),
-            watchdog_unit,
-            watchdog_seconds
-        );
-        println!("Press Enter to restore gracefully and exit, OR from a separate");
-        println!(
-            "terminal run: kill -9 {} ; then run exp07_restore --backup {}",
-            std::process::id(),
-            backup_path.display()
-        );
-        let mut line = String::new();
-        std::io::stdin().lock().read_line(&mut line)?;
+        if let Some(ctx) = integrated_ctx.as_mut() {
+            println!(
+                "Isolated. Integrated probe running (hold {} s)...",
+                args.hold_secs
+            );
+            std::io::stdout().flush()?;
+            let result = run_integrated(&args, ctx, &capture_frames);
+            // Only signalled here; joined after the display is restored.
+            capture_stop.store(true, Ordering::Relaxed);
+            integrated = Some(result);
+        } else {
+            println!(
+                "Isolated. PID={}, backup={}, watchdog={} ({}s)",
+                std::process::id(),
+                backup_path.display(),
+                watchdog_unit,
+                watchdog_seconds
+            );
+            println!("Press Enter to restore gracefully and exit, OR from a separate");
+            println!(
+                "terminal run: kill -9 {} ; then run exp07_restore --backup {}",
+                std::process::id(),
+                backup_path.display()
+            );
+            let mut line = String::new();
+            std::io::stdin().lock().read_line(&mut line)?;
+        }
         verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
         let cleanup_unit = format!("{watchdog_unit}-cleanup");
         arm_watchdog(&cleanup_unit, WATCHDOG_SECONDS_DEFAULT, &backup_path)?;
@@ -1945,6 +2322,17 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    if let Some(handle) = capture_handle.take() {
+        let panicked = handle.join().is_err();
+        if let Some(result) = integrated.as_mut() {
+            result.capture_error = capture_error
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+                .or_else(|| panicked.then(|| "capture thread panicked".to_string()));
+        }
+    }
+
     let stop_error = Proxy::new(
         &conn,
         "org.gnome.Mutter.ScreenCast",
@@ -1988,6 +2376,36 @@ fn main() -> anyhow::Result<()> {
         observed
     };
     let final_topology_restored = final_state.topology_matches_original;
+    if let Some(result) = &integrated {
+        std::fs::write(
+            dir.join("integrated.json"),
+            serde_json::to_string_pretty(result)?,
+        )?;
+    }
+    if let (Some(result), Some(ctx)) = (integrated.as_mut(), integrated_ctx.as_ref()) {
+        if !final_topology_restored {
+            result
+                .notes
+                .push("topology not verified restored: no teardown lock".into());
+        } else if !result.released_early.is_empty()
+            || result.daemon_phase_after.as_deref() != Some("idle")
+        {
+            result.notes.push(
+                "the grab ended early or the daemon is not idle: no teardown lock (a chord lock must stay)"
+                    .into(),
+            );
+        } else {
+            result.lock_teardown = Some(lock_teardown(&ctx.info));
+        }
+        result.pass = integrated_pass(result);
+    }
+    if let Some(result) = &integrated {
+        std::fs::write(
+            dir.join("integrated.json"),
+            serde_json::to_string_pretty(result)?,
+        )?;
+        println!("integrated={result:#?}");
+    }
 
     let findings = Findings {
         host,
@@ -2033,6 +2451,8 @@ fn main() -> anyhow::Result<()> {
             } else {
                 disarm_watchdog(&watchdog_unit);
             }
+            // The Enter path leaves the first watchdog armed; this run must not re-apply later.
+            disarm_watchdog(&watchdog_unit);
         }
     }
 

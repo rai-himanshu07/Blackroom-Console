@@ -5,12 +5,15 @@ use std::process::Command;
 use std::time::{Duration, Instant, SystemTime};
 
 use blackroom_core::epoch::SecurityEpoch;
+use blackroom_core::error::{BlackroomError, ErrorCode};
 use blackroom_core::lease::{Capability, ControlLease, InputAuthorization};
 use blackroom_core::state::State;
 use blackroom_gnome::mutter::eis::EiConnection;
+use blackroom_gnome::mutter::remote_desktop::RemoteDesktopSession;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use reis::event::{Device, DeviceCapability, DeviceResumed, EiEvent};
 use serde::Serialize;
+use zbus::blocking::Connection;
 
 #[derive(Debug, Serialize)]
 pub struct DeviceSeen {
@@ -215,6 +218,57 @@ pub fn command_line(program: &str, args: &[&str]) -> Option<String> {
     let output = Command::new(program).args(args).output().ok()?;
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     (!text.is_empty()).then_some(text)
+}
+
+/// A RemoteDesktop session with its EIS sender. Fields drop in order: devices, connection, session.
+pub struct Remote<'a> {
+    pub devices: Devices,
+    pub eis: EiConnection,
+    _session: RemoteDesktopSession<'a>,
+}
+
+pub fn open_remote<'a>(
+    conn: &'a Connection,
+    authority: &Authority,
+    seen: &mut Vec<DeviceSeen>,
+) -> Result<Remote<'a>, (String, String)> {
+    let fail = |step: &str, error: BlackroomError| (step.to_string(), error.to_string());
+    let mut session = RemoteDesktopSession::create(conn).map_err(|e| fail("CreateSession", e))?;
+    session.start().map_err(|e| fail("Start", e))?;
+    let mut eis = session
+        .connect_to_eis(&authority.authorization(false))
+        .map_err(|e| fail("ConnectToEIS", e))?;
+    eis.handshake_sender(Duration::from_secs(5))
+        .map_err(|e| fail("EIS handshake", e))?;
+    let mut devices = Devices::default();
+    bind_devices(&mut eis, &mut devices, seen)
+        .map_err(|(step, detail)| (step.to_string(), detail))?;
+    Ok(Remote {
+        devices,
+        eis,
+        _session: session,
+    })
+}
+
+impl Remote<'_> {
+    pub fn tap(&mut self, authority: &Authority, key: u32) -> Result<(), BlackroomError> {
+        let _ = pump(
+            &mut self.eis,
+            &mut self.devices,
+            &mut Vec::new(),
+            Duration::from_millis(30),
+            |_| {},
+        );
+        match self.devices.keyboard.clone() {
+            Some(device) => self
+                .eis
+                .send_key_tap(&authority.authorization(false), &device, key),
+            None => Err(BlackroomError::new(
+                ErrorCode::MutterUnavailable,
+                "no active keyboard device",
+            )),
+        }
+    }
 }
 
 #[cfg(test)]

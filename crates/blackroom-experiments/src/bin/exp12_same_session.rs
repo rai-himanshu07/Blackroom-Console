@@ -18,28 +18,24 @@
 //!
 //! No physical-input grab, no display change, no virtual monitor, no capture.
 
-use std::process::{Command, Stdio};
 use std::sync::PoisonError;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use blackroom_core::error::{BlackroomError, ErrorCode};
-use blackroom_experiments::eis_support::{
-    Authority, DeviceSeen, Devices, bind_devices, command_line, pump,
-};
+use blackroom_core::error::BlackroomError;
+use blackroom_experiments::eis_support::{Authority, DeviceSeen, command_line, open_remote, pump};
 use blackroom_experiments::lock_support::{
-    LockSnap, LockedCounts, eis_label, elapsed_ms, ensure_no_grab_holders, judge_locked, judge_pre,
-    judge_unlocked, lock_state, locked_counts, wait_lock_state, watch_active_changed,
+    LockOutcome, LockSnap, LockedCounts, Unlock, eis_label, elapsed_ms, ensure_no_grab_holders,
+    judge_locked, judge_pre, judge_unlocked, lock_session, lock_state, locked_counts,
+    unlock_session, watch_active_changed,
 };
 use blackroom_experiments::observer::{FRESH, Observer};
 use blackroom_experiments::{
     CommonArgs, ExperimentReport, ExperimentResult, evidence_dir, write_evidence,
 };
 use blackroom_gnome::backend::SessionInfo;
-use blackroom_gnome::mutter::eis::EiConnection;
 use blackroom_gnome::mutter::lock;
-use blackroom_gnome::mutter::remote_desktop::RemoteDesktopSession;
 use blackroom_gnome::mutter::session::discover_session;
 use clap::Parser;
 use serde::Serialize;
@@ -53,8 +49,6 @@ const OBSERVER_PAGE: &str = include_str!("../../assets/exp08_observer.html");
 const KEY_A: u32 = 30;
 const KEY_LEFTSHIFT: u32 = 42;
 const KEY_LEFT: u32 = 105;
-const LOCK_WAIT: Duration = Duration::from_secs(15);
-const UNLOCK_WAIT: Duration = Duration::from_secs(20);
 /// How long the first lock stays up, so the operator can look at it and the page's silence counts.
 const LOCK_HOLD: Duration = Duration::from_secs(20);
 const SECOND_LOCK_HOLD: Duration = Duration::from_secs(8);
@@ -89,15 +83,6 @@ struct Step {
     name: String,
     outcome: String,
     at_ms: u64,
-}
-
-#[derive(Debug, Default, Serialize)]
-struct Unlock {
-    /// `loginctl` when logind unlocked the session, `manual` when the operator had to.
-    method: Option<&'static str>,
-    logind_exit: Option<i32>,
-    logind_stderr: Option<String>,
-    observed_after_ms: Option<u64>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -249,147 +234,8 @@ fn preflight(run: &mut Run) -> anyhow::Result<SessionInfo> {
     Ok(info)
 }
 
-/// A RemoteDesktop session with its EIS sender. Fields drop in order: devices, connection, session.
-struct Remote<'a> {
-    devices: Devices,
-    eis: EiConnection,
-    _session: RemoteDesktopSession<'a>,
-}
-
-fn open_remote<'a>(
-    conn: &'a Connection,
-    authority: &Authority,
-    seen: &mut Vec<DeviceSeen>,
-) -> Result<Remote<'a>, (String, String)> {
-    let fail = |step: &str, error: BlackroomError| (step.to_string(), error.to_string());
-    let mut session = RemoteDesktopSession::create(conn).map_err(|e| fail("CreateSession", e))?;
-    session.start().map_err(|e| fail("Start", e))?;
-    let mut eis = session
-        .connect_to_eis(&authority.authorization(false))
-        .map_err(|e| fail("ConnectToEIS", e))?;
-    eis.handshake_sender(Duration::from_secs(5))
-        .map_err(|e| fail("EIS handshake", e))?;
-    let mut devices = Devices::default();
-    bind_devices(&mut eis, &mut devices, seen)
-        .map_err(|(step, detail)| (step.to_string(), detail))?;
-    Ok(Remote {
-        devices,
-        eis,
-        _session: session,
-    })
-}
-
-impl Remote<'_> {
-    fn tap(&mut self, authority: &Authority, key: u32) -> Result<(), BlackroomError> {
-        let _ = pump(
-            &mut self.eis,
-            &mut self.devices,
-            &mut Vec::new(),
-            Duration::from_millis(30),
-            |_| {},
-        );
-        match self.devices.keyboard.clone() {
-            Some(device) => self
-                .eis
-                .send_key_tap(&authority.authorization(false), &device, key),
-            None => Err(BlackroomError::new(
-                ErrorCode::MutterUnavailable,
-                "no active keyboard device",
-            )),
-        }
-    }
-}
-
 fn page_loads(observer: &Observer) -> u64 {
     observer.snapshot(|state| state.page_loads)
-}
-
-const LOGINCTL_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Runs `loginctl` with a null stdin and a hard timeout; returns the exit code and a short stderr.
-fn loginctl(args: &[&str]) -> Option<(Option<i32>, Option<String>)> {
-    let mut child = Command::new("loginctl")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .ok()?;
-    let deadline = Instant::now() + LOGINCTL_TIMEOUT;
-    let status = loop {
-        if let Some(status) = child.try_wait().ok()? {
-            break status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        sleep(Duration::from_millis(50));
-    };
-    let mut text = String::new();
-    if let Some(mut stderr) = child.stderr.take() {
-        let _ = std::io::Read::read_to_string(&mut stderr, &mut text);
-    }
-    let text: String = text.trim().chars().take(160).collect();
-    Some((status.code(), (!text.is_empty()).then_some(text)))
-}
-
-enum LockOutcome {
-    /// Both signals agreed after this many milliseconds.
-    Engaged(Instant, u64),
-    /// The call succeeded but the signals never agreed: the screen may be locked.
-    Uncertain,
-    /// The call itself failed or timed out.
-    Failed,
-}
-
-fn lock_session(info: &SessionInfo) -> LockOutcome {
-    let started = Instant::now();
-    match loginctl(&["lock-session", &info.session_id]) {
-        Some((Some(0), _)) => {}
-        _ => return LockOutcome::Failed,
-    }
-    match wait_lock_state(info, LockSnap::locked, LOCK_WAIT, started) {
-        Some(ms) => LockOutcome::Engaged(started, ms),
-        None => LockOutcome::Uncertain,
-    }
-}
-
-/// Unlocks the way hostd would (logind `Unlock`); falls back to waiting for the operator. The
-/// method is `loginctl` only if the session was still locked right before the call, the call
-/// exited 0 and the session then unlocked.
-fn unlock_session(info: &SessionInfo, manual_wait: Duration) -> Unlock {
-    let mut record = Unlock::default();
-    let still_locked = lock_state(info).is_some_and(LockSnap::locked);
-    let started = Instant::now();
-    if still_locked {
-        match loginctl(&["unlock-session", &info.session_id]) {
-            Some((code, stderr)) => {
-                record.logind_exit = code;
-                record.logind_stderr = stderr;
-            }
-            None => record.logind_stderr = Some("loginctl timed out or did not start".into()),
-        }
-        if record.logind_exit == Some(0)
-            && let Some(ms) = wait_lock_state(info, LockSnap::unlocked, UNLOCK_WAIT, started)
-        {
-            record.method = Some("loginctl");
-            record.observed_after_ms = Some(ms);
-            return record;
-        }
-    } else {
-        record.logind_stderr = Some("the session was no longer locked before the call".into());
-    }
-    println!(
-        "the session was not unlocked by logind: unlock it with your own password ({} s)",
-        manual_wait.as_secs()
-    );
-    if let Some(ms) = wait_lock_state(info, LockSnap::unlocked, manual_wait, started) {
-        record.method = Some("manual");
-        record.observed_after_ms = Some(ms);
-    }
-    record
 }
 
 fn execute(
@@ -835,6 +681,8 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use blackroom_core::error::ErrorCode;
+
     use super::*;
 
     fn complete_run() -> Run {

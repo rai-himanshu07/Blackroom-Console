@@ -139,3 +139,12 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   unchanged, no crash line; the operator reported no desktop content, picture back within about a minute, input
   and desktop fine. One run, same uid, exp06 as the owner (not the product agent), no remote input/capture/lock.
   Temporary ACLs on event2-5 were still present at the cleanup check (operator action pending).
+- 2026-10-01 (Phase 9, integrated core-path live test built, not yet run): `exp06_isolate_outputs --pause-after-isolate
+  --watchdog-seconds 120 --integrated-probe --grab-socket <sock>` composes the proven pieces in the amended order:
+  RemoteDesktop/EIS and the observer page first, virtual monitor with a capture consumer, isolate eDP-1, real input
+  grab, remote Shift/a/Left judged by the page at the end of a 25 s hold, grab release, session stop, orderly restore,
+  ScreenCast stop, lock and unlock through logind; one `pass` flag in `integrated.json`. An independent read-only
+  review found no lock-out path and nine defects, fixed (eDP-only guard, watchdog 120, no hold without a grab, end-of-hold
+  judging, capture join after the restore, no teardown lock after an early grab end, original watchdog disarmed, pass flag).
+  Helpers moved into `eis_support`/`lock_support`. The run is `docs/ops/live-integrated-run.sh` (`--check` is read-only).
+  This is an experiment-level composition; the production agent is still on the fake backend.

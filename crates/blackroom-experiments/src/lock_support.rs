@@ -1,5 +1,6 @@
 //! Shared lock-observation helpers for the supervised lock experiments (exp11, exp12).
 
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -230,6 +231,106 @@ pub fn judge_unlocked(tally: &Value) -> Vec<String> {
         notes.push("page saw untrusted events after the unlock".to_string());
     }
     notes
+}
+
+pub const LOCK_WAIT: Duration = Duration::from_secs(15);
+pub const UNLOCK_WAIT: Duration = Duration::from_secs(20);
+
+#[derive(Debug, Default, Serialize)]
+pub struct Unlock {
+    /// `loginctl` when logind unlocked the session, `manual` when the operator had to.
+    pub method: Option<&'static str>,
+    pub logind_exit: Option<i32>,
+    pub logind_stderr: Option<String>,
+    pub observed_after_ms: Option<u64>,
+}
+
+const LOGINCTL_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Runs `loginctl` with a null stdin and a hard timeout; returns the exit code and a short stderr.
+pub fn loginctl(args: &[&str]) -> Option<(Option<i32>, Option<String>)> {
+    let mut child = Command::new("loginctl")
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let deadline = Instant::now() + LOGINCTL_TIMEOUT;
+    let status = loop {
+        if let Some(status) = child.try_wait().ok()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        sleep(Duration::from_millis(50));
+    };
+    let mut text = String::new();
+    if let Some(mut stderr) = child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut stderr, &mut text);
+    }
+    let text: String = text.trim().chars().take(160).collect();
+    Some((status.code(), (!text.is_empty()).then_some(text)))
+}
+
+pub enum LockOutcome {
+    /// Both signals agreed after this many milliseconds.
+    Engaged(Instant, u64),
+    /// The call succeeded but the signals never agreed: the screen may be locked.
+    Uncertain,
+    /// The call itself failed or timed out.
+    Failed,
+}
+
+pub fn lock_session(info: &SessionInfo) -> LockOutcome {
+    let started = Instant::now();
+    match loginctl(&["lock-session", &info.session_id]) {
+        Some((Some(0), _)) => {}
+        _ => return LockOutcome::Failed,
+    }
+    match wait_lock_state(info, LockSnap::locked, LOCK_WAIT, started) {
+        Some(ms) => LockOutcome::Engaged(started, ms),
+        None => LockOutcome::Uncertain,
+    }
+}
+
+/// Unlocks the way hostd would (logind `Unlock`); falls back to waiting for the operator. The
+/// method is `loginctl` only if the session was still locked right before the call, the call
+/// exited 0 and the session then unlocked.
+pub fn unlock_session(info: &SessionInfo, manual_wait: Duration) -> Unlock {
+    let mut record = Unlock::default();
+    let still_locked = lock_state(info).is_some_and(LockSnap::locked);
+    let started = Instant::now();
+    if still_locked {
+        match loginctl(&["unlock-session", &info.session_id]) {
+            Some((code, stderr)) => {
+                record.logind_exit = code;
+                record.logind_stderr = stderr;
+            }
+            None => record.logind_stderr = Some("loginctl timed out or did not start".into()),
+        }
+        if record.logind_exit == Some(0)
+            && let Some(ms) = wait_lock_state(info, LockSnap::unlocked, UNLOCK_WAIT, started)
+        {
+            record.method = Some("loginctl");
+            record.observed_after_ms = Some(ms);
+            return record;
+        }
+    } else {
+        record.logind_stderr = Some("the session was no longer locked before the call".into());
+    }
+    println!(
+        "the session was not unlocked by logind: unlock it with your own password ({} s)",
+        manual_wait.as_secs()
+    );
+    if let Some(ms) = wait_lock_state(info, LockSnap::unlocked, manual_wait, started) {
+        record.method = Some("manual");
+        record.observed_after_ms = Some(ms);
+    }
+    record
 }
 
 #[cfg(test)]
