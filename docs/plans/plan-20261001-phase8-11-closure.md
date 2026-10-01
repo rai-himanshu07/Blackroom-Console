@@ -151,8 +151,13 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
 - 2026-10-01 23:02 (Phase 9 integrated live run, evidence exp06/2026-10-01-3): **GNOME Shell crashed (SIGSEGV) during the restore
   `ApplyMonitorsConfig`, the session was lost** (details and stack summary in the observation). Stop condition (Doc 00
   section 49): all live display/input/session experiments are stopped; `docs/ops/live-integrated-run.sh` is guarded
-  (`BLACKROOM_STOP_LIFTED=1`). FEAS-F/H are not met for the integrated composition. Open: cause (offline source analysis
-  found a candidate: the ScreenCast virtual-stream `monitors-changed-internal` handler dereferences a NULL view when the
-  stream is enabled and the restore config omits the virtual monitor; the capture consumer existed only in this probe and
-  was not joined before the restore; untested), then a bounded bisect only with the operator's approval, and an upstream
-  report.
+  (`BLACKROOM_STOP_LIFTED=1`). FEAS-F/H are not met for the integrated composition.
+- 2026-10-02 00:10 (offline + throwaway headless Shell, evidence exp06/2026-10-01-3 "Headless reproduction"): **cause
+  established and reproduced 4/4**: the ScreenCast virtual-stream `monitors-changed-internal` handler dereferences a NULL
+  view when the stream is enabled (consumer streaming) and the applied config omits the virtual monitor; the probe's
+  physical-only restore did exactly that while its capture thread was still streaming. Same libmutter offsets and
+  faulting instruction as the real crash. Fix (operator chose design A): restore with the virtual monitor kept as an
+  extra logical monitor, then Stop (`restore_physical_outputs_keeping_virtual`, exp06 integrated path and its
+  `RestoreGuard`); verified safe 5/5 on the headless Shell. Open before any live retest: `exp07_restore` watchdog has the
+  same hazard with a live owner and a streaming consumer; independent review; operator approval for one real-session
+  run (the stop stays in force); upstream report.

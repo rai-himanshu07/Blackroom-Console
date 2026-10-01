@@ -420,6 +420,61 @@ mod tests {
     }
 
     #[test]
+    fn restore_config_keeps_virtual_monitor_until_the_session_stops() {
+        let backup = DisplayBackup {
+            session_id: "3".to_string(),
+            shell_pid: 1,
+            outputs: vec![OutputBackup {
+                connector: "eDP-1".to_string(),
+                vendor: String::new(),
+                product: String::new(),
+                serial: "internal".to_string(),
+                mode_id: "mode".to_string(),
+                width: 1920,
+                height: 1080,
+                refresh_rate: 60.0,
+                enabled: true,
+            }],
+            topology: vec![LogicalMonitorBackup {
+                x: 0,
+                y: 0,
+                scale: 1.25,
+                transform: 0,
+                primary: true,
+                monitors: vec![("eDP-1".to_string(), "internal".to_string())],
+            }],
+            primary_output: None,
+            hash_version: display_config::CONFIGURATION_HASH_VERSION,
+            configuration_hash: 0,
+        };
+        let config = with_kept_virtual(&to_write_side(&backup).unwrap(), &backup, "Meta-0", "m");
+        assert_eq!(config.len(), 2);
+        assert_eq!(config[0].monitors[0].connector, "eDP-1");
+        assert_eq!((config[1].x, config[1].y), (1536, 0));
+        assert!(!config[1].primary);
+        assert_eq!(config[1].monitors[0].connector, "Meta-0");
+
+        let logical = |connector: &str, x: i32, primary: bool| LogicalMonitorEntry {
+            x,
+            y: 0,
+            scale: if primary { 1.25 } else { 1.0 },
+            transform: 0,
+            primary,
+            monitors: vec![ConnectorInfo {
+                connector: connector.to_string(),
+                vendor: String::new(),
+                product: String::new(),
+                serial: if primary { "internal" } else { "virtual" }.to_string(),
+            }],
+            properties: HashMap::new(),
+        };
+        let live = [logical("eDP-1", 0, true), logical("Meta-0", 1536, false)];
+        assert!(!original_topology_matches(&backup, &live));
+        assert!(topology_matches_excluding(&backup, &live, Some("Meta-0")));
+        assert!(!topology_matches_excluding(&backup, &live, Some("HDMI-1")));
+    }
+
+    #[test]
     fn new_backup_hash_tracks_hdmi_enabled() {
         let monitor = |connector: &str, serial: &str| MonitorEntry {
             connector_info: ConnectorInfo {
@@ -949,6 +1004,22 @@ fn build_backup(
 }
 
 fn original_topology_matches(backup: &DisplayBackup, logical: &[LogicalMonitorEntry]) -> bool {
+    topology_matches_excluding(backup, logical, None)
+}
+
+/// Like [`original_topology_matches`] but ignores the logical monitor of `excluded_connector`.
+fn topology_matches_excluding(
+    backup: &DisplayBackup,
+    logical: &[LogicalMonitorEntry],
+    excluded_connector: Option<&str>,
+) -> bool {
+    let logical: Vec<&LogicalMonitorEntry> = logical
+        .iter()
+        .filter(|lm| {
+            excluded_connector
+                .is_none_or(|excluded| !lm.monitors.iter().any(|m| m.connector == excluded))
+        })
+        .collect();
     logical.len() == backup.topology.len()
         && backup.topology.iter().all(|expected| {
             logical.iter().any(|actual| {
@@ -1414,6 +1485,44 @@ fn verify_live_restore_identity(
         &session_id,
         gnome_shell_pid(conn)?,
     )
+}
+
+/// Mutter 50.1 dereferences a NULL view in the ScreenCast virtual-stream `monitors-changed`
+/// handler when an enabled stream's virtual monitor has no logical monitor (Shell SIGSEGV,
+/// exp13). The restore config must therefore keep the virtual monitor, right of the restored
+/// ones, until the ScreenCast session is stopped.
+fn with_kept_virtual(
+    original: &[LogicalMonitorConfig],
+    backup: &DisplayBackup,
+    virtual_connector: &str,
+    virtual_mode_id: &str,
+) -> Vec<LogicalMonitorConfig> {
+    let (x, y) = original
+        .iter()
+        .map(|lm| {
+            let width = lm
+                .monitors
+                .first()
+                .and_then(|m| backup.outputs.iter().find(|o| o.connector == m.connector))
+                .map_or(0, |o| o.width);
+            (lm.x + (f64::from(width) / lm.scale).ceil() as i32, lm.y)
+        })
+        .max_by_key(|(right_edge, _)| *right_edge)
+        .unwrap_or((0, 0));
+    let mut config = original.to_vec();
+    config.push(LogicalMonitorConfig {
+        x,
+        y,
+        scale: 1.0,
+        transform: 0,
+        primary: false,
+        monitors: vec![MonitorRef {
+            connector: virtual_connector.to_string(),
+            mode_id: virtual_mode_id.to_string(),
+            properties: HashMap::new(),
+        }],
+    });
+    config
 }
 
 fn restore_original(
@@ -2141,9 +2250,19 @@ fn main() -> anyhow::Result<()> {
     arm_watchdog(&watchdog_unit, watchdog_seconds, &backup_path)?;
     let watchdog_armed = true;
 
+    let restore_config = if args.integrated_probe {
+        with_kept_virtual(
+            &original_write_side,
+            &backup,
+            &virtual_connector,
+            &virtual_mode_id,
+        )
+    } else {
+        original_write_side.clone()
+    };
     let mut restore_guard = RestoreGuard {
         conn: &conn,
-        original: original_write_side.clone(),
+        original: restore_config.clone(),
         session_id: original_session_id.clone(),
         shell_pid: original_shell_pid,
         disarmed: false,
@@ -2286,19 +2405,17 @@ fn main() -> anyhow::Result<()> {
         // previously fell through without restoring at all, and
         // `all_restored`'s unmutated `true` default wrongly disarmed
         // RestoreGuard — the operator had to restore manually over SSH).
-        let restore_error = restore_original(
-            &conn,
-            &backup.session_id,
-            backup.shell_pid,
-            &original_write_side,
-        )
-        .err();
+        let restore_error =
+            restore_original(&conn, &backup.session_id, backup.shell_pid, &restore_config).err();
         if let Some(error) = restore_error {
             eprintln!("Restore after pause failed: {error}");
             all_restored = false;
         } else {
+            let kept_virtual = args.integrated_probe.then_some(virtual_connector.as_str());
             all_restored = read_state(&conn)
-                .map(|(_serial, _monitors, logical)| original_topology_matches(&backup, &logical))
+                .map(|(_serial, _monitors, logical)| {
+                    topology_matches_excluding(&backup, &logical, kept_virtual)
+                })
                 .unwrap_or(false);
         }
         paused = true;

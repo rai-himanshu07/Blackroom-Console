@@ -47,13 +47,45 @@ omits Meta-0, so the virtual monitor loses its logical monitor/view; (2) the Pip
 stream was still enabled; all ~13 clean exp06 runs had no streaming consumer at restore; (3) the crash is in a signal
 handler run from `meta_monitor_manager_rebuild`; (4) the two libmutter frames 0x1fd bytes apart match a helper and its
 caller (`setup_view` inside `on_monitors_changed`). Isolation itself is safe because Meta-0 is then the only logical
-monitor and has a view. Not proven: no symbols or core inspection confirmed the exact faulting line, and nothing was
-reproduced. The same class may explain the unexplained 2026-09-26 SIGSEGV near virtual-monitor removal.
+monitor and has a view. This candidate was then reproduced (next section). The same class may explain the unexplained
+2026-09-26 SIGSEGV near virtual-monitor removal.
 
 Implication: any topology change that leaves a virtual monitor without a logical monitor while its stream is enabled is
-unsafe on this Mutter. Candidate mitigations (not yet implemented or tested): keep the virtual monitor as an additional
-logical monitor in the restore config and Stop the session afterwards; or disconnect the consumer and wait until the
-stream is disabled before restoring (racy: the disable is asynchronous).
+unsafe on this Mutter. Mitigation chosen by the operator and verified on the throwaway Shell below: keep the virtual
+monitor as an extra logical monitor in the restore config, then Stop the ScreenCast session (Stop is safe: the stream
+source clears its handler before releasing the virtual monitor). Waiting for the consumer to disconnect first was
+rejected as racy (the disable is asynchronous).
+
+## Headless reproduction (2026-10-02 00:03-00:10, throwaway Shell only)
+
+`docs/ops/headless-repro.sh` starts `gnome-shell --headless --wayland --no-x11 --virtual-monitor 1920x1080` under
+`dbus-run-session` (private bus, no real display or input, GSETTINGS_BACKEND=memory) and runs `exp13_virtual_restore`,
+which refuses unless the DisplayConfig owner was started `--headless`. Flow: snapshot, `RecordVirtual`, streaming
+PipeWire consumer, `disable_physical_outputs` (only the virtual monitor), hold 2 s, restore, Stop. The producer and
+consumer nodes lived in the real PipeWire daemon and vanished with the process.
+
+| Variant | Runs | Result |
+|---|---|---|
+| consumer streaming, restore omits the virtual monitor (the probe's restore) | 4 | headless Shell SIGSEGV (status 139) 4/4 |
+| no consumer at restore (earlier clean exp06 runs) | 1 | safe, topology verified |
+| consumer streaming, restore keeps the virtual monitor, then Stop | 4 | safe, topology verified 4/4 |
+| same, consumer disconnected before Stop | 1 | safe, topology verified |
+
+Under gdb the crash is byte-identical to the real one: libmutter-relative frames 0x15dd47, 0x15df44, 0xc3be7, 0x1b84f6,
+0xc6c30 and 0x776ab, `meta_monitor_manager_rebuild` and `meta_monitor_manager_apply_monitors_config` in the stack, the
+faulting instruction `addl $0x1,0x18(%r14,%rax,1)` with `rax=-0x100` (the negative GObject private offset), i.e. the
+`inhibit_cursor_overlay_count++` of `meta_stage_view_inhibit_cursor_overlay` on a NULL view (r14 itself was not
+recorded). Cause established for this Mutter build (50.1-0ubuntu2.4). The RemoteDesktop/EIS session, the fullscreen
+page and the input grab are not needed for the crash.
+
+Changes: `display_config::restore_physical_outputs_keeping_virtual`; exp06 `--integrated-probe` now restores with
+`with_kept_virtual` (also inside the drop-time `RestoreGuard`) and checks the topology ignoring the kept virtual monitor;
+`exp13_virtual_restore` and the runner. Open hazards: the `exp07_restore` watchdog still applies the physical-only config,
+so a watchdog that fires while the owner is alive with a streaming consumer would crash the Shell the same way (needs the
+same keep-virtual rule before any live integrated run); the fix is not yet exercised on the real session; an upstream
+report (missing NULL check in the virtual stream `monitors-changed-internal` handler, also on upstream main) is not
+filed. Side effect: coreutils `timeout` re-raises the child's SIGSEGV, so apport wrote a crash report for `timeout` in
+/var/crash.
 
 Consequences: the Mutter-instability stop (Doc 00 section 49) applies again. No further live display, input or
 session experiment until the crash is investigated and the operator approves a bisect. The integrated script is guarded.

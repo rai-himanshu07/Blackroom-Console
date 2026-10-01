@@ -487,20 +487,7 @@ pub fn disable_physical_outputs(
     set_power_save_mode(conn, POWER_SAVE_OFF)?;
     let result = (|| -> Result<(), BlackroomError> {
         let (serial, monitors, _logical) = read_state(conn)?;
-        let virtual_mode_id = monitors
-            .iter()
-            .find(|m| m.connector_info.connector == virtual_connector)
-            .and_then(|m| {
-                m.modes
-                    .iter()
-                    .find(|mode| is_current_mode(&mode.properties))
-            })
-            .map(|mode| mode.id.clone())
-            .ok_or_else(|| {
-                display_isolation_failed(format!(
-                    "no current mode reported for virtual connector {virtual_connector}"
-                ))
-            })?;
+        let virtual_mode_id = virtual_mode_id(&monitors, virtual_connector)?;
         apply(
             conn,
             serial,
@@ -511,6 +498,26 @@ pub fn disable_physical_outputs(
         let _ = set_power_save_mode(conn, POWER_SAVE_ON);
     }
     result
+}
+
+fn virtual_mode_id(
+    monitors: &[MonitorEntry],
+    virtual_connector: &str,
+) -> Result<String, BlackroomError> {
+    monitors
+        .iter()
+        .find(|m| m.connector_info.connector == virtual_connector)
+        .and_then(|m| {
+            m.modes
+                .iter()
+                .find(|mode| is_current_mode(&mode.properties))
+        })
+        .map(|mode| mode.id.clone())
+        .ok_or_else(|| {
+            display_isolation_failed(format!(
+                "no current mode reported for virtual connector {virtual_connector}"
+            ))
+        })
 }
 
 /// Idempotent (Doc 07 §27 convention): re-applying an already-restored
@@ -533,6 +540,47 @@ pub fn restore_physical_outputs(
     let write_side = to_write_side(backup)?;
     let (serial, ..) = read_state(conn)?;
     apply(conn, serial, &write_side)?;
+    set_power_save_mode(conn, POWER_SAVE_ON)
+}
+
+/// [`restore_physical_outputs`] that keeps `virtual_connector` as an extra logical monitor
+/// right of the restored ones. Mutter 50.1 dereferences a NULL view in the ScreenCast
+/// virtual-stream `monitors-changed` handler when an enabled stream's virtual monitor has no
+/// logical monitor (Shell SIGSEGV reproduced by exp13), so restore this way while any consumer may
+/// stream and stop the ScreenCast session afterwards.
+pub fn restore_physical_outputs_keeping_virtual(
+    conn: &Connection,
+    backup: &DisplayBackup,
+    virtual_connector: &str,
+) -> Result<(), BlackroomError> {
+    let mut config = to_write_side(backup)?;
+    let (serial, monitors, _logical) = read_state(conn)?;
+    let virtual_mode_id = virtual_mode_id(&monitors, virtual_connector)?;
+    let (x, y) = config
+        .iter()
+        .map(|lm| {
+            let width = lm
+                .monitors
+                .first()
+                .and_then(|m| backup.outputs.iter().find(|o| o.connector == m.connector))
+                .map_or(0, |o| o.width);
+            (lm.x + (f64::from(width) / lm.scale).ceil() as i32, lm.y)
+        })
+        .max_by_key(|(right_edge, _)| *right_edge)
+        .unwrap_or((0, 0));
+    config.push(LogicalMonitorConfig {
+        x,
+        y,
+        scale: 1.0,
+        transform: 0,
+        primary: false,
+        monitors: vec![MonitorRef {
+            connector: virtual_connector.to_string(),
+            mode_id: virtual_mode_id,
+            properties: HashMap::new(),
+        }],
+    });
+    apply(conn, serial, &config)?;
     set_power_save_mode(conn, POWER_SAVE_ON)
 }
 
