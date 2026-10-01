@@ -61,3 +61,16 @@ authentication, untested) and create the RemoteDesktop/ScreenCast sessions only 
 every lock; the lock on teardown is unaffected. The capture continuity question is open (the stream delivered no
 frames behind a fullscreen page). FEAS-A is **not met as originally worded**; the next experiment tests the
 replacement path (plan step 2).
+
+## Experiment 12 harness (built 2026-10-01, not yet run live)
+
+`exp12_same_session --operator-present` tests the replacement path on the live session: an EIS sender works
+before the lock; `loginctl lock-session` locks, the old EIS connection's end is recorded, a new `CreateSession`
+while locked is only observed (and, if accepted, a net-zero pointer move and a Shift tap are sent), nothing may
+reach the observer page while locked and the page must keep beating; the program then unlocks with
+`loginctl unlock-session` (the call must exit 0 on a session that was still locked, and the session must then
+report unlocked; any other route counts as a manual unlock and the run is PARTIAL); a fresh RemoteDesktop/EIS
+session after the unlock must deliver Shift, `a`, Left once each; the session is disconnected, locked and
+unlocked once more. The login session id, the Shell PID and the observer page instance (a served-page counter)
+must be unchanged. No password is typed or read; a same-user process can unlock its own session through
+logind, so the lock screen is not a boundary against such a process. FEAS-A stays open until this has run.

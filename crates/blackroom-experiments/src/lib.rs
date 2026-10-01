@@ -8,6 +8,7 @@ pub mod cli;
 pub mod eis_support;
 pub mod evidence;
 pub mod introspect;
+pub mod lock_support;
 pub mod observer;
 pub mod session;
 

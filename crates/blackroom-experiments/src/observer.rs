@@ -29,6 +29,8 @@ pub struct ObserverState {
     pub epoch: u64,
     /// Instruction the page shows the operator (the terminal is hidden behind the fullscreen page).
     pub prompt: String,
+    /// Times the page was served: a reload changes it, so it identifies the page instance.
+    pub page_loads: u64,
 }
 
 #[derive(Deserialize)]
@@ -265,6 +267,10 @@ fn route(
     let base = format!("/{token}/");
     match request.method.as_str() {
         "GET" if request.path == base => {
+            state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .page_loads += 1;
             response("200 OK", "text/html; charset=utf-8", page.as_bytes())
         }
         "POST" if request.path == format!("{base}beat") => {

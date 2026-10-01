@@ -42,7 +42,7 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
 ## Risks
 
 - Lock plus EIS plus capture is untested together; the session may need the operator's manual unlock
-  (known path; `sudo loginctl unlock-session 2` over SSH is the unverified fallback).
+  (known path; `loginctl unlock-session 2` over SSH is the unverified fallback (logind authorises the session's own uid without polkit, per a source review)).
 - Locking while the physical grab is on would lock the operator out; the grab stays off in Phase 8.
 - Phase 9 and 10 touch recovery of the only daily-driver display; every run needs the kill timer
   re-armed immediately before it (it expired during a 40 min approval gap on 2026-10-01).
@@ -109,3 +109,9 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   (exp12): refusal of `CreateSession` while locked, unlock by logind `Unlock` from a user process (the product
   mechanism after hostd-side authentication), fresh RemoteDesktop/EIS after the unlock, same Shell and page.
   Recovery note corrected: use `sudo loginctl unlock-session 2` from SSH.
+- 2026-10-01: exp12 harness built (`exp12_same_session`) on shared `lock_support`/`eis_support`; independent read-only review
+  READY after fixes. Fixed: a page-load counter replaces the first-transition check (a reload could match), the
+  unlock counts as logind's only if the call exited 0 on a still-locked session, loginctl gets a null stdin and a
+  10 s timeout, focus is re-checked before each post-unlock tap, an uncertain lock triggers a best-effort unlock,
+  the second cycle is skipped after a manual first unlock, the selected session id is compared at the end, the
+  report text no longer claims pointer/wheel witnesses unless a locked CreateSession is accepted.
