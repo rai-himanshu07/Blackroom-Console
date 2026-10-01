@@ -151,6 +151,8 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
 - 2026-10-01 23:02 (Phase 9 integrated live run, evidence exp06/2026-10-01-3): **GNOME Shell crashed (SIGSEGV) during the restore
   `ApplyMonitorsConfig`, the session was lost** (details and stack summary in the observation). Stop condition (Doc 00
   section 49): all live display/input/session experiments are stopped; `docs/ops/live-integrated-run.sh` is guarded
-  (`BLACKROOM_STOP_LIFTED=1`). FEAS-F/H are not met for the integrated composition. Open: cause (leading hypothesis: the
-  RemoteDesktop session stop racing the `monitors-changed` handler; other new factors: PipeWire consumer, fullscreen
-  window on the virtual monitor), then a bounded bisect only with the operator's approval, and an upstream report.
+  (`BLACKROOM_STOP_LIFTED=1`). FEAS-F/H are not met for the integrated composition. Open: cause (offline source analysis
+  found a candidate: the ScreenCast virtual-stream `monitors-changed-internal` handler dereferences a NULL view when the
+  stream is enabled and the restore config omits the virtual monitor; the capture consumer existed only in this probe and
+  was not joined before the restore; untested), then a bounded bisect only with the operator's approval, and an upstream
+  report.

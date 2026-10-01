@@ -85,4 +85,8 @@ second after the remote session's EIS socket closed; the session was lost. Evide
 `docs/experiments/evidence/exp06/2026-10-01-3/observation.md`. The earlier statement that the historical SIGSEGV had
 not been reproduced no longer holds. The Mutter-instability stop (Doc 00 section 49) applies again: no further live
 display, input or session experiments until the cause is investigated and the operator approves a bounded bisect.
-The cause is not established.
+The cause is not established. Offline source analysis (Mutter 50.1, same code on upstream main) found a candidate: the
+ScreenCast virtual-stream `monitors-changed-internal` handler dereferences a NULL stage view when the stream is enabled
+(a PipeWire consumer is streaming) and the virtual monitor has no logical monitor, which is exactly what the restore
+config (physical monitors only) produces. Earlier clean runs had no streaming consumer at restore. Untested; see the
+observation's Source analysis.
