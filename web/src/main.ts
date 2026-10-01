@@ -11,6 +11,7 @@ interface Snapshot {
   mode: 'OFFLINE_SIMULATION';
   live_control: false;
   authority_store: 'EPHEMERAL' | 'PERSISTED' | 'SEPARATE';
+  physical_input_grab: boolean;
   state: string;
   epoch: number;
   auth_blocked: boolean;
@@ -31,6 +32,7 @@ app.innerHTML = `
       <div class="mode"><span class="mode-dot"></span> OFFLINE SIMULATION <span class="mode-separator">/</span> LIVE CONTROL DISABLED</div>
     </header>
     <main>
+      <div class="grab-warning" id="grab-warning" role="alert" hidden><strong>PHYSICAL KEYBOARD AND MOUSE GRAB ENABLED</strong> While a session is active this computer's own keyboard and mouse are disconnected from the desktop. Revoke the session to release them. Emergency release: hold the emergency chord (default Left Ctrl + Left Shift + Left Alt + Esc) for 2 seconds. The demo code is public.</div>
       <div class="page-title"><div><p class="eyebrow">CONTROL / 01</p><h1>Session console</h1></div><p class="session-label" id="connection">Connecting to local simulator...</p></div>
       <div class="workspace">
         <section class="stage" aria-label="Synthetic desktop preview">
@@ -126,6 +128,7 @@ function render(value: Snapshot): void {
   $('#state').textContent = value.state;
   $('#epoch').textContent = String(value.epoch);
   $('#storage').textContent = value.authority_store;
+  $('#grab-warning').hidden = value.physical_input_grab !== true;
   countdown = active && value.lease_remaining_ms !== null
     ? { at: performance.now(), lease: value.lease_remaining_ms, session: value.session_remaining_ms }
     : null;
@@ -133,7 +136,7 @@ function render(value: Snapshot): void {
   $('#stage-status').textContent = failedSafe ? 'RECOVERY REQUIRED' : bindingMissing ? 'INPUT BLOCKED' : blocked ? 'ACCESS BLOCKED' : active ? 'SIMULATING' : 'LOCKED';
   $('#screen-state').textContent = value.state;
   $('#screen-title').textContent = failedSafe ? 'Offline recovery required' : bindingMissing ? 'Input authority unavailable' : blocked ? 'Demo access blocked' : active ? 'Synthetic session active' : 'Simulation locked';
-  $('#screen-subtitle').textContent = failedSafe ? 'Offline recovery could not be verified. Control is disabled.' : bindingMissing ? 'Input is blocked. Revoke the synthetic session.' : blocked ? 'Demo access is paused for this local run.' : active ? 'Input is recorded to a fake transport only.' : 'No desktop video or real input is connected.';
+  $('#screen-subtitle').textContent = failedSafe ? 'Offline recovery could not be verified. Control is disabled.' : bindingMissing ? 'Input is blocked. Revoke the synthetic session.' : blocked ? 'Demo access is paused for this local run.' : active ? 'Input is recorded to a fake transport only.' : value.physical_input_grab ? 'No desktop video is connected; physical input is grabbed during a session.' : 'No desktop video or real input is connected.';
   $('#connection').textContent = failedSafe ? 'Offline authority stopped' : bindingMissing ? 'Input authority unavailable' : blocked ? 'Demo access blocked' : active ? 'Synthetic control granted' : 'Local simulation ready';
   $('#connection').classList.toggle('error', failedSafe || blocked || bindingMissing);
   $('#screen').classList.toggle('active', active);

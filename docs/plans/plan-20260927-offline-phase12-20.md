@@ -71,8 +71,10 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   and gateway login flow, PAM, device keys, and any real enrollment on this host.
 - [x] Isolation wiring (2026-10-01, opt-in, simulation host only): hostd holds the daemon lease via
   `--emergency-socket` (see docs/security/emergency-daemon.md "Who holds the lease"); proven with
-  in-test fake daemon/agent processes and against the real daemon loop with fake devices. Not done:
-  gateway flag and longer Start deadline, agent-side verification, any live run.
+  in-test fake daemon/agent processes and against the real daemon loop with fake devices. Gateway
+  `--emergency-socket` (separate modes only), 30 s Start wait, page warning and
+  `INPUT_ISOLATION_FAILED` message added the same day; verified with fakes and with a missing daemon
+  in the browser. Not done: agent-side verification, real credentials in front of it, any live run.
 - [x] Phase 10 component (2026-10-01): `remote-emergencyd` (see
   `docs/security/emergency-daemon.md`), with `blackroom emergency-status --socket <path>`.
 

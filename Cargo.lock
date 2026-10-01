@@ -1503,6 +1503,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.3",
  "gnome-session-agent",
+ "remote-emergency-client",
  "remote-hostd",
  "rustix",
  "serde",

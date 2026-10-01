@@ -259,6 +259,9 @@ pub struct Snapshot {
     pub mode: &'static str,
     pub live_control: bool,
     pub authority_store: &'static str,
+    /// True when hostd was given an emergency daemon, so a session can grab the physical keyboard
+    /// and mouse of this machine even though everything else here is simulated.
+    pub physical_input_grab: bool,
     pub state: &'static str,
     pub epoch: u64,
     pub auth_blocked: bool,
@@ -419,6 +422,7 @@ impl SimulatedHost {
                 HostMode::Ephemeral(_) => "EPHEMERAL",
                 HostMode::Persisted(_) => "PERSISTED",
             },
+            physical_input_grab: false,
             state: self.host.state().as_str(),
             epoch: self.host.epoch().value(),
             auth_blocked: false,
@@ -669,8 +673,24 @@ pub fn separated_router(
     hostd_binary: &Path,
     agent_binary: &Path,
 ) -> io::Result<Router> {
+    separated_router_with(state_directory, hostd_binary, agent_binary, None)
+}
+
+/// With `emergency_socket`, hostd also holds the physical-input grab of a running
+/// `remote-emergencyd` for as long as a session lives.
+pub fn separated_router_with(
+    state_directory: &Path,
+    hostd_binary: &Path,
+    agent_binary: &Path,
+    emergency_socket: Option<&Path>,
+) -> io::Result<Router> {
     Ok(with_backend(SimulationBackend::Separated(Box::new(
-        SeparatedHost::launch(state_directory, hostd_binary, agent_binary)?,
+        SeparatedHost::launch_with(
+            state_directory,
+            hostd_binary,
+            agent_binary,
+            emergency_socket,
+        )?,
     ))))
 }
 
@@ -1376,6 +1396,78 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "run with built offline agent/hostd binaries in BLACKROOM_TEST_AGENT_BIN and BLACKROOM_TEST_HOSTD_BIN"]
+    async fn separated_router_with_an_emergency_socket_holds_the_grab_for_a_session() {
+        use remote_emergency_client::proto::{Reply, Request, read_request, write_reply};
+        use std::sync::{Arc, Mutex};
+
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let daemon_dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(daemon_dir.path(), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+        let socket = daemon_dir.path().join("emergency.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let seen: Arc<Mutex<Vec<&'static str>>> = Arc::default();
+        let log = Arc::clone(&seen);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                let mut writer = stream.try_clone().unwrap();
+                let mut reader = std::io::BufReader::new(stream);
+                while let Ok(Some(request)) = read_request(&mut reader) {
+                    let (name, reply) = match request {
+                        Request::Isolate { .. } => ("isolate", Reply::Isolated { nodes: 2 }),
+                        Request::Renew {} => ("renew", Reply::Accepted),
+                        Request::Restore {} => ("restore", Reply::Accepted),
+                        Request::Status {} => (
+                            "status",
+                            Reply::Status {
+                                phase: "isolated",
+                                held: 2,
+                                grabs_enabled: true,
+                            },
+                        ),
+                    };
+                    log.lock().unwrap().push(name);
+                    if write_reply(&mut writer, &reply).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        let agent = std::env::var_os("BLACKROOM_TEST_AGENT_BIN").unwrap();
+        let hostd = std::env::var_os("BLACKROOM_TEST_HOSTD_BIN").unwrap();
+        let router = separated_router_with(
+            directory.path(),
+            Path::new(&hostd),
+            Path::new(&agent),
+            Some(&socket),
+        )
+        .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(3200));
+        let (_, initial) = call(&router, "/api/simulation", None).await;
+        assert_eq!(
+            initial["physical_input_grab"], true,
+            "the page must be told"
+        );
+        assert_eq!(call_start(&router).await.0, StatusCode::OK);
+        assert_eq!(seen.lock().unwrap().first(), Some(&"isolate"));
+        let (_, active) = call(&router, "/api/simulation", None).await;
+        assert_eq!(active["state"], "REMOTE_ACTIVE");
+        let (_, revoked) = call(&router, "/api/simulation/revoke", Some("{}")).await;
+        assert_eq!(revoked["state"], "LOCAL_LOCKED");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !seen.lock().unwrap().contains(&"restore") {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the grab was never released"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    #[tokio::test]
     #[ignore = "about 70 s; run with built offline agent/hostd binaries in BLACKROOM_TEST_AGENT_BIN and BLACKROOM_TEST_HOSTD_BIN"]
     async fn separated_heartbeat_keeps_the_lease_and_silence_expires_it() {
         let directory = tempfile::tempdir().unwrap();
@@ -1447,6 +1539,7 @@ mod tests {
         let (_, initial) = call(&router, "/api/simulation", None).await;
         assert_eq!(initial["authority_store"], "SEPARATE");
         assert_eq!(initial["live_control"], false);
+        assert_eq!(initial["physical_input_grab"], false);
         assert_eq!(initial["state"], "LOCAL_LOCKED");
         std::thread::sleep(std::time::Duration::from_millis(3200));
         assert_eq!(call_start(&router).await.0, StatusCode::OK);

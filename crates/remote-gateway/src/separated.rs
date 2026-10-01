@@ -11,12 +11,15 @@ use std::time::{Duration, Instant};
 use blackroom_core::error::{BlackroomError, ErrorCode};
 use blackroom_core::state::State;
 use remote_hostd::{
-    offline_control::{OfflineCommand, OfflineReply, read_frame, write_frame},
+    offline_control::{OfflineCommand, OfflineReply, read_frame_within, write_frame},
     service::OfflineBootstrap,
     store::PersistentHostAuthority,
 };
 
 use crate::{InputEvent, PointerPosition, Snapshot};
+
+/// How long the gateway waits for a Start reply when hostd also has to grab physical input.
+const START_WITH_GRAB_WAIT: Duration = Duration::from_secs(30);
 
 struct OwnedChild(Child);
 
@@ -35,6 +38,7 @@ pub struct SeparatedHost {
     state_directory: PathBuf,
     hostd_binary: PathBuf,
     agent_binary: PathBuf,
+    emergency_socket: Option<PathBuf>,
     simulation_proof: String,
     state: State,
     epoch: u64,
@@ -50,8 +54,14 @@ fn checked_reply(
     current_epoch: u64,
 ) -> Result<State, BlackroomError> {
     if !response.accepted {
+        // Say so when the physical-input grab was the reason, instead of blaming the lease.
+        let code = if response.code.as_deref() == Some(ErrorCode::InputIsolationFailed.as_str()) {
+            ErrorCode::InputIsolationFailed
+        } else {
+            ErrorCode::LeaseInvalid
+        };
         return Err(BlackroomError::new(
-            ErrorCode::LeaseInvalid,
+            code,
             "offline authority refused command",
         ));
     }
@@ -122,25 +132,40 @@ fn checked_reply(
 }
 
 impl SeparatedHost {
+    #[cfg(test)]
     pub fn launch(
         state_directory: &Path,
         hostd_binary: &Path,
         agent_binary: &Path,
     ) -> io::Result<Self> {
+        Self::launch_with(state_directory, hostd_binary, agent_binary, None)
+    }
+
+    pub fn launch_with(
+        state_directory: &Path,
+        hostd_binary: &Path,
+        agent_binary: &Path,
+        emergency_socket: Option<&Path>,
+    ) -> io::Result<Self> {
         let runtime = tempfile::tempdir()?;
         std::fs::set_permissions(runtime.path(), std::fs::Permissions::from_mode(0o700))?;
         let agent_socket = runtime.path().join("agent.sock");
         let control_socket = runtime.path().join("control.sock");
+        let mut hostd_command = Command::new(hostd_binary);
+        hostd_command
+            .args(["--offline-sim-service", "--state-dir"])
+            .arg(state_directory)
+            .arg("--runtime-dir")
+            .arg(runtime.path())
+            .arg("--agent-socket")
+            .arg(&agent_socket)
+            .arg("--control-socket")
+            .arg(&control_socket);
+        if let Some(socket) = emergency_socket {
+            hostd_command.arg("--emergency-socket").arg(socket);
+        }
         let mut hostd = OwnedChild(
-            Command::new(hostd_binary)
-                .args(["--offline-sim-service", "--state-dir"])
-                .arg(state_directory)
-                .arg("--runtime-dir")
-                .arg(runtime.path())
-                .arg("--agent-socket")
-                .arg(&agent_socket)
-                .arg("--control-socket")
-                .arg(&control_socket)
+            hostd_command
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .spawn()?,
@@ -204,6 +229,7 @@ impl SeparatedHost {
             state_directory: state_directory.to_owned(),
             hostd_binary: hostd_binary.to_owned(),
             agent_binary: agent_binary.to_owned(),
+            emergency_socket: emergency_socket.map(Path::to_owned),
             simulation_proof: bootstrap.simulation_proof,
             state: State::LocalLocked,
             epoch: bootstrap.epoch,
@@ -242,6 +268,7 @@ impl SeparatedHost {
             mode: "OFFLINE_SIMULATION",
             live_control: false,
             authority_store: "SEPARATE",
+            physical_input_grab: self.emergency_socket.is_some(),
             state: self.state.as_str(),
             epoch: self.epoch,
             auth_blocked: false,
@@ -283,12 +310,19 @@ impl SeparatedHost {
                 "offline emergency stop requires local recovery",
             ));
         }
+        // A Start that engages the physical grab waits for keys to be released (up to 20 s).
+        let wait =
+            if self.emergency_socket.is_some() && matches!(command, OfflineCommand::Start { .. }) {
+                START_WITH_GRAB_WAIT
+            } else {
+                Duration::from_millis(300)
+            };
         let response = (|| -> io::Result<OfflineReply> {
             if self.hostd.0.try_wait()?.is_some() || self.agent.0.try_wait()?.is_some() {
                 return Err(io::Error::from(io::ErrorKind::BrokenPipe));
             }
             write_frame(&mut self.control, &command)?;
-            read_frame(&mut self.control)
+            read_frame_within(&mut self.control, wait)
         })();
         let response = match response {
             Ok(response) => response,
@@ -342,10 +376,11 @@ impl SeparatedHost {
             let _ = child.0.kill();
             let _ = child.0.wait();
         }
-        let replacement = Self::launch(
+        let replacement = Self::launch_with(
             &self.state_directory,
             &self.hostd_binary,
             &self.agent_binary,
+            self.emergency_socket.as_deref(),
         )
         .map_err(|_| {
             BlackroomError::new(
@@ -469,8 +504,33 @@ impl Drop for SeparatedHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use remote_hostd::offline_control::DEMO_CODE;
+    use remote_hostd::offline_control::{DEMO_CODE, read_frame};
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn a_refused_physical_grab_is_reported_as_such_and_other_refusals_stay_lease_errors() {
+        let refused = |code: Option<&str>| OfflineReply {
+            accepted: false,
+            state: "LOCAL_LOCKED".into(),
+            epoch: 1,
+            code: code.map(str::to_owned),
+            next_proof: None,
+            input_grant: None,
+            lease_expires_unix_ms: None,
+            session_expires_unix_ms: None,
+        };
+        let start = OfflineCommand::Start {
+            proof: "p".into(),
+            demo_code: "c".into(),
+        };
+        let error = |code| checked_reply(&start, &refused(code), 1).unwrap_err().code;
+        assert_eq!(
+            error(Some("INPUT_ISOLATION_FAILED")),
+            ErrorCode::InputIsolationFailed
+        );
+        assert_eq!(error(Some("AUTH_INVALID")), ErrorCode::LeaseInvalid);
+        assert_eq!(error(None), ErrorCode::LeaseInvalid);
+    }
 
     #[test]
     fn separated_reply_never_accepts_locked_input_or_epoch_rollback() {

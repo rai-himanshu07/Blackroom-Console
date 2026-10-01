@@ -87,6 +87,8 @@ capabilities, `DeviceAllow=char-input rw`); it is not installed by anything here
   by injecting releases; repeated cycles, the power button and SysRq under a grab are unobserved.
 - The agent's activation and rollback steps still use the offline fake; its "physical input
   isolated" check does not ask the daemon. hostd calls the daemon only when started with
-  `--emergency-socket` (below); the gateway does not pass that flag, and its 300 ms reply deadline
-  is shorter than a Start that waits for keys to be released (up to 20 s).
+  `--emergency-socket` (below). `remote-gateway ... --separate-scratch|--separate ...
+  --emergency-socket <abs path>` passes it on, waits up to 30 s for a Start reply, reports a refused
+  grab as `INPUT_ISOLATION_FAILED`, tells the page (`physical_input_grab`, a warning bar) and prints
+  a banner. The demo code is still public, so anyone local who knows it can Start and grab input.
 - An independent review of this mechanism.

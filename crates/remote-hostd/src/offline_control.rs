@@ -103,7 +103,15 @@ pub fn write_frame<T: Serialize>(stream: &mut UnixStream, value: &T) -> io::Resu
 }
 
 pub fn read_frame<T: DeserializeOwned>(stream: &mut UnixStream) -> io::Result<T> {
-    let deadline = Instant::now() + Duration::from_millis(300);
+    read_frame_within(stream, Duration::from_millis(300))
+}
+
+/// Like [`read_frame`] with a caller-chosen deadline, e.g. a Start that waits for physical input.
+pub fn read_frame_within<T: DeserializeOwned>(
+    stream: &mut UnixStream,
+    within: Duration,
+) -> io::Result<T> {
+    let deadline = Instant::now() + within;
     let mut header = [0_u8; 4];
     read_until(stream, &mut header, deadline)?;
     let length = u32::from_be_bytes(header) as usize;

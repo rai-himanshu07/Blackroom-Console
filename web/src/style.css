@@ -88,5 +88,8 @@ h1 { font-size: clamp(25px, 2.2rem, 36px); font-weight: 700; letter-spacing: 0; 
 .feedback { margin-top: 24px; border-left: 2px solid #e3b282; padding: 4px 0 4px 14px; color: #c0d2c1; font-size: 11px; }
 .feedback.error { border-color: #f0a17b; color: #f5c2a5; }
 .session-label.error { color: #f5c2a5; }
+.grab-warning { margin-bottom: 22px; border: 1px solid #f0a17b; border-left-width: 4px; padding: 12px 16px; color: #f5c2a5; font-size: 12px; line-height: 1.5; }
+.grab-warning strong { display: block; margin-bottom: 4px; color: #ffd3b8; letter-spacing: 0.04em; }
+.grab-warning[hidden] { display: none; }
 @media (max-width: 1000px) { .workspace { grid-template-columns: 1fr; } .controls { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0 24px; } .journal { grid-column: 1 / -1; } }
 @media (max-width: 600px) { .topbar { height: auto; padding: 16px 20px; align-items: flex-start; flex-direction: column; gap: 12px; } .mode { font-size: 9px; flex-wrap: wrap; white-space: normal; } main { padding-top: 25px; } .page-title { flex-direction: column; align-items: flex-start; gap: 9px; } .controls { display: block; } .stage-head, .stage-foot { padding: 12px; font-size: 8px; } .screen { margin: 0 8px; aspect-ratio: 4 / 3; } .screen-top, .screen-bottom { padding: 10px; font-size: 8px; } .sim-workspace { inset: 30px 9px 27px; } .sim-window-head, .sim-readout { font-size: 8px; } .sim-window-head { padding: 6px 8px; } .sim-window-body { padding: 3px 8px; } .sim-readout { min-height: 21px; } .stage-id { display: none; } .session-buttons { flex-wrap: wrap; } .session-buttons button { min-width: 130px; } }

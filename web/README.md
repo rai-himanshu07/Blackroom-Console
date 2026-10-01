@@ -118,6 +118,13 @@ Stop with Ctrl+C or SIGTERM for graceful child shutdown and scratch cleanup.
 A hard kill cannot run cleanup and can leave owner-only directories in `/tmp`;
 their contents must be checked before any manual removal.
 
+Either separated mode accepts a trailing `--emergency-socket <absolute path>`. hostd then also holds
+the physical keyboard and mouse grab of a running `remote-emergencyd` while a session lives (the
+daemon grabs nothing unless it was started with `--enable-grabs`), the gateway waits up to 30 s for
+Start, and this page shows a warning bar. The demo code is public, so use it only on a machine you
+control, with the emergency chord and a second device ready. See
+`docs/security/emergency-daemon.md`.
+
 The agent library also has a synthetic EIS socket test for authorized key
 delivery and post-revocation refusal. Offline hostd signs the lease; the agent
 checks the socket peer UID (the same UID in this one-process demo) and closes
