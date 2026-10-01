@@ -7,8 +7,8 @@
 //! only as a count, and only in memory.
 #![forbid(unsafe_code)]
 
-pub mod client;
+pub use remote_emergency_client::{client, proto};
+
 pub mod core;
 pub mod nodes;
-pub mod proto;
 pub mod server;

@@ -1473,17 +1473,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "remote-emergency-client"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "remote-emergencyd"
 version = "0.1.0"
 dependencies = [
  "blackroom-core",
  "clap",
  "evdev",
+ "remote-emergency-client",
  "remote-hostd",
  "remote-input-helper",
  "rustix",
- "serde",
- "serde_json",
  "tempfile",
 ]
 
@@ -1513,6 +1520,7 @@ dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
+ "remote-emergency-client",
  "rustix",
  "serde",
  "serde_json",

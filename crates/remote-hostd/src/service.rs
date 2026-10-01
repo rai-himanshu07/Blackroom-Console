@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     audit::{AuditEvent, AuditLog, RevokeCause},
     auth::{HostSessions, mint_input_grant},
+    isolation::{InputIsolation, IsolationGate},
     offline_control::{
         DemoCredential, DemoCredentialVerifier, OfflineCommand, OfflineReply, read_frame,
         write_frame,
@@ -222,8 +223,40 @@ fn expire_grant(
     Ok(())
 }
 
-/// Deliberately offline and single-peer; no GNOME session is created.
-pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::Result<()> {
+/// Ends the active grant with the agent's confirmation and verifies recovery, like a Revoke.
+fn revoke_with_agent(
+    host: &mut PersistentHostAuthority,
+    agent: &mut UnixStream,
+    sessions: &mut HostSessions,
+    audit: &mut AuditLog,
+    directory: &File,
+    cause: RevokeCause,
+) -> io::Result<()> {
+    sessions.clear();
+    let granted_epoch = host.epoch();
+    let update = host.revoke_update()?;
+    if acknowledged(agent, &update, directory)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "agent did not revoke",
+        ));
+    }
+    host.complete_recovery(granted_epoch)?;
+    let _ = audit.record(&AuditEvent::GrantRevoked {
+        epoch: granted_epoch.value(),
+        cause,
+    });
+    Ok(())
+}
+
+/// Deliberately offline and single-peer; no GNOME session is created. With `isolation`, a grant
+/// also holds the physical-input grab, and losing the grab ends the grant.
+pub fn run(
+    directory: &File,
+    agent_socket: &Path,
+    control_socket: &Path,
+    isolation: Option<Box<dyn InputIsolation>>,
+) -> io::Result<()> {
     let mut host = PersistentHostAuthority::open(directory)?;
     if host.emergency_required() {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied));
@@ -248,6 +281,7 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
 
     let mut gateway = accept_gateway(&listener)?;
     let mut agent = Some(connect_agent(agent_socket)?);
+    let mut gate = isolation.map(|isolation| IsolationGate::new(isolation, Instant::now()));
     let mut current_grant: Option<AuthorityUpdate> = None;
     let mut input_sequence = 0_u64;
     let mut invalid_start_attempts = 0_u8;
@@ -265,6 +299,29 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                 directory,
                 SystemTime::now(),
             )?;
+        }
+        if let Some(gate) = gate.as_mut() {
+            let lost = if current_grant.is_none() {
+                gate.release();
+                None
+            } else {
+                gate.tick(Instant::now())
+            };
+            if lost.is_some() {
+                current_grant = None;
+                input_sequence = 0;
+                let stream = agent
+                    .as_mut()
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
+                revoke_with_agent(
+                    &mut host,
+                    stream,
+                    &mut sessions,
+                    &mut audit,
+                    directory,
+                    RevokeCause::IsolationLost,
+                )?;
+            }
         }
         let mut fds = [rustix::event::PollFd::new(
             &gateway,
@@ -383,7 +440,26 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                             current_grant = Some(update);
                             response.next_proof = Some(next_proof);
                             response.input_grant = Some(input_grant);
-                            response
+                            let engaged = match gate.as_mut() {
+                                Some(gate) => gate.engage(Instant::now()).is_ok(),
+                                None => true,
+                            };
+                            if engaged {
+                                response
+                            } else {
+                                current_grant = None;
+                                input_sequence = 0;
+                                let stream = agent.as_mut().expect("agent connected");
+                                revoke_with_agent(
+                                    &mut host,
+                                    stream,
+                                    &mut sessions,
+                                    &mut audit,
+                                    directory,
+                                    RevokeCause::IsolationFailed,
+                                )?;
+                                reply(&host, false, Some(ErrorCode::InputIsolationFailed.as_str()))
+                            }
                         } else {
                             let _ = audit.record(&AuditEvent::GrantRevoked {
                                 epoch: host.epoch().value(),
@@ -466,6 +542,9 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
                                 .as_mut()
                                 .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
                             if acknowledged(stream, &update, directory)? {
+                                if let Some(gate) = gate.as_mut() {
+                                    gate.heartbeat(Instant::now());
+                                }
                                 let response = with_deadlines(
                                     reply(&host, true, None),
                                     &update,
@@ -505,6 +584,11 @@ pub fn run(directory: &File, agent_socket: &Path, control_socket: &Path) -> io::
             },
             OfflineCommand::Status {} => reply(&host, true, None),
         };
+        if current_grant.is_none()
+            && let Some(gate) = gate.as_mut()
+        {
+            gate.release();
+        }
         if host.emergency_required() {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied));
         }

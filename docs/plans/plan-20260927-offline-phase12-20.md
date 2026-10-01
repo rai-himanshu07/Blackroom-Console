@@ -69,6 +69,10 @@ a feasibility, security, Go/No-Go or release gate from simulation.
   `totp-credentials.lock` flock (CLI and host). Independently reviewed; all confirmed findings fixed. `blackroom enroll --account <name>` adds an account and prints
   the secret once; `blackroom accounts` lists names. Not done: wiring this into the hostd service
   and gateway login flow, PAM, device keys, and any real enrollment on this host.
+- [x] Isolation wiring (2026-10-01, opt-in, simulation host only): hostd holds the daemon lease via
+  `--emergency-socket` (see docs/security/emergency-daemon.md "Who holds the lease"); proven with
+  in-test fake daemon/agent processes and against the real daemon loop with fake devices. Not done:
+  gateway flag and longer Start deadline, agent-side verification, any live run.
 - [x] Phase 10 component (2026-10-01): `remote-emergencyd` (see
   `docs/security/emergency-daemon.md`), with `blackroom emergency-status --socket <path>`.
 

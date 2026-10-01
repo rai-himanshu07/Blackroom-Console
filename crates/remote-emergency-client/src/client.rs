@@ -39,6 +39,12 @@ impl Client {
         })
     }
 
+    /// Replaces the per-reply timeout, e.g. a long one for `isolate` and a short one afterwards.
+    pub fn set_reply_timeout(&mut self, timeout: Duration) -> io::Result<()> {
+        self.stream.set_read_timeout(Some(timeout))?;
+        self.stream.set_write_timeout(Some(timeout))
+    }
+
     fn send(&mut self, request: &Request) -> io::Result<()> {
         let mut bytes = serde_json::to_vec(request).map_err(io::Error::other)?;
         bytes.push(b'\n');

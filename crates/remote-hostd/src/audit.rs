@@ -24,6 +24,8 @@ pub enum RevokeCause {
     AbuseLimit,
     AgentRefused,
     PeerClosed,
+    IsolationFailed,
+    IsolationLost,
 }
 
 #[derive(Debug, Serialize)]

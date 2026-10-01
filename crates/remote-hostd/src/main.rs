@@ -5,6 +5,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use remote_hostd::isolation::{DaemonIsolation, InputIsolation};
 use remote_hostd::{service, store::PersistentHostAuthority, write_update};
 
 fn service_arguments(args: &[OsString]) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
@@ -148,12 +149,29 @@ fn run(args: &[OsString]) -> io::Result<()> {
     Ok(())
 }
 
+/// Splits an optional trailing `--emergency-socket <absolute path>` off the service arguments.
+fn split_emergency_socket(args: &[OsString]) -> (&[OsString], Option<PathBuf>) {
+    match args {
+        [rest @ .., flag, socket] if flag == OsStr::new("--emergency-socket") => {
+            (rest, Some(PathBuf::from(socket)))
+        }
+        _ => (args, None),
+    }
+}
+
 fn main() {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let result = if args.first() == Some(&OsString::from("--offline-sim-service")) {
-        service_arguments(&args).and_then(|(state, agent, control)| {
+        let (service_args, emergency_socket) = split_emergency_socket(&args);
+        service_arguments(service_args).and_then(|(state, agent, control)| {
             let directory = open_state_dir(&state)?;
-            service::run(&directory, &agent, &control)
+            let isolation = emergency_socket
+                .map(|socket| {
+                    DaemonIsolation::new(socket)
+                        .map(|isolation| Box::new(isolation) as Box<dyn InputIsolation>)
+                })
+                .transpose()?;
+            service::run(&directory, &agent, &control, isolation)
         })
     } else {
         run(&args)

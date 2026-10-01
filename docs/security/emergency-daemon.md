@@ -44,6 +44,25 @@ configured uid; a second or foreign connection is closed at once. Requests: `iso
 `read_error`, `release_failed`), `status {phase, held, grabs_enabled}`, `error {reason}`
 (`grabs_disabled`, `not_isolated`). `remote_emergencyd::client::Client` is the blocking client.
 
+## Who holds the lease (decided 2026-10-01)
+
+`remote-hostd` owns the only client (`isolation.rs`, `--offline-sim-service ... --emergency-socket
+<absolute path>`, off by default). The daemon dies with its client, so nothing else may connect while
+a grant lives.
+
+- **Start:** after the agent acknowledged the grant, hostd connects and asks for the grab with a 10 s
+  lease. If the daemon refuses or is unreachable, Start fails closed with `INPUT_ISOLATION_FAILED`,
+  the agent is told to revoke and the audit log records `isolation_failed`.
+- **Renewal:** every 2 s hostd renews the daemon lease only while the newest browser renew that the
+  agent acknowledged is at most 15 s old. A dead link or agent therefore returns local input within
+  about 25 s, under the 30 s control lease.
+- **Loss:** a pushed `released` event, a lapsed lease or an unreachable daemon ends the grant
+  (`isolation_lost`) without any browser action.
+- **End of grant:** Revoke, expiry, abuse limit or any other teardown restores the grab and closes the
+  connection, so `blackroom emergency-status` works while idle.
+- **Not covered:** a daemon crash between ticks is noticed within one tick, and the stop marker after
+  a chord still takes the existing `emergency_required` path.
+
 ## Not enabled by default
 
 The binary refuses every `isolate` with `grabs_disabled` unless started with `--enable-grabs`.
@@ -62,6 +81,8 @@ capabilities, `DeviceAllow=char-input rw`); it is not installed by anything here
   keys did not release in one supervised run, cause unknown).
 - Releasing keys that were pressed in the few milliseconds before a grab is handled by retry, not
   by injecting releases; repeated cycles, the power button and SysRq under a grab are unobserved.
-- `remote-hostd` and the agent do not call this daemon yet; the state machine's activation and
-  rollback steps still use the offline fake.
+- The agent's activation and rollback steps still use the offline fake; its "physical input
+  isolated" check does not ask the daemon. hostd calls the daemon only when started with
+  `--emergency-socket` (below); the gateway does not pass that flag, and its 300 ms reply deadline
+  is shorter than a Start that waits for keys to be released (up to 20 s).
 - An independent review of this mechanism.

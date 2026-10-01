@@ -16,6 +16,7 @@ use auth::{AuthSession, Principal};
 
 pub mod audit;
 pub mod auth;
+pub mod isolation;
 pub mod offline_control;
 pub mod service;
 pub mod store;

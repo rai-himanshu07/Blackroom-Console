@@ -15,6 +15,7 @@ blackroom-core = { version = "0.1.0", path = "../blackroom-core" }
 ed25519-dalek = "3.0.0"
 getrandom = "0.4.3"
 hex = "0.4.3"
+remote-emergency-client = { version = "0.1.0", path = "../remote-emergency-client" }
 rustix = { version = "1.1.4", features = ["fs", "process", "net", "event"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

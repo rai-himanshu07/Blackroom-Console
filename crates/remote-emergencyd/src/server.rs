@@ -545,6 +545,37 @@ mod tests {
     }
 
     #[test]
+    fn hostds_isolation_adapter_holds_loses_and_releases_the_grab_over_the_real_wire() {
+        use remote_hostd::isolation::{DaemonIsolation, InputIsolation};
+
+        let mut daemon = Daemon::new(fake(), quick_config());
+        with_server(&mut daemon, &mut policy(true), |path| {
+            let mut isolation = DaemonIsolation::new(path.to_path_buf()).expect("adapter");
+            assert_eq!(
+                isolation.engage(Duration::from_millis(10)),
+                Err("bad_lease".to_string()),
+                "a refused grab surfaces the daemon's reason"
+            );
+            isolation.engage(Duration::from_secs(1)).expect("engage");
+            assert_eq!(isolation.lost(), None);
+            isolation.renew().expect("renew");
+            // Nobody renews any more: the daemon lets go on its own and the adapter says why.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let reason = loop {
+                if let Some(reason) = isolation.lost() {
+                    break reason;
+                }
+                assert!(Instant::now() < deadline, "the lease never lapsed");
+                std::thread::sleep(Duration::from_millis(100));
+            };
+            assert_eq!(reason, "lease_expired");
+            isolation.release();
+            isolation.release();
+        });
+        assert!(daemon.nodes_mut().grabbed.is_empty());
+    }
+
+    #[test]
     fn only_the_configured_uid_may_connect() {
         assert!(peer_allowed(1000, 1000));
         assert!(!peer_allowed(0, 1000));
