@@ -253,7 +253,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
   - Gate: **FEAS-E** PASS with acceptable privilege; otherwise **STOP and report**
     (Doc 00 §49, Doc 11 §12). Report.
 
-- [ ] **Phase 8 — Lock and same-session semantics** (`11.P8`; Docs 10 Exp 11–12; 02 §17–§19; 05 §5, §56–§58; 20 §29–§30; 12 §16–§17)
+- [x] **Phase 8 — Lock and same-session semantics** (`11.P8`; Docs 10 Exp 11–12; 02 §17–§19; 05 §5, §56–§58; 20 §29–§30; 12 §16–§17)
   - Files: `crates/blackroom-gnome/src/mutter/lock.rs` (`ScreenShield.Lock`,
     `GetActive`/`ActiveChanged`, logind `LockedHint`; never trust `lock()` return alone);
     experiments `exp11_lock_semantics.rs`, `exp12_same_session.rs`;
@@ -265,8 +265,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     remote input driving the unlock dialog, are **not achievable through Mutter RemoteDesktop**. exp12 (PASS)
     observed the replacement path: new sessions are refused while locked, `loginctl unlock-session` from a same-user
     process unlocks in under a second, fresh RemoteDesktop/EIS works right after, and the login session, Shell
-    and page survive two lock cycles. FEAS-A decision and Architecture Review #1 (PROCEED, MODIFY, PAUSE or STOP) are the
-    operator's; see `docs/gnome/lock-semantics.md`.
+    and page survive two lock cycles. **Decision 2026-10-01 (operator): FEAS-A PASS-WITH-LIMITS under the replacement design (original wording not met), Architecture Review #1 = MODIFY** (amendment `docs/plans/amendment-20261001-lock-inhibits-remote-access.md`, conflict C27); see `docs/gnome/lock-semantics.md`.
   - Verify: session locked before remote activation stays attached (virtual monitor,
     capture, EIS) through lock; remote input can drive the unlock dialog; after unlock the
     physical outputs remain disabled and physical input remains isolated; identifiable

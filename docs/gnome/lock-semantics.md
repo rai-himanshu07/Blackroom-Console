@@ -2,7 +2,7 @@
 
 **Status:** synthetic lifecycle, real read-only observation and three supervised live lock runs (2026-09-28
 lock-only; exp11 and exp12 on 2026-10-01). FEAS-A is **not met as originally worded**; a replacement path
-is observed with limits (see the Experiment 12 section); the gate decision is the operator's.
+is observed with limits (see the Experiment 12 section); the gate decision (2026-10-01, MODIFY) is recorded at the end.
 
 The agent's offline lifecycle calls the fake lock operation and separately
 checks observed lock state before acknowledging activation. It checks the
@@ -96,7 +96,8 @@ Design consequences for Architecture Review #1: locking the session is a built-i
 remote unlock is a hostd-side decision (authenticate, then logind `Unlock`), not input into the unlock dialog;
 RemoteDesktop and ScreenCast sessions are created after each unlock and recreated after each lock; a
 different-uid hostd needs a polkit grant for `org.freedesktop.login1.lock-sessions` (Phase 11). The gate
-decision is the operator's (plan step 3).
+decision was taken on 2026-10-01: **FEAS-A PASS-WITH-LIMITS under the replacement design (original wording not met),
+Architecture Review #1 = MODIFY**; amendment and conflict C27: `docs/plans/amendment-20261001-lock-inhibits-remote-access.md`.
 
 **Limits of the replacement path (review 2026-10-01):** one run on eDP-1, one uid; unlock is possible for any
 process of the session's own user (logind authorises the session's uid; observed from inside the session, not

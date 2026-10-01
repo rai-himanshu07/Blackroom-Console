@@ -56,7 +56,7 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
 - [x] 2. Phase 8 stage 2: exp12 same session (lock, remote, disconnect, relock)
   - Files: `crates/blackroom-experiments/src/bin/exp12_same_session.rs`
   - Verify: Shell PID, session id and observer page survive disconnect and a second lock
-- [ ] 3. Phase 8 gate: FEAS-A evidence review and Architecture Review #1 (operator decision in HANDOFF)
+- [x] 3. Phase 8 gate: FEAS-A evidence review and Architecture Review #1 (operator decision in HANDOFF)
   - Files: `docs/gnome/lock-semantics.md`, `docs/HANDOFF.md`, capability report
   - Verify: independent read-only review before the operator accepts
 - [ ] 4. Phase 9 offline: real `GnomeBackend` assembly, agent `transaction.rs`/`teardown.rs`/`recovery.rs`,
@@ -121,3 +121,8 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   Shell PID and the observer page instance survived two lock cycles. FEAS-A original wording is not met by
   design; the replacement path is observed on the built-in layout. Step 3 (gate and Architecture Review #1)
   is next, with an independent review before the operator decides.
+- 2026-10-01 (Phase 8 gate): independent review of the evidence (FEAS-A original not met by design; replacement
+  design PASS-WITH-LIMITS; recommended MODIFY) and eleven wording corrections applied. The operator chose MODIFY:
+  FEAS-A recorded PASS-WITH-LIMITS under the replacement design, Architecture Review #1 = MODIFY. Conflict C27 filed in
+  the assessment register and `docs/plans/amendment-20261001-lock-inhibits-remote-access.md` written (option A:
+  no remote unlock by default; option B needs a separate decision). Phase 9 offline work may start.
