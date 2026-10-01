@@ -88,3 +88,11 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   preflight, a quiet locked capture window is inconclusive not a violation, accurate on-page operator
   prompt, report text no longer claims the lock screen received the input. A malformed-tally overflow
   in the locked judge was caught by its own test and fixed (saturating sum).
+- 2026-10-01 (exp11 live attempts, evidence exp11/2026-10-01, -2, -3; nothing was locked in any): attempts 1 and 2
+  BLOCKED, zero page heartbeats (the page was opened after the program's 180 s and 600 s waits; start only
+  when the operator is at the machine). Attempt 3 FAIL at the pre-lock gate by design: the pre-lock Shift tap
+  arrived, but the capture window counted 0 frames. `--capture-probe` showed the monitor stream delivers about
+  90 frames/s on a busy desktop; a static fullscreen page repaints nothing and the stream is damage-driven,
+  so the criterion was unfair. Fixed (frames counted since attaching, a deliberate prompt repaint before the
+  pre-lock check, locked and unlocked windows inconclusive when quiet, consumer errors recorded), commit
+  `fe50936`. The pre-lock gate did its job: it stopped the run before the lock.
