@@ -18,6 +18,12 @@ use crate::proto::{MAX_LINE_BYTES, Reply, Request, parse_request, write_reply};
 
 /// Persists the independent stop marker and epoch bump.
 pub trait StopMarker {
+    /// Whether `persist` can work now; checked before every grab, so a misconfigured marker is
+    /// found before isolation starts and not when the chord is pressed.
+    fn ready(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     fn persist(&mut self) -> Result<(), String>;
 }
 
@@ -32,6 +38,13 @@ pub trait Locker {
 pub struct DirMarker(pub PathBuf);
 
 impl StopMarker for DirMarker {
+    fn ready(&self) -> Result<(), String> {
+        let directory = open_state_directory(&self.0).map_err(|error| error.to_string())?;
+        PersistentHostAuthority::inspect(&directory)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     fn persist(&mut self) -> Result<(), String> {
         let directory = open_state_directory(&self.0).map_err(|error| error.to_string())?;
         PersistentHostAuthority::emergency_stop(&directory)
@@ -158,6 +171,14 @@ fn handle_request<N: Nodes>(
             if !policy.grabs_enabled {
                 return vec![Reply::Error {
                     reason: "grabs_disabled",
+                }];
+            }
+            if let Some(marker) = &policy.marker
+                && let Err(error) = marker.ready()
+            {
+                eprintln!("remote-emergencyd: no grab, the stop marker is not writable: {error}");
+                return vec![Reply::Error {
+                    reason: "marker_unavailable",
                 }];
             }
             match daemon.isolate(lease_ms, now_ms) {
@@ -573,6 +594,69 @@ mod tests {
             isolation.release();
         });
         assert!(daemon.nodes_mut().grabbed.is_empty());
+    }
+
+    #[test]
+    fn a_marker_that_cannot_be_written_stops_the_grab_before_it_starts() {
+        struct Unwritable;
+
+        impl StopMarker for Unwritable {
+            fn ready(&self) -> Result<(), String> {
+                Err("host authority directory must be owner-controlled".to_string())
+            }
+
+            fn persist(&mut self) -> Result<(), String> {
+                unreachable!("nothing was grabbed, so no chord can fire")
+            }
+        }
+
+        let mut policy = Policy {
+            marker: Some(Box::new(Unwritable)),
+            ..policy(true)
+        };
+        let mut daemon = Daemon::new(fake(), quick_config());
+        with_server(&mut daemon, &mut policy, |path| {
+            let (mut stream, mut reader) = connect(path);
+            writeln!(stream, "{{\"op\":\"isolate\",\"lease_ms\":5000}}").unwrap();
+            assert_eq!(
+                line(&mut reader),
+                r#"{"event":"error","reason":"marker_unavailable"}"#
+            );
+        });
+        assert_eq!(daemon.phase(), Phase::Idle);
+        assert!(daemon.nodes_mut().grabbed.is_empty());
+    }
+
+    #[test]
+    fn the_real_marker_lands_in_a_state_directory_that_hostd_holds() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("owner-only directory");
+        let directory = open_state_directory(dir.path()).expect("open");
+        // hostd keeps this open (and flocked) for as long as it runs.
+        let host = PersistentHostAuthority::open(&directory).expect("hostd state");
+        assert!(!PersistentHostAuthority::emergency_pending(&directory).expect("read"));
+        DirMarker(dir.path().to_path_buf())
+            .persist()
+            .expect("the chord's marker");
+        assert!(PersistentHostAuthority::emergency_pending(&directory).expect("read"));
+        drop(host);
+    }
+
+    #[test]
+    fn the_real_marker_refuses_a_loose_or_uninitialised_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("owner-only directory");
+        let uninitialised = DirMarker(dir.path().to_path_buf()).persist();
+        assert!(uninitialised.is_err(), "hostd has not created its key yet");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o750))
+            .expect("loosen");
+        assert!(DirMarker(dir.path().to_path_buf()).persist().is_err());
     }
 
     #[test]

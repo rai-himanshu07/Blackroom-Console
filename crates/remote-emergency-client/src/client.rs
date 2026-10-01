@@ -16,7 +16,8 @@ pub enum Outcome {
     },
     /// The daemon declined (`keys_held`, `busy`, `nothing_to_grab`, `grab_failed`, `bad_lease`).
     Refused(String),
-    /// A request the daemon cannot honour now (`grabs_disabled`, `not_isolated`).
+    /// A request the daemon cannot honour now (`grabs_disabled`, `marker_unavailable`,
+    /// `not_isolated`).
     Error(String),
 }
 

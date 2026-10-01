@@ -42,7 +42,10 @@ configured uid; a second or foreign connection is closed at once. Requests: `iso
 `refused {reason}` (`busy`, `bad_lease`, `keys_held`, `nothing_to_grab`, `grab_failed`),
 `released {reason}` (`restore`, `lease_expired`, `chord`, `hotplug_fail_closed`, `coverage_lost`,
 `read_error`, `release_failed`), `status {phase, held, grabs_enabled}`, `error {reason}`
-(`grabs_disabled`, `not_isolated`). `remote_emergencyd::client::Client` is the blocking client.
+(`grabs_disabled`, `marker_unavailable`, `not_isolated`). `marker_unavailable` means `--state-dir`
+was given but hostd's store does not accept it right now (not owned by the daemon's uid, group or
+other access, a symlink in the path, or hostd has not initialised it), so the chord could not
+write its stop marker; nothing is grabbed. `remote_emergencyd::client::Client` is the blocking client.
 
 ## Who holds the lease (decided 2026-10-01)
 
@@ -77,6 +80,8 @@ capabilities, `DeviceAllow=char-input rw`); it is not installed by anything here
 
 - Marker ownership: hostd's store accepts only a state directory owned by the calling uid with no
   group or other access, so the template runs the daemon as `remote-hostd` plus the `input` group.
+  A manual supervised run (`docs/ops/live-grab-runbook.md`) runs it as the operator's own uid with
+  temporary ACLs on the event nodes, never under sudo.
   That lets hostd's uid signal the daemon (Yama `ptrace_scope` 1 still blocks attaching). A
   dedicated uid would need the daemon to write its own marker directory and hostd to honour it,
   which is a change to hostd's store and is not built. Also a polkit rule if `--lock-on-emergency`
