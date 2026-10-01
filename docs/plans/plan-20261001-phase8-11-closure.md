@@ -49,11 +49,11 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
 
 ## Steps
 
-- [ ] 1. Phase 8 stage 1: exp11 harness (lock + EIS + capture, page tally at three points)
+- [x] 1. Phase 8 stage 1: exp11 harness (lock + EIS + capture, page tally at three points)
   - Files: `crates/blackroom-experiments/src/bin/exp11_lock_semantics.rs`, `src/eis_support.rs`,
     `crates/blackroom-gnome/src/mutter/pipewire_capture.rs`
   - Verify: `cargo test -p blackroom-experiments -p blackroom-gnome`; one supervised live run PASS
-- [ ] 2. Phase 8 stage 2: exp12 same session (lock, remote, disconnect, relock)
+- [x] 2. Phase 8 stage 2: exp12 same session (lock, remote, disconnect, relock)
   - Files: `crates/blackroom-experiments/src/bin/exp12_same_session.rs`
   - Verify: Shell PID, session id and observer page survive disconnect and a second lock
 - [ ] 3. Phase 8 gate: FEAS-A evidence review and Architecture Review #1 (operator decision in HANDOFF)
@@ -115,3 +115,9 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   10 s timeout, focus is re-checked before each post-unlock tap, an uncertain lock triggers a best-effort unlock,
   the second cycle is skipped after a manual first unlock, the selected session id is compared at the end, the
   report text no longer claims pointer/wheel witnesses unless a locked CreateSession is accepted.
+- 2026-10-01 (exp12 live, evidence exp12/2026-10-01, PASS, harness `b336f01`): CreateSession while locked refused (`Session creation
+  inhibited`); `loginctl unlock-session` from a same-user process unlocked the session in under a second, twice;
+  a fresh RemoteDesktop/EIS session right after the unlock delivered Shift, `a`, Left once each; session id,
+  Shell PID and the observer page instance survived two lock cycles. FEAS-A original wording is not met by
+  design; the replacement path is observed on the built-in layout. Step 3 (gate and Architecture Review #1)
+  is next, with an independent review before the operator decides.

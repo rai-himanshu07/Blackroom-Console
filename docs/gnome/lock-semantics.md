@@ -62,7 +62,7 @@ every lock; the lock on teardown is unaffected. The capture continuity question 
 frames behind a fullscreen page). FEAS-A is **not met as originally worded**; the next experiment tests the
 replacement path (plan step 2).
 
-## Experiment 12 harness (built 2026-10-01, not yet run live)
+## Experiment 12 (2026-10-01): the replacement path works
 
 `exp12_same_session --operator-present` tests the replacement path on the live session: an EIS sender works
 before the lock; `loginctl lock-session` locks, the old EIS connection's end is recorded, a new `CreateSession`
@@ -74,3 +74,25 @@ session after the unlock must deliver Shift, `a`, Left once each; the session is
 unlocked once more. The login session id, the Shell PID and the observer page instance (a served-page counter)
 must be unchanged. No password is typed or read; a same-user process can unlock its own session through
 logind, so the lock screen is not a boundary against such a process. FEAS-A stays open until this has run.
+
+**Result (evidence `docs/experiments/evidence/exp12/2026-10-01/observation.md`, PASS):** a `CreateSession` while
+locked is refused (`Session creation inhibited`), confirming that remote access is inhibited for the whole time
+the session is locked; `loginctl unlock-session` from a process of the session's own user unlocked it in under a
+second (twice, exit 0, no polkit prompt); a fresh RemoteDesktop/EIS session right after the unlock delivered
+input; the login session id, Shell PID and observer page survived two lock cycles. Phase 8 Verify items:
+
+| Roadmap item | Outcome |
+|---|---|
+| Session locked before activation stays attached (virtual monitor, capture, EIS) through lock | **Not achievable**: lock ends every remote session; capture and virtual monitor not exercised, stream delivered no frames behind a fullscreen page |
+| Remote input can drive the unlock dialog | **Not achievable** through Mutter RemoteDesktop |
+| Replacement: unlock by logind from a user process, fresh sessions after unlock | Observed twice (same uid, built-in layout) |
+| After unlock physical outputs stay disabled and input stays isolated | Not tested; belongs to the Phase 9 activation transaction |
+| Identifiable session state survives lock, remote, disconnect, lock | Observed for the session id, Shell PID and one window (the observer page) |
+| Lock on teardown verified via `GetActive` | Observed (both signals, `ActiveChanged` events) |
+
+Design consequences for Architecture Review #1: locking the session is a built-in kill switch for remote access
+(every remote session ends in under a second and none can start while locked), which fits the emergency path;
+remote unlock is a hostd-side decision (authenticate, then logind `Unlock`), not input into the unlock dialog;
+RemoteDesktop and ScreenCast sessions are created after each unlock and recreated after each lock; a
+different-uid hostd needs a polkit grant for `org.freedesktop.login1.lock-sessions` (Phase 11). The gate
+decision is the operator's (plan step 3).

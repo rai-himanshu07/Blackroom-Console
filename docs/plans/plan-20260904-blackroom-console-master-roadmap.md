@@ -262,9 +262,11 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
   - Status 2026-10-01: exp11 live (`docs/experiments/evidence/exp11/2026-10-01-5/`): the lock engaged in 776 ms
     and Mutter ended the EIS connection at once; gnome-shell 50.1 inhibits remote access in the locked
     session mode, so the two Verify items below that need EIS or capture to stay attached through the lock, and
-    remote input driving the unlock dialog, are **not achievable through Mutter RemoteDesktop**. FEAS-A is open
-    pending exp12 (unlock via logind after hostd-side authentication, fresh sessions after unlock); the redesign
-    is an input to Architecture Review #1.
+    remote input driving the unlock dialog, are **not achievable through Mutter RemoteDesktop**. exp12 (PASS)
+    observed the replacement path: new sessions are refused while locked, `loginctl unlock-session` from a same-user
+    process unlocks in under a second, fresh RemoteDesktop/EIS works right after, and the login session, Shell
+    and page survive two lock cycles. FEAS-A decision and Architecture Review #1 (MODIFY expected) are the
+    operator's; see `docs/gnome/lock-semantics.md`.
   - Verify: session locked before remote activation stays attached (virtual monitor,
     capture, EIS) through lock; remote input can drive the unlock dialog; after unlock the
     physical outputs remain disabled and physical input remains isolated; identifiable

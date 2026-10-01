@@ -1,0 +1,321 @@
+{
+  "selected_session_id": "2",
+  "git_head": "b336f01",
+  "git_dirty": false,
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "gnome_remote_desktop_before": "inactive",
+  "gnome_remote_desktop_after": "inactive",
+  "blocked": null,
+  "failure": null,
+  "aborted": null,
+  "inconclusive": [],
+  "violations": [],
+  "initial_lock": {
+    "screen_saver_active": false,
+    "logind_locked_hint": false,
+    "owner_session_verified": false
+  },
+  "steps": [
+    {
+      "name": "pre_lock_key_tap_shift",
+      "outcome": "accepted",
+      "at_ms": 26939
+    },
+    {
+      "name": "old_eis_connection_after_lock",
+      "outcome": "ended_after_ms=Some(761)",
+      "at_ms": 34903
+    },
+    {
+      "name": "create_session_while_locked",
+      "outcome": "refused at CreateSession: MUTTER_UNAVAILABLE (diag_01M3W4AMKC2H3J7A6DSZ64MW0V): org.freedesktop.DBus.Error.Failed: Session creation inhibited",
+      "at_ms": 34904
+    },
+    {
+      "name": "fresh_remote_session_after_unlock",
+      "outcome": "accepted",
+      "at_ms": 58968
+    },
+    {
+      "name": "unlocked_key_tap_shift",
+      "outcome": "accepted",
+      "at_ms": 60022
+    },
+    {
+      "name": "unlocked_key_tap_a",
+      "outcome": "accepted",
+      "at_ms": 60375
+    },
+    {
+      "name": "unlocked_key_tap_left",
+      "outcome": "accepted",
+      "at_ms": 60728
+    }
+  ],
+  "devices_seen": [
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    }
+  ],
+  "lock1_engaged_after_ms": 761,
+  "eis1_ended_after_ms": 761,
+  "eis1_events": [
+    "Other",
+    "Other",
+    "DeviceRemoved",
+    "DeviceRemoved",
+    "SeatRemoved",
+    "Disconnected",
+    "transport_closed: MUTTER_UNAVAILABLE (diag_01M3W4AMKBK21J0EC04GJ5CNAS): EIS device socket closed"
+  ],
+  "locked_create_session": "refused at CreateSession: MUTTER_UNAVAILABLE (diag_01M3W4AMKC2H3J7A6DSZ64MW0V): org.freedesktop.DBus.Error.Failed: Session creation inhibited",
+  "locked_at_snapshot": {
+    "screen_saver_active": true,
+    "logind_locked_hint": true,
+    "owner_session_verified": false
+  },
+  "beats_during_lock": 79,
+  "tally_pre": {
+    "buttons": [],
+    "epoch": 1,
+    "keys": [
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": true,
+        "t": 7112,
+        "type": "down"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 7113,
+        "type": "up"
+      }
+    ],
+    "pointer": {
+      "moves": 0,
+      "positions": []
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 250,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 1510,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "tally_locked": {
+    "keys": 0,
+    "buttons": 0,
+    "pointer_moves": 0,
+    "wheel_events": 0
+  },
+  "tally_unlocked": {
+    "buttons": [],
+    "epoch": 3,
+    "keys": [
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": true,
+        "t": 40196,
+        "type": "down"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 40196,
+        "type": "up"
+      },
+      {
+        "code": "KeyA",
+        "repeat": false,
+        "shift": false,
+        "t": 40548,
+        "type": "down"
+      },
+      {
+        "code": "KeyA",
+        "repeat": false,
+        "shift": false,
+        "t": 40549,
+        "type": "up"
+      },
+      {
+        "code": "ArrowLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 40902,
+        "type": "down"
+      },
+      {
+        "code": "ArrowLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 40902,
+        "type": "up"
+      }
+    ],
+    "pointer": {
+      "moves": 0,
+      "positions": []
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 250,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 1510,
+        "visibility": "visible"
+      },
+      {
+        "focus": false,
+        "fullscreen": true,
+        "t": 15282,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 35065,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "notes_pre": [],
+  "notes_locked": [],
+  "notes_unlocked": [],
+  "unlock1": {
+    "method": "loginctl",
+    "logind_exit": 0,
+    "logind_stderr": null,
+    "observed_after_ms": 976
+  },
+  "fresh_eis_after_unlock": true,
+  "lock2_engaged_after_ms": 749,
+  "unlock2": {
+    "method": "loginctl",
+    "logind_exit": 0,
+    "logind_stderr": null,
+    "observed_after_ms": 984
+  },
+  "page_loads_before": 1,
+  "page_loads_after": 1,
+  "session_id_after": "2",
+  "active_changed": [
+    [
+      34216,
+      true
+    ],
+    [
+      55252,
+      false
+    ],
+    [
+      67524,
+      true
+    ],
+    [
+      76172,
+      false
+    ]
+  ],
+  "beats_total": 241
+}
