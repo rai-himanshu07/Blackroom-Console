@@ -187,7 +187,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     no leaked monitors/PipeWire nodes (`pw-dump` diff) and no Shell crash (journal).
   - Gate: **FEAS-B** PASS. Report.
 
-- [ ] **Phase 5 — Physical display isolation** (`11.P5`; Docs 10 Exp 6–7, 37, 26–27, 29; 02 §12–§13, §37–§38; 05 §28–§40, §60–§62; 20 §20–§24) — **hard gate**
+- [x] **Phase 5 — Physical display isolation** (`11.P5`; Docs 10 Exp 6–7, 37, 26–27, 29; 02 §12–§13, §37–§38; 05 §28–§40, §60–§62; 20 §20–§24) — **hard gate**
   - Supported-layout decision (2026-09-28): one physical display is a
     first-class configuration, not a fallback requiring an optional HDMI
     monitor. The matrix below records the original comprehensive targets;
@@ -195,9 +195,11 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     Every connected output in a declared layout must be isolated and restored;
     an unexpected/unsupported output blocks activation or triggers safe
     teardown. Single-display recovery needs verified out-of-band SSH and a
-    watchdog/emergency path, not a second monitor. FEAS-C remains STOP on
-    this host; eDP-only observation does not erase the connected-HDMI failure
-    or certify a single-monitor desktop GPU.
+    watchdog/emergency path, not a second monitor. 2026-10-01: FEAS-C PASS for
+    the declared single built-in eDP layout only (`docs/gnome/display-isolation.md`);
+    connected HDMI, hotplug, modes, 50 cycles and abnormal termination (Gate F)
+    are not claimed, and the connected-HDMI failure and a single-monitor
+    desktop GPU stay open.
   - Files: `crates/blackroom-gnome/src/mutter/display_config.rs` (`GetCurrentState`
     snapshot → `DisplayBackup`, `ApplyMonitorsConfig` temporary, verify, restore, hotplug
     signal handling); experiments `exp06_isolate_outputs.rs` (with armed restore
@@ -213,7 +215,9 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
   - Gate: **FEAS-C** PASS; stop if Mutter refuses a zero-physical configuration or restore
     is unreliable (Doc 00 §49). Report.
 
-- [ ] **Phase 6 — Remote input** (`11.P6`; Docs 10 Exp 8, 28; 05 §41–§43; 02 §14, §29)
+- [x] **Phase 6 — Remote input** (`11.P6`; Docs 10 Exp 8, 28; 05 §41–§43; 02 §14, §29)
+  - Closed 2026-10-01: FEAS-D PASS with documented limits (Exp 8 run 4; input-only session on the
+    built-in display; virtual-monitor routing, live hostd authority, owner-loss and Exp 28 deferred).
   - Files: `crates/blackroom-gnome/src/mutter/eis.rs` (`ConnectToEIS`, `reis` devices,
     keyboard/pointer/scroll, absolute mapping to virtual-monitor region, cursor state);
     experiments `exp08_remote_input.rs`, `exp28_cursor.rs`.

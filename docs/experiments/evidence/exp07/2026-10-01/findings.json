@@ -1,0 +1,17 @@
+{
+  "backup_path": "/media/user/Playground/Playground_Sys/Blackroom Console/docs/experiments/evidence/exp06/2026-10-01/backup.json",
+  "monitors_before_restore": [
+    "eDP-1",
+    "Meta-0"
+  ],
+  "unexpected_connectors_before_restore": [
+    "Meta-0"
+  ],
+  "apply_error": null,
+  "retried": false,
+  "topology_matches": true,
+  "configuration_hash_matches": true,
+  "unexpected_connectors_after_restore": [
+    "Meta-0"
+  ]
+}

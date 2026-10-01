@@ -335,9 +335,9 @@ const NOT_YET_DETERMINABLE: CapabilityTier = CapabilityTier::Unknown;
 /// 1280×720/1920×1080/2560×1440@60Hz, usable as an *additional* active
 /// display (Experiment 5), destroyed cleanly across 50 create/destroy
 /// cycles with 0 leaked PipeWire nodes and no GNOME Shell crash (Doc 19
-/// §16–17). **Not** a clean `Supported`: whether Mutter permits **zero**
-/// physical monitors enabled (assessment §7.3) is deliberately deferred to
-/// Phase 5 Experiment 6 (Phase 4 plan Decision #3), and GPU-specific
+/// §16–17). **Not** a clean `Supported`: Mutter accepts **zero** physical
+/// monitors enabled on the single built-in eDP layout only (Phase 5,
+/// `docs/gnome/display-isolation.md`; connected HDMI unsupported), and GPU-specific
 /// cross-buffer-scanout / cursor behaviour on this hybrid host remain
 /// `UNVERIFIED` (`feasibility-research.md` topics 3, 9; escalated to Phase
 /// 9/24). Structurally fixed (not computed inside `detect()`) for the same
@@ -423,8 +423,11 @@ pub fn detect(session: &SessionInfo) -> CapabilityReport {
             } else {
                 CapabilityTier::Unsupported
             };
+            // `GetCurrentState` works and `ApplyMonitorsConfig` zero-physical isolation was
+            // restored reliably on the single built-in eDP layout only; four connected-HDMI
+            // runs failed restoration (docs/gnome/display-isolation.md), hence not `Supported`.
             let display_config_capable = if display_config_get_current_state_ok(&conn) {
-                CapabilityTier::Supported
+                CapabilityTier::SupportedWithLimitations
             } else {
                 CapabilityTier::Unsupported
             };
@@ -583,8 +586,9 @@ mod tests {
     #[test]
     fn virtual_display_promoted_to_supported_with_limitations_not_a_clean_supported() {
         // Phase 4 evidence (Experiments 4-5) justifies a real promotion from
-        // `Unknown`, but the zero-physical-monitor question (Phase 5) and
-        // GPU/cursor caveats (Phase 9/24) keep it below a clean `Supported`.
+        // `Unknown`; zero-physical isolation is proven only on the single eDP
+        // layout (Phase 5) and GPU/cursor caveats (Phase 9/24) keep it below a
+        // clean `Supported`.
         assert_eq!(
             VIRTUAL_DISPLAY_PROVEN_WITH_LIMITATIONS,
             CapabilityTier::SupportedWithLimitations
