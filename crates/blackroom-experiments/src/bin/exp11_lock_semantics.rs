@@ -94,6 +94,10 @@ struct Args {
     /// Do not attach a ScreenCast monitor capture.
     #[arg(long, default_value_t = false)]
     skip_capture: bool,
+    /// Only attach the capture for 12 s and print the running frame count each second: no lock,
+    /// no EIS, no evidence file (a diagnostic for the per-phase frame criteria).
+    #[arg(long, default_value_t = false)]
+    capture_probe: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -135,7 +139,10 @@ impl LockSnap {
 #[derive(Debug, Serialize)]
 struct CaptureWindow {
     phase: &'static str,
+    /// Frames since the previous mark (the lock call, the unlock, or attaching).
     frames: u32,
+    /// Frames since the consumer attached.
+    total: u32,
 }
 
 /// Counts only: a leak while locked must not persist whatever the operator typed.
@@ -424,6 +431,7 @@ fn start_capture<'a>(conn: &'a Connection, session_id: &str) -> Result<Cast<'a>,
 struct Capture {
     stop: Arc<AtomicBool>,
     frames: Arc<AtomicU32>,
+    error: Arc<Mutex<Option<String>>>,
     mark: u32,
     handle: Option<JoinHandle<Result<CaptureOutcome, BlackroomError>>>,
 }
@@ -433,15 +441,23 @@ impl Capture {
         let stop = Arc::new(AtomicBool::new(false));
         let frames = Arc::new(AtomicU32::new(0));
         let (node, width, height) = (cast.node, cast.width, cast.height);
+        let error = Arc::new(Mutex::new(None));
         let handle = {
-            let (stop, frames) = (Arc::clone(&stop), Arc::clone(&frames));
+            let (stop, frames, error) =
+                (Arc::clone(&stop), Arc::clone(&frames), Arc::clone(&error));
             std::thread::spawn(move || {
-                capture_until_stopped(node, width, height, stop, frames, CAPTURE_MAX)
+                let outcome = capture_until_stopped(node, width, height, stop, frames, CAPTURE_MAX);
+                if let Err(failure) = &outcome {
+                    *error.lock().unwrap_or_else(PoisonError::into_inner) =
+                        Some(failure.to_string());
+                }
+                outcome
             })
         };
         Self {
             stop,
             frames,
+            error,
             mark: 0,
             handle: Some(handle),
         }
@@ -458,6 +474,21 @@ impl Capture {
         let frames = total.saturating_sub(self.mark);
         self.mark = total;
         frames
+    }
+
+    fn total(&self) -> u32 {
+        self.frames.load(Ordering::Relaxed)
+    }
+
+    /// Why the consumer ended early, if it did.
+    fn consumer_state(&self) -> String {
+        let ended = self.handle.as_ref().is_some_and(JoinHandle::is_finished);
+        let error = self
+            .error
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        format!("consumer_ended={ended}, error={error:?}")
     }
 
     /// Stops the consumer and returns its error text, if it ended with one.
@@ -477,22 +508,31 @@ impl Drop for Capture {
     }
 }
 
-/// `strict`: too few frames is a violation. The lock screen is mostly static and the stream is
-/// damage-driven, so the locked window is only inconclusive when it is quiet.
+/// `strict`: too few frames is a violation. The stream is damage-driven and a quiet screen delivers
+/// none, so only the window before the lock (frames since attaching) is strict; the locked and
+/// unlocked windows are inconclusive when quiet.
 fn capture_window(run: &mut Run, capture: Option<&mut Capture>, phase: &'static str, strict: bool) {
     let Some(capture) = capture else {
         return;
     };
     let frames = capture.take();
+    let total = capture.total();
     if frames < CAPTURE_MIN_FRAMES {
-        let note = format!("capture {phase}: {frames} frames");
+        let note = format!(
+            "capture {phase}: {frames} frames in the phase, {total} since attaching ({})",
+            capture.consumer_state()
+        );
         if strict {
             run.violations.push(note);
         } else {
             run.inconclusive.push(note);
         }
     }
-    run.capture.push(CaptureWindow { phase, frames });
+    run.capture.push(CaptureWindow {
+        phase,
+        frames,
+        total,
+    });
 }
 
 fn block(run: &mut Run, step: &str, error: impl std::fmt::Display) -> anyhow::Error {
@@ -584,9 +624,6 @@ fn execute(
 
     let mut capture = cast.as_ref().map(Capture::spawn);
     sleep(Duration::from_secs(2));
-    if let Some(capture) = capture.as_mut() {
-        capture.reset();
-    }
 
     // Phase P: the injection path works before the lock.
     if !observer.arm(Duration::from_secs(10)) {
@@ -614,7 +651,11 @@ fn execute(
         }};
     }
     tap!("pre_lock_key_tap_shift", KEY_LEFTSHIFT);
-    sleep(Duration::from_secs(1));
+    // A static page repaints nothing and the stream is damage-driven: change the prompt on purpose.
+    for step in 1..=4 {
+        observer.set_prompt(&format!("Checking the capture ({step}/4): hands off"));
+        sleep(Duration::from_millis(500));
+    }
     capture_window(run, capture.as_mut(), "before_lock", true);
     observer.wait_beats(2, Duration::from_secs(3));
     run.tally_pre = observer.snapshot(|state| state.tally.clone());
@@ -637,6 +678,10 @@ fn execute(
         return Ok(());
     }
     let lock_started = Instant::now();
+    // The lock transition is the biggest repaint of the run: count from just before the call.
+    if let Some(capture) = capture.as_mut() {
+        capture.reset();
+    }
     let locked = Command::new("loginctl")
         .args(["lock-session", &info.session_id])
         .status();
@@ -649,9 +694,6 @@ fn execute(
         return Ok(());
     };
     run.lock_engaged_after_ms = Some(engaged);
-    if let Some(capture) = capture.as_mut() {
-        capture.reset();
-    }
     let beats_at_lock = observer.snapshot(|state| state.beats);
     println!(
         "LOCKED after {engaged} ms. Hands off for 20 s: the program types into the lock screen, then \
@@ -788,7 +830,7 @@ fn execute(
     tap!("unlocked_key_tap_a", KEY_A);
     tap!("unlocked_key_tap_left", KEY_LEFT);
     sleep(Duration::from_secs(1));
-    capture_window(run, capture.as_mut(), "after_unlock", true);
+    capture_window(run, capture.as_mut(), "after_unlock", false);
     observer.wait_beats(2, Duration::from_secs(3));
     run.tally_unlocked = observer.snapshot(|state| state.tally.clone());
     if let Some(error) = capture.as_mut().and_then(Capture::finish) {
@@ -798,9 +840,33 @@ fn execute(
     Ok(())
 }
 
+fn capture_probe() -> anyhow::Result<()> {
+    let info = discover_session().map_err(|error| anyhow::anyhow!("session discovery: {error}"))?;
+    let conn = Connection::session().context("session bus")?;
+    let cast = start_capture(&conn, &info.session_id)
+        .map_err(|error| anyhow::anyhow!("capture: {error}"))?;
+    println!(
+        "capture node {} ({}x{})",
+        cast.node, cast.width, cast.height
+    );
+    let mut capture = Capture::spawn(&cast);
+    for second in 1..=12 {
+        sleep(Duration::from_secs(1));
+        println!("  t={second:>2}s frames_total={}", capture.total());
+    }
+    println!("{}", capture.consumer_state());
+    if let Some(error) = capture.finish() {
+        println!("consumer ended with: {error}");
+    }
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::try_init().ok();
     let args = Args::parse();
+    if args.capture_probe {
+        return capture_probe();
+    }
     require_operator(&args)?;
     let now = OffsetDateTime::now_utc();
     let mut run = Run::default();
