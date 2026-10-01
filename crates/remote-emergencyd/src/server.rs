@@ -162,11 +162,16 @@ fn handle_request<N: Nodes>(
     now_ms: u64,
 ) -> Vec<Reply> {
     match request {
-        Request::Status {} => vec![Reply::Status {
-            phase: phase_name(daemon.phase()),
-            held: daemon.held(),
-            grabs_enabled: policy.grabs_enabled,
-        }],
+        Request::Status {} => {
+            let (reads, active_nodes) = daemon.reads();
+            vec![Reply::Status {
+                phase: phase_name(daemon.phase()),
+                held: daemon.held(),
+                grabs_enabled: policy.grabs_enabled,
+                reads,
+                active_nodes,
+            }]
+        }
         Request::Isolate { lease_ms } => {
             if !policy.grabs_enabled {
                 return vec![Reply::Error {
@@ -429,7 +434,7 @@ mod tests {
             writeln!(stream, "{{\"op\":\"status\"}}").unwrap();
             assert_eq!(
                 line(&mut reader),
-                r#"{"event":"status","phase":"idle","held":0,"grabs_enabled":true}"#
+                r#"{"event":"status","phase":"idle","held":0,"grabs_enabled":true,"reads":0,"active_nodes":0}"#
             );
             writeln!(stream, "{{\"op\":\"renew\"}}").unwrap();
             assert_eq!(

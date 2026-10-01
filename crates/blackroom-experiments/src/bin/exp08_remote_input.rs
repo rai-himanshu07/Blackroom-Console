@@ -3,10 +3,11 @@
 //! MUTATING and supervised: injects a short, harmless input sequence into the
 //! *selected existing* GNOME session through `RemoteDesktop.Session.ConnectToEIS`,
 //! then checks input stops after an authorization revoke and after session
-//! stop. It never touches displays, grabs physical input, or opens a ScreenCast.
+//! stop. It never touches displays or opens a ScreenCast; physical input is grabbed only in the
+//! `--daemon-socket` mode, and then by the real `remote-emergencyd`, not by this binary.
 //!
-//! Only modifier keys are sent (Shift tap; Shift+Right Ctrl chord) and pointer
-//! motion nets to zero; no key with a GNOME or Firefox binding is used. The run serves a local observer page (loopback, one-time
+//! Keys sent are Shift, a Shift+Right Ctrl chord, `a` and Left (checked against gsettings and
+//! xkb: no GNOME or Firefox binding) and the pointer path is +10, +40, -40, -10. The run serves a local observer page (loopback, one-time
 //! token); the page reports focus/fullscreen every 250 ms and tallies the
 //! events that actually reach it. Input is sent only while the page is focused
 //! and fullscreen, and the recorded result comes from the page's own tally.
@@ -14,6 +15,7 @@
 //! Abort by defocusing the page (injection stops at the next stage). A signal
 //! kill skips `Drop`; owner-death teardown of a RemoteDesktop session is unobserved.
 
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
@@ -33,6 +35,7 @@ use blackroom_gnome::mutter::remote_desktop::RemoteDesktopSession;
 use clap::Parser;
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use reis::event::{Device, DeviceCapability, DeviceResumed, EiEvent};
+use remote_emergency_client::client::{Client, Outcome};
 use serde::Serialize;
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -46,6 +49,14 @@ const KEY_A: u32 = 30;
 const KEY_LEFT: u32 = 105;
 const BTN_LEFT: u32 = 272;
 const OBSERVER_PAGE: &str = include_str!("../../assets/exp08_observer.html");
+/// Daemon-grab mode: the page must see this much physical input before the grab (so it is a
+/// working observer) and the daemon must read this much while grabbed (so the operator did type).
+const BASELINE_SECS: u64 = 6;
+const MIN_BASELINE_KEYS: usize = 4;
+const MIN_BASELINE_MOVES: u64 = 5;
+const MIN_DAEMON_READS: u64 = 20;
+const MIN_ACTIVE_NODES: usize = 2;
+const GRAB_LEASE_MS: u64 = 45_000;
 
 #[derive(Parser, Debug)]
 #[command(about = "Experiment 8: bounded remote input into the live GNOME session (MUTATING)")]
@@ -69,6 +80,12 @@ struct Args {
     /// Pause between injected stages.
     #[arg(long, default_value_t = 400, value_parser = clap::value_parser!(u64).range(100..=2000))]
     pace_ms: u64,
+    /// Absolute control socket of a running `remote-emergencyd --enable-grabs`: after a baseline in
+    /// which the page must see the operator's physical input, hold the daemon's grab around the
+    /// injection so the page must see only the injected input while the daemon reads the
+    /// operator's. Needs temporary ACLs on the event nodes and an armed external kill timer.
+    #[arg(long)]
+    daemon_socket: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -86,6 +103,24 @@ struct Stage {
     outcome: String,
     at_ms: u64,
     violation: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct Baseline {
+    physical_key_downs: usize,
+    physical_pointer_moves: u64,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct DaemonGrab {
+    isolated_nodes: Option<usize>,
+    refused: Option<String>,
+    status_phase_at_end: Option<String>,
+    /// Daemon-side observation counts while grabbed (never key codes or positions).
+    reads: Option<u64>,
+    active_nodes: Option<usize>,
+    pushed_releases: Vec<String>,
+    restored: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -120,6 +155,10 @@ struct Run {
     tally_matches: Option<bool>,
     tally_notes: Vec<String>,
     violations: Vec<String>,
+    baseline: Option<Baseline>,
+    daemon_grab: Option<DaemonGrab>,
+    /// Daemon mode only: the daemon read enough operator input from enough nodes.
+    daemon_attribution_ok: Option<bool>,
 }
 
 impl Run {
@@ -165,7 +204,10 @@ fn classify(run: &Run) -> ExperimentResult {
         ExperimentResult::Blocked
     } else if run.failure.is_some() || !run.violations.is_empty() {
         ExperimentResult::Fail
-    } else if run.aborted.is_some() || run.tally_matches != Some(true) {
+    } else if run.aborted.is_some()
+        || run.tally_matches != Some(true)
+        || run.daemon_attribution_ok == Some(false)
+    {
         ExperimentResult::Partial
     } else {
         ExperimentResult::Pass
@@ -502,6 +544,111 @@ fn block(run: &mut Run, step: &str, error: impl std::fmt::Display) -> anyhow::Er
     anyhow::anyhow!(message)
 }
 
+/// Restores the daemon's grab on every exit path; closing the socket releases it too.
+struct GrabGuard(Option<Client>);
+
+impl Drop for GrabGuard {
+    fn drop(&mut self) {
+        if let Some(client) = self.0.as_mut() {
+            let _ = client.restore();
+        }
+    }
+}
+
+fn physical_activity(tally: &Value) -> Baseline {
+    Baseline {
+        physical_key_downs: tally["keys"].as_array().map_or(0, |keys| {
+            keys.iter().filter(|key| key["type"] == "down").count()
+        }),
+        physical_pointer_moves: tally["pointer"]["moves"].as_u64().unwrap_or(0),
+    }
+}
+
+/// Baseline first (the page must see the operator's physical input), then the daemon's grab.
+/// `None`, with `run.aborted` set, means no grab is held and nothing may be injected.
+fn hold_grab(socket: &Path, run: &mut Run, observer: &Observer) -> Option<GrabGuard> {
+    observer.set_prompt("BASELINE (6 s): type LETTER keys only and move the touchpad now");
+    if !observer.arm(Duration::from_secs(10)) {
+        run.aborted =
+            Some("observer did not acknowledge the baseline reset while focused".to_string());
+        return None;
+    }
+    sleep(Duration::from_secs(BASELINE_SECS));
+    observer.wait_beats(2, Duration::from_secs(3));
+    let baseline = observer
+        .snapshot(|state| state.tally.clone())
+        .map(|tally| physical_activity(&tally));
+    let enough = baseline.as_ref().is_some_and(|seen| {
+        seen.physical_key_downs >= MIN_BASELINE_KEYS
+            && seen.physical_pointer_moves >= MIN_BASELINE_MOVES
+    });
+    run.baseline = baseline;
+    if !enough {
+        run.aborted = Some(
+            "baseline: the page saw too little physical input to be a working observer".to_string(),
+        );
+        return None;
+    }
+    observer.set_prompt("HANDS OFF the keyboard and touchpad for 4 s");
+    sleep(Duration::from_secs(4));
+    let mut client = match Client::connect(socket, Duration::from_secs(30)) {
+        Ok(client) => client,
+        Err(error) => {
+            run.aborted = Some(format!("daemon connect: {error}"));
+            return None;
+        }
+    };
+    let mut record = DaemonGrab::default();
+    let refusal = match client.isolate(GRAB_LEASE_MS) {
+        Ok(Outcome::Isolated { nodes }) => {
+            record.isolated_nodes = Some(nodes);
+            None
+        }
+        Ok(Outcome::Refused(reason) | Outcome::Error(reason)) => Some(reason),
+        Err(error) => Some(error.to_string()),
+    };
+    if let Some(reason) = refusal {
+        record.refused = Some(reason.clone());
+        run.daemon_grab = Some(record);
+        run.aborted = Some(format!("daemon did not grab: {reason}"));
+        observer.set_prompt("No grab was taken and nothing is injected. Press F11 to leave.");
+        return None;
+    }
+    let _ = client.set_reply_timeout(Duration::from_secs(5));
+    run.daemon_grab = Some(record);
+    observer.set_prompt(
+        "GRAB ON. Keep typing LETTER keys and moving the touchpad until this message clears (about 25 s)",
+    );
+    Some(GrabGuard(Some(client)))
+}
+
+/// The operator keeps typing a few seconds past the last injected stage; then the daemon's own
+/// counts are read and the grab is released.
+fn finish_grab(grab: &mut GrabGuard, run: &mut Run, observer: &Observer) {
+    let Some(client) = grab.0.as_mut() else {
+        return;
+    };
+    sleep(Duration::from_secs(3));
+    let record = run.daemon_grab.get_or_insert_with(DaemonGrab::default);
+    if let Ok(status) = client.status() {
+        record.status_phase_at_end = status.phase;
+        record.reads = status.reads;
+        record.active_nodes = status.active_nodes;
+    }
+    record.pushed_releases = client.take_released();
+    record.restored = client.restore().is_ok();
+    grab.0 = None;
+    observer.set_prompt("RELEASED. Stop typing. Press F11 to leave fullscreen.");
+}
+
+fn daemon_attribution(grab: &DaemonGrab) -> bool {
+    grab.reads.unwrap_or(0) >= MIN_DAEMON_READS
+        && grab.active_nodes.unwrap_or(0) >= MIN_ACTIVE_NODES
+        && grab.status_phase_at_end.as_deref() == Some("isolated")
+        && grab.pushed_releases.is_empty()
+        && grab.restored
+}
+
 fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()> {
     println!("Open this in a browser on the desktop, press F11, keep it focused, touch nothing:");
     println!("  {}", observer.url());
@@ -514,6 +661,14 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
             "observer",
             "page never reported focused and fullscreen",
         ));
+    }
+
+    let mut grab = GrabGuard(None);
+    if let Some(socket) = &args.daemon_socket {
+        match hold_grab(socket, run, observer) {
+            Some(held) => grab = held,
+            None => return Ok(()),
+        }
     }
 
     let conn = zbus::blocking::Connection::session().context("session bus")?;
@@ -687,6 +842,7 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
             t0,
         );
     }
+    finish_grab(&mut grab, run, observer);
     Ok(())
 }
 
@@ -777,11 +933,16 @@ fn main() -> anyhow::Result<()> {
         }
         run.tally_notes = notes;
     }
+    if let Some(grab) = &run.daemon_grab
+        && grab.isolated_nodes.is_some()
+    {
+        run.daemon_attribution_ok = Some(daemon_attribution(grab));
+    }
 
     let result = classify(&run);
     let observed = format!(
         "result={result}; blocked={:?}; failure={:?}; aborted={:?}; stages={}; tally_matches={:?}; \
-         violations={:?}; shell {:?}->{:?}",
+         violations={:?}; shell {:?}->{:?}; baseline={:?}; daemon_grab={:?}; daemon_attribution_ok={:?}",
         run.blocked,
         run.failure,
         run.aborted,
@@ -789,7 +950,10 @@ fn main() -> anyhow::Result<()> {
         run.tally_matches,
         run.violations,
         run.shell_pid_before,
-        run.shell_pid_after
+        run.shell_pid_after,
+        run.baseline,
+        run.daemon_grab,
+        run.daemon_attribution_ok
     );
     println!("{observed}");
     for stage in &run.stages {
@@ -991,6 +1155,82 @@ mod tests {
         synthetic["untrusted"] = json!(1);
         assert!(!evaluate_tally(&synthetic).0);
         assert!(!evaluate_tally(&json!({})).0);
+    }
+
+    #[test]
+    fn the_baseline_counts_physical_key_downs_and_pointer_moves() {
+        let seen = physical_activity(&json!({
+            "keys": [
+                {"type": "down", "code": "KeyQ"}, {"type": "up", "code": "KeyQ"},
+                {"type": "down", "code": "KeyW"},
+            ],
+            "pointer": {"moves": 9},
+        }));
+        assert_eq!(
+            (seen.physical_key_downs, seen.physical_pointer_moves),
+            (2, 9)
+        );
+        let none = physical_activity(&json!({}));
+        assert_eq!(
+            (none.physical_key_downs, none.physical_pointer_moves),
+            (0, 0)
+        );
+    }
+
+    #[test]
+    fn the_daemon_must_have_read_enough_input_from_enough_nodes_while_still_isolated() {
+        let good = DaemonGrab {
+            isolated_nodes: Some(4),
+            reads: Some(MIN_DAEMON_READS),
+            active_nodes: Some(MIN_ACTIVE_NODES),
+            status_phase_at_end: Some("isolated".to_string()),
+            restored: true,
+            ..DaemonGrab::default()
+        };
+        assert!(daemon_attribution(&good));
+        for weaker in [
+            DaemonGrab {
+                reads: Some(MIN_DAEMON_READS - 1),
+                ..clone_grab(&good)
+            },
+            DaemonGrab {
+                active_nodes: Some(1),
+                ..clone_grab(&good)
+            },
+            DaemonGrab {
+                status_phase_at_end: Some("idle".to_string()),
+                ..clone_grab(&good)
+            },
+            DaemonGrab {
+                pushed_releases: vec!["lease_expired".to_string()],
+                ..clone_grab(&good)
+            },
+            DaemonGrab {
+                restored: false,
+                ..clone_grab(&good)
+            },
+        ] {
+            assert!(!daemon_attribution(&weaker), "{weaker:?}");
+        }
+        let mut run = Run {
+            tally_matches: Some(true),
+            ..Run::default()
+        };
+        assert_eq!(classify(&run), ExperimentResult::Pass);
+        run.daemon_attribution_ok = Some(false);
+        assert_eq!(classify(&run), ExperimentResult::Partial);
+    }
+
+    fn clone_grab(grab: &DaemonGrab) -> DaemonGrab {
+        DaemonGrab {
+            isolated_nodes: grab.isolated_nodes,
+            refused: grab.refused.clone(),
+            status_phase_at_end: grab.status_phase_at_end.clone(),
+            reads: grab.reads,
+            active_nodes: grab.active_nodes,
+            pushed_releases: grab.pushed_releases.clone(),
+            restored: grab.restored,
+        }
     }
 
     #[test]

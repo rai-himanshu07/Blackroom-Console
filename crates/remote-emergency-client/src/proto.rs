@@ -41,6 +41,9 @@ pub enum Reply {
         phase: &'static str,
         held: usize,
         grabs_enabled: bool,
+        /// Observations since the last grab landed (counts only) and how many nodes saw any.
+        reads: u64,
+        active_nodes: usize,
     },
     Error {
         reason: &'static str,
@@ -61,6 +64,8 @@ pub struct Message {
     pub phase: Option<String>,
     pub held: Option<usize>,
     pub grabs_enabled: Option<bool>,
+    pub reads: Option<u64>,
+    pub active_nodes: Option<usize>,
 }
 
 /// Reads one request line, bounded. `Ok(None)` is a clean end of stream.
@@ -136,6 +141,8 @@ mod tests {
                 phase: "isolated",
                 held: 3,
                 grabs_enabled: true,
+                reads: 12,
+                active_nodes: 2,
             },
         )
         .unwrap();
@@ -143,7 +150,8 @@ mod tests {
         assert_eq!(
             text,
             "{\"event\":\"isolated\",\"nodes\":3}\n{\"event\":\"released\",\"reason\":\"chord\"}\n\
-             {\"event\":\"status\",\"phase\":\"isolated\",\"held\":3,\"grabs_enabled\":true}\n"
+             {\"event\":\"status\",\"phase\":\"isolated\",\"held\":3,\"grabs_enabled\":true,\
+             \"reads\":12,\"active_nodes\":2}\n"
         );
     }
 }

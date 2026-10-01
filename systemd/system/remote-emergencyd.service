@@ -12,6 +12,9 @@ Type=notify
 # The watchdog is fed only while the daemon loop makes progress; the kernel drops every grab when
 # the process dies, so a kill by the watchdog restores local input.
 WatchdogSec=10
+# A SIGSTOPped process cannot act on the default SIGABRT, so the watchdog kills it outright; the kernel
+# then drops every grab. Observed against a frozen holder only with exp09_freeze.
+WatchdogSignal=SIGKILL
 NotifyAccess=main
 # The stop marker store only accepts a state directory owned by the calling uid, so the daemon runs
 # as hostd's user with the extra `input` group. The trade-off (hostd's uid can signal the daemon)

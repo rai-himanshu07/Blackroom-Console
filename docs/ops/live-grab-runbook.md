@@ -127,6 +127,28 @@ A refused `start` (`keys_held`, `nothing_to_grab`, `marker_unavailable`, `grab_f
 daemon) shows as `INPUT_ISOLATION_FAILED`; it closes hostd's control stream and the gateway
 restarts hostd on the next start (epoch +1), which is harmless. Reasons are in `emergencyd.log`.
 
+## FEAS-E runs A and B (Phase 7 review items; built-in layout event2-5, no gateway)
+
+Same preflight 1-4 and 6 as above (SSH, nodes, ACLs on event2-5, directories, kill timer); no gateway and no
+state dir are needed. The agent runs the experiment binaries; you act only on the page prompts.
+
+- **A: the real daemon under the observer page.** **M** mask `gnome-remote-desktop`, start the daemon
+  (`setsid nohup target/debug/remote-emergencyd --client-uid 1000 --enable-grabs --socket "$SOCK" ...`).
+  **G** the agent runs `target/debug/exp08_remote_input --operator-present --daemon-socket "$SOCK"` and shows
+  you a URL. Open it in Firefox, F11, keep it focused, then follow the PAGE prompts: baseline 6 s (type LETTER
+  keys only, move the touchpad: the page must see it), hands off 4 s, grab on (keep typing letters and moving
+  until the prompt clears, about 25 s while the injected Shift, `a`, Left, pointer, click and scroll run),
+  released. PASS needs the page to see only the injected stages, a baseline of at least 4 key downs and 5 moves,
+  and the daemon's own counts (`reads` at least 20 from at least 2 nodes, still `isolated`, no pushed release).
+  Recovery: `pkill -KILL -x remote-emergenc` from the tablet. Then **M** unmask.
+- **B: a frozen daemon under a supervisor.** **M** start the daemon as a unit with a watchdog:
+  `systemd-run --user --unit=blackroom-live-daemon -p Type=notify -p NotifyAccess=main -p WatchdogSec=10
+  -p WatchdogSignal=SIGKILL target/debug/remote-emergencyd --client-uid 1000 --enable-grabs --socket "$SOCK"`.
+  **G** the agent runs `target/debug/exp09_freeze --operator-present --socket "$SOCK"`: it grabs, renews 8 s,
+  SIGSTOPs only the verified daemon and measures the seconds until the connection closes (target 30 s or less,
+  expected about 10 s). Touch the touchpad throughout and note when the pointer moves. If no supervisor kills
+  it within 60 s the probe kills the daemon itself and the result is FAIL.
+
 ## If something is wrong (tablet, in this order)
 
 1. `bk revoke`. 2. `pkill -KILL -x remote-emergenc` (SIGKILL releases the grab; a frozen holder

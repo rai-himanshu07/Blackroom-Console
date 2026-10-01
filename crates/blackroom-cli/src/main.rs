@@ -193,6 +193,8 @@ fn emergency_status(socket: &Path) -> io::Result<String> {
         "phase": status.phase,
         "held": status.held,
         "grabs_enabled": status.grabs_enabled,
+        "reads": status.reads,
+        "active_nodes": status.active_nodes,
     })
     .to_string())
 }

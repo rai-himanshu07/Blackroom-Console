@@ -1426,6 +1426,8 @@ mod tests {
                                 phase: "isolated",
                                 held: 2,
                                 grabs_enabled: true,
+                                reads: 0,
+                                active_nodes: 0,
                             },
                         ),
                     };

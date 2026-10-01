@@ -166,6 +166,8 @@ pub struct Daemon<N: Nodes> {
     gate: Option<Gate>,
     known: BTreeMap<DeviceId, Caps>,
     last_rescan_ms: Option<u64>,
+    /// Observations per node since the grab landed: counts only, never codes or positions.
+    reads: BTreeMap<DeviceId, u64>,
 }
 
 impl<N: Nodes> Daemon<N> {
@@ -180,6 +182,7 @@ impl<N: Nodes> Daemon<N> {
             gate: None,
             known: BTreeMap::new(),
             last_rescan_ms: None,
+            reads: BTreeMap::new(),
         }
     }
 
@@ -189,6 +192,12 @@ impl<N: Nodes> Daemon<N> {
 
     pub fn held(&self) -> usize {
         self.isolation.held().len()
+    }
+
+    /// Key presses, releases and pointer passes the grabbed nodes saw since the last grab landed:
+    /// the total and how many nodes saw any. Kept after a release until the next grab.
+    pub fn reads(&self) -> (u64, usize) {
+        (self.reads.values().sum(), self.reads.len())
     }
 
     pub fn nodes_mut(&mut self) -> &mut N {
@@ -296,6 +305,9 @@ impl<N: Nodes> Daemon<N> {
         if self.drop_removed(&observed, &mut events) {
             return events;
         }
+        if self.phase == Phase::Isolated {
+            self.count_reads(&observed);
+        }
         let presses = self.feed_chord(&observed, now_ms);
         self.rescan(now_ms, &mut events);
         match self.phase {
@@ -314,6 +326,14 @@ impl<N: Nodes> Daemon<N> {
             self.phase = Self::phase_after_release(self.isolation.state());
         }
         events
+    }
+
+    fn count_reads(&mut self, observed: &[Observed]) {
+        for item in observed {
+            if let Observed::Key { node, .. } | Observed::Activity { node } = *item {
+                *self.reads.entry(node).or_default() += 1;
+            }
+        }
     }
 
     /// Releases and refuses the pending isolate.
@@ -461,6 +481,7 @@ impl<N: Nodes> Daemon<N> {
         let tainted = presses > 0 || self.isolation.grabber().keys_down() > 0;
         if !tainted {
             self.gate = None;
+            self.reads.clear();
             self.phase = Phase::Isolated;
             events.push(Event::Isolated { nodes });
             return;
@@ -766,6 +787,51 @@ mod tests {
             }));
         assert!(run(&mut daemon, 310, 3_000).is_empty());
         assert_eq!(daemon.phase(), Phase::Isolated);
+    }
+
+    #[test]
+    fn reads_count_what_the_grabbed_nodes_saw_only_while_isolated() {
+        let mut daemon = Daemon::new(fake(), cfg());
+        daemon
+            .nodes_mut()
+            .queue
+            .push_back(Observed::Activity { node: 2 });
+        isolated(&mut daemon);
+        assert_eq!(
+            daemon.reads(),
+            (0, 0),
+            "events before the grab landed are not counted"
+        );
+        let nodes = daemon.nodes_mut();
+        nodes.queue.extend([
+            Observed::Key {
+                node: 2,
+                code: 30,
+                pressed: true,
+            },
+            Observed::Key {
+                node: 2,
+                code: 30,
+                pressed: false,
+            },
+            Observed::Activity { node: 6 },
+        ]);
+        daemon.step(400);
+        assert_eq!(daemon.reads(), (3, 2));
+        daemon.restore();
+        assert_eq!(
+            daemon.reads(),
+            (3, 2),
+            "kept for the client until the next grab"
+        );
+        daemon
+            .nodes_mut()
+            .queue
+            .push_back(Observed::Activity { node: 6 });
+        daemon.step(500);
+        assert_eq!(daemon.reads(), (3, 2), "nothing is counted once released");
+        isolated_from(&mut daemon, 600);
+        assert_eq!(daemon.reads(), (0, 0), "the next grab starts a fresh count");
     }
 
     #[test]

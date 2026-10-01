@@ -17,8 +17,10 @@ FEAS-G are not promoted by this code.
   check runs in the same loop as event reading. The loop never blocks on the client for more than
   10 ms per reply, handles at most 4 requests per pass, and runs `loginctl` on the side with a 5 s
   kill, so a slow client or logind cannot starve the lease or the chord. A loop that stalls for
-  more than the 10 s watchdog is killed and the kernel then drops the grabs; a frozen process
-  keeps them (observed), so an external kill remains the last resort.
+  more than the 10 s watchdog is killed (the unit sets `WatchdogSignal=SIGKILL`, because a SIGSTOPped
+  process cannot act on the default SIGABRT) and the kernel then drops the grabs. A frozen process
+  keeps them without a supervisor (observed with the probe); `exp09_freeze` measures the supervised
+  case, which stays unobserved until it has run.
 - **Emergency chord:** Left Ctrl + Left Shift + Left Alt + Esc held 2 s on any grabbed keyboard
   (an experiment choice, to be confirmed on each machine). Order of actions (assessment C25):
   release every grab, persist `remote-hostd`'s independent stop marker and epoch bump, optionally
@@ -41,7 +43,9 @@ configured uid; a second or foreign connection is closed at once. Requests: `iso
 `renew`, `restore`, `status`. Replies and pushed events: `accepted`, `isolated {nodes}`,
 `refused {reason}` (`busy`, `bad_lease`, `keys_held`, `nothing_to_grab`, `grab_failed`),
 `released {reason}` (`restore`, `lease_expired`, `chord`, `hotplug_fail_closed`, `coverage_lost`,
-`read_error`, `release_failed`), `status {phase, held, grabs_enabled}`, `error {reason}`
+`read_error`, `release_failed`), `status {phase, held, grabs_enabled, reads, active_nodes}` (`reads` counts
+key presses/releases and pointer passes the grabbed nodes saw since the last grab landed and `active_nodes`
+how many nodes saw any: counts only, kept until the next grab), `error {reason}`
 (`grabs_disabled`, `marker_unavailable`, `not_isolated`). `marker_unavailable` means `--state-dir`
 was given but hostd's store does not accept it right now (not owned by the daemon's uid, group or
 other access, a symlink in the path, or hostd has not initialised it), so the chord could not

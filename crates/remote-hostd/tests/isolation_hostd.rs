@@ -78,6 +78,8 @@ fn serve_one(stream: UnixStream, mode: Daemon, seen: &Seen) {
                             phase: "idle",
                             held: 0,
                             grabs_enabled: true,
+                            reads: 0,
+                            active_nodes: 0,
                         },
                     ]
                 } else {
@@ -85,6 +87,8 @@ fn serve_one(stream: UnixStream, mode: Daemon, seen: &Seen) {
                         phase: "isolated",
                         held: 2,
                         grabs_enabled: true,
+                        reads: 0,
+                        active_nodes: 0,
                     }]
                 }
             }
