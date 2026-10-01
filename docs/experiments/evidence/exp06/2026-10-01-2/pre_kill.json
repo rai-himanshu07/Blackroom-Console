@@ -1,0 +1,19 @@
+{
+  "original_logical_connectors": [
+    "eDP-1"
+  ],
+  "raw_connectors": [
+    "eDP-1",
+    "Meta-0"
+  ],
+  "active_logical_connectors": [
+    "Meta-0"
+  ],
+  "logical_monitor_count": 1,
+  "virtual_connector": "Meta-0",
+  "power_save_mode": 3,
+  "shell_pid_before": 6842,
+  "shell_pid_now": 6842,
+  "timer_active": true,
+  "arm_elapsed_ms": 671
+}

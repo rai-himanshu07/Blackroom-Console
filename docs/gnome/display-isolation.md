@@ -3,8 +3,8 @@
 **Outcome (2026-10-01):** FEAS-C is recorded **PASS-WITH-LIMITS only for the declared single-display layout: the
 built-in `eDP-1` panel alone, no external output connected**. An independent read-only review reached the same
 verdict. Connected HDMI, hotplug during isolation, a mode matrix, 50 cycles and abnormal-termination recovery
-are **not claimed**. **Physical-isolation activation on this layout stays disabled until a bounded eDP-only
-owner-kill and restore observation exists (Gate F, Phase 9; Phase 5 plan acceptance criterion 5).** Plan:
+are **not claimed**. **One bounded eDP-only owner-kill with the input grab was observed on 2026-10-01 (Gate F, one run, see below);
+physical-isolation activation stays disabled for the other Phase 9 to 11 items.** Plan:
 `docs/plans/plan-20260905-phase5-physical-display-isolation.md`; supported-layout decision 2026-09-28 in the
 roadmap. Procedure and recovery: `docs/ops/experiment-safety.md` sections 2, 3 and 7.
 
@@ -36,8 +36,8 @@ watchdog), not on eDP-only. On a sole panel that outcome would be a blank screen
 - **Privacy depends on `PowerSaveMode` staying OFF.** The black panel comes from DPMS; the 2026-09-05 frozen
   frame shows the logical disable alone does not blank it. Only a ~45 s window was observed, with no input,
   idle, lid or lock interaction.
-- **Abnormal termination on eDP-only** (owner killed while isolated) is not observed; it belongs to Gate F
-  (Phase 9). The only kill test was HDMI-only, once. Recovery relies on the armed watchdog and SSH.
+- **Abnormal termination on eDP-only** (owner killed while isolated, with the real input grab held): observed once on
+  2026-10-01, see the section below. Recovery relies on the armed watchdog and SSH.
 - **Unexplained historical Shell SIGSEGV** near virtual-monitor removal (reported before 2026-09-26; the
   operator cannot say whether exp06 was killed first) was not reproduced in about 12 later supervised runs
   (two on this layout, none abnormal). That does not bound recurrence: about five clean isolation runs preceded
@@ -63,3 +63,15 @@ A committed or hashed photo with capture time; a persisted isolated-state snapsh
 keyboard and touchpad with `PowerSaveMode` watched; later, one eDP-only self-kill under its own approval.
 
 Evidence: `docs/experiments/evidence/exp06/` (2026-09-26-4, 2026-09-27-2 to 5, 2026-10-01) and `exp07/`.
+
+## Gate F: eDP-only owner-kill with the input grab (2026-10-01, one run)
+
+Evidence `docs/experiments/evidence/exp06/2026-10-01-2/observation.md`. The probe isolated eDP-1 (virtual-only
+`Meta-0`, DPMS 3), the real `remote-emergencyd` grabbed event2-5, then the probe SIGKILLed itself. Mutter removed
+the virtual monitor and put eDP-1 back in the logical topology within the same second; the daemon had released the
+grab by the first check 15 s later (socket closing, not the 60 s lease); the panel stayed dark (DPMS 3) until the
+45 s watchdog ran `exp07_restore` (PASS, topology and hash match). Shell PID unchanged, no crash line. The operator
+reported no desktop content during the blank, the picture back within about a minute, working input and an intact
+desktop. Limits: one run, same uid, the owner was the exp06 probe (not the product agent), no remote input, capture
+or lock in the run, the recovery time is the watchdog interval (about 45 s of dark panel), exact release times not
+recorded, no repeat, no other layout. The unexplained historical Shell SIGSEGV is neither reproduced nor explained.

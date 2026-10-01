@@ -132,3 +132,10 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   killed owner holds the display configuration and the daemon connection at once. Offline: tests, clippy green.
   Full real-backend wiring of the agent transaction is NOT built; this live run is an experiment-level composition
   of existing modules, named as such in the Phase 9 gate.
+- 2026-10-01 (Phase 9 live, Gate F eDP-only owner-kill with the real input grab, evidence exp06/2026-10-01-2, harness
+  `fcb7411`): the probe isolated eDP-1 and the daemon grabbed event2-5, then the probe SIGKILLed itself. Mutter removed the
+  virtual monitor and restored eDP-1 logically within a second, the daemon had released the grab by the first check
+  (15 s, before the 60 s lease), the 45 s watchdog restored the panel (`exp07_restore` PASS, power-save 0), Shell PID
+  unchanged, no crash line; the operator reported no desktop content, picture back within about a minute, input
+  and desktop fine. One run, same uid, exp06 as the owner (not the product agent), no remote input/capture/lock.
+  Temporary ACLs on event2-5 were still present at the cleanup check (operator action pending).

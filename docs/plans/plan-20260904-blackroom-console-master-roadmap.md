@@ -197,8 +197,8 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     teardown. Single-display recovery needs verified out-of-band SSH and a
     watchdog/emergency path, not a second monitor. 2026-10-01: FEAS-C PASS for
     the declared single built-in eDP layout only (`docs/gnome/display-isolation.md`);
-    connected HDMI, hotplug, modes, 50 cycles and abnormal termination (Gate F)
-    are not claimed, and the connected-HDMI failure and a single-monitor
+    connected HDMI, hotplug, modes and 50 cycles are not claimed; abnormal termination was observed once
+    on eDP-only with the input grab (Gate F, 2026-10-01, `docs/gnome/display-isolation.md`), and the connected-HDMI failure and a single-monitor
     desktop GPU stay open.
   - Files: `crates/blackroom-gnome/src/mutter/display_config.rs` (`GetCurrentState`
     snapshot → `DisplayBackup`, `ApplyMonitorsConfig` temporary, verify, restore, hotplug
