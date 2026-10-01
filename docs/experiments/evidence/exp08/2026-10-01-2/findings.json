@@ -1,0 +1,339 @@
+{
+  "selected_session_id": "2",
+  "git_head": "3087e77",
+  "git_dirty": false,
+  "shell_pid_before": "6842",
+  "shell_pid_after": "6842",
+  "gnome_remote_desktop_before": "inactive",
+  "gnome_remote_desktop_after": "inactive",
+  "remote_desktop_session_path": "/org/gnome/Mutter/RemoteDesktop/Session/u14",
+  "blocked": null,
+  "failure": null,
+  "aborted": null,
+  "devices_seen": [
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": [
+        "pointer",
+        "scroll",
+        "button"
+      ]
+    },
+    {
+      "event": "added",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "resumed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": [
+        "keyboard"
+      ]
+    },
+    {
+      "event": "removed",
+      "name": "Blackroom Console virtual pointer",
+      "capabilities": []
+    },
+    {
+      "event": "removed",
+      "name": "Blackroom Console virtual keyboard",
+      "capabilities": []
+    }
+  ],
+  "stages": [
+    {
+      "name": "key_tap_shift",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 52,
+      "violation": false
+    },
+    {
+      "name": "key_chord_shift_right_ctrl",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 505,
+      "violation": false
+    },
+    {
+      "name": "key_tap_letter_a",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 958,
+      "violation": false
+    },
+    {
+      "name": "key_tap_arrow_left",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 1411,
+      "violation": false
+    },
+    {
+      "name": "pointer_right_10_start",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 1864,
+      "violation": false
+    },
+    {
+      "name": "pointer_right_40",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 2317,
+      "violation": false
+    },
+    {
+      "name": "pointer_left_40",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 2771,
+      "violation": false
+    },
+    {
+      "name": "pointer_left_10_back",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 3224,
+      "violation": false
+    },
+    {
+      "name": "button_left_click",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 3677,
+      "violation": false
+    },
+    {
+      "name": "scroll_down_15",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 4129,
+      "violation": false
+    },
+    {
+      "name": "key_tap_after_authorization_revoked",
+      "expected": "refused",
+      "outcome": "refused:LeaseRevoked",
+      "at_ms": 4566,
+      "violation": false
+    },
+    {
+      "name": "session_stop",
+      "expected": "accepted",
+      "outcome": "accepted",
+      "at_ms": 4967,
+      "violation": false
+    },
+    {
+      "name": "key_tap_after_session_stop_valid_authorization",
+      "expected": "observe",
+      "outcome": "refused:MutterUnavailable",
+      "at_ms": 4974,
+      "violation": false
+    }
+  ],
+  "post_teardown_events": [
+    "DeviceRemoved(DeviceRemoved { device: Device(\"Blackroom Console virtual pointer\"",
+    "DeviceRemoved(DeviceRemoved { device: Device(\"Blackroom Console virtual keyboard",
+    "SeatRemoved(SeatRemoved { seat: Seat(\"mutter default seat\") })",
+    "Disconnected(Disconnected { last_serial: 2, reason: Disconnected, explanation: N",
+    "socket_closed: MUTTER_UNAVAILABLE (diag_01M3VR76TYJ68JW4TWTMVJZYXH): EIS device socket closed"
+  ],
+  "eis_ready_after_stop": false,
+  "stuck_input_suspect": false,
+  "stale_session_call": "org.freedesktop.DBus.Error.UnknownMethod: Object does not exist at path “/org/gnome/Mutter/RemoteDesktop/Session/u14”",
+  "observer_at_abort": null,
+  "observer_beats": 155,
+  "observer_tally": {
+    "buttons": [
+      {
+        "button": 0,
+        "t": 34032,
+        "type": "down"
+      },
+      {
+        "button": 0,
+        "t": 34034,
+        "type": "up"
+      },
+      {
+        "button": 0,
+        "t": 34034,
+        "type": "click"
+      }
+    ],
+    "epoch": 2,
+    "keys": [
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": true,
+        "t": 30407,
+        "type": "down"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 30407,
+        "type": "up"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": true,
+        "t": 30860,
+        "type": "down"
+      },
+      {
+        "code": "ControlRight",
+        "repeat": false,
+        "shift": true,
+        "t": 30861,
+        "type": "down"
+      },
+      {
+        "code": "ControlRight",
+        "repeat": false,
+        "shift": true,
+        "t": 30861,
+        "type": "up"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 30861,
+        "type": "up"
+      },
+      {
+        "code": "KeyA",
+        "repeat": false,
+        "shift": false,
+        "t": 31313,
+        "type": "down"
+      },
+      {
+        "code": "KeyA",
+        "repeat": false,
+        "shift": false,
+        "t": 31314,
+        "type": "up"
+      },
+      {
+        "code": "ArrowLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 31766,
+        "type": "down"
+      },
+      {
+        "code": "ArrowLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 31766,
+        "type": "up"
+      },
+      {
+        "code": "KeyF",
+        "repeat": false,
+        "shift": false,
+        "t": 38781,
+        "type": "down"
+      }
+    ],
+    "pointer": {
+      "moves": 4,
+      "positions": [
+        {
+          "x": 293,
+          "y": 79
+        },
+        {
+          "x": 333,
+          "y": 79
+        },
+        {
+          "x": 293,
+          "y": 79
+        },
+        {
+          "x": 283,
+          "y": 79
+        }
+      ]
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 250,
+        "visibility": "visible"
+      },
+      {
+        "focus": false,
+        "fullscreen": false,
+        "t": 2510,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 9778,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 11282,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 207,
+      "events": 1,
+      "scrollY": 207
+    }
+  },
+  "tally_matches": false,
+  "tally_notes": [
+    "1 unexpected key events"
+  ],
+  "violations": [
+    "observer tally mismatch: [\"1 unexpected key events\"]"
+  ],
+  "baseline": {
+    "physical_key_downs": 4,
+    "physical_pointer_moves": 168
+  },
+  "daemon_grab": {
+    "isolated_nodes": 4,
+    "refused": null,
+    "status_phase_at_end": "isolated",
+    "reads": 741,
+    "active_nodes": 2,
+    "pushed_releases": [],
+    "restored": true
+  },
+  "daemon_attribution_ok": true
+}

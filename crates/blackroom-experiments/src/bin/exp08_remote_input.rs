@@ -55,6 +55,8 @@ const BASELINE_SECS: u64 = 6;
 const MIN_BASELINE_KEYS: usize = 4;
 const MIN_BASELINE_MOVES: u64 = 5;
 const MIN_DAEMON_READS: u64 = 20;
+/// Reads the daemon must also count between the tally reset and the verdict snapshot.
+const MIN_WINDOW_READS: u64 = 15;
 const MIN_ACTIVE_NODES: usize = 2;
 const GRAB_LEASE_MS: u64 = 45_000;
 
@@ -118,9 +120,21 @@ struct DaemonGrab {
     status_phase_at_end: Option<String>,
     /// Daemon-side observation counts while grabbed (never key codes or positions).
     reads: Option<u64>,
+    /// The daemon's count when the page's tally was reset for the injection window.
+    reads_at_arm: Option<u64>,
     active_nodes: Option<usize>,
     pushed_releases: Vec<String>,
     restored: bool,
+}
+
+impl DaemonGrab {
+    /// Reads counted inside the tally window (reset to verdict snapshot).
+    fn window_reads(&self) -> u64 {
+        match (self.reads, self.reads_at_arm) {
+            (Some(end), Some(start)) => end.saturating_sub(start),
+            _ => 0,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -622,13 +636,16 @@ fn hold_grab(socket: &Path, run: &mut Run, observer: &Observer) -> Option<GrabGu
     Some(GrabGuard(Some(client)))
 }
 
-/// The operator keeps typing a few seconds past the last injected stage; then the daemon's own
-/// counts are read and the grab is released.
+/// The operator keeps typing a few seconds past the last injected stage; the verdict tally is
+/// taken while the grab is still held (input after the release is not evidence either way), then
+/// the daemon's own counts are read and the grab is released.
 fn finish_grab(grab: &mut GrabGuard, run: &mut Run, observer: &Observer) {
     let Some(client) = grab.0.as_mut() else {
         return;
     };
     sleep(Duration::from_secs(3));
+    observer.wait_beats(2, Duration::from_secs(3));
+    run.observer_tally = observer.snapshot(|state| state.tally.clone());
     let record = run.daemon_grab.get_or_insert_with(DaemonGrab::default);
     if let Ok(status) = client.status() {
         record.status_phase_at_end = status.phase;
@@ -643,6 +660,7 @@ fn finish_grab(grab: &mut GrabGuard, run: &mut Run, observer: &Observer) {
 
 fn daemon_attribution(grab: &DaemonGrab) -> bool {
     grab.reads.unwrap_or(0) >= MIN_DAEMON_READS
+        && grab.window_reads() >= MIN_WINDOW_READS
         && grab.active_nodes.unwrap_or(0) >= MIN_ACTIVE_NODES
         && grab.status_phase_at_end.as_deref() == Some("isolated")
         && grab.pushed_releases.is_empty()
@@ -729,6 +747,13 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
         run.aborted =
             Some("observer did not acknowledge the tally reset while focused".to_string());
         return Ok(());
+    }
+    if let Some(client) = grab.0.as_mut()
+        && let Ok(status) = client.status()
+    {
+        run.daemon_grab
+            .get_or_insert_with(DaemonGrab::default)
+            .reads_at_arm = status.reads;
     }
     let t0 = Instant::now();
     let auth = authority.authorization(false);
@@ -895,7 +920,9 @@ fn main() -> anyhow::Result<()> {
         }
         observer.wait_beats(2, Duration::from_secs(3));
         run.observer_beats = observer.snapshot(|state| state.beats);
-        run.observer_tally = observer.snapshot(|state| state.tally.clone());
+        if run.observer_tally.is_none() {
+            run.observer_tally = observer.snapshot(|state| state.tally.clone());
+        }
     }
 
     run.shell_pid_after = command_line("pidof", &["gnome-shell"]);
@@ -1181,7 +1208,8 @@ mod tests {
     fn the_daemon_must_have_read_enough_input_from_enough_nodes_while_still_isolated() {
         let good = DaemonGrab {
             isolated_nodes: Some(4),
-            reads: Some(MIN_DAEMON_READS),
+            reads: Some(MIN_DAEMON_READS + 100),
+            reads_at_arm: Some(100 + MIN_DAEMON_READS - MIN_WINDOW_READS),
             active_nodes: Some(MIN_ACTIVE_NODES),
             status_phase_at_end: Some("isolated".to_string()),
             restored: true,
@@ -1191,6 +1219,15 @@ mod tests {
         for weaker in [
             DaemonGrab {
                 reads: Some(MIN_DAEMON_READS - 1),
+                reads_at_arm: Some(0),
+                ..clone_grab(&good)
+            },
+            DaemonGrab {
+                reads_at_arm: Some(good.reads.unwrap_or(0) - MIN_WINDOW_READS + 1),
+                ..clone_grab(&good)
+            },
+            DaemonGrab {
+                reads_at_arm: None,
                 ..clone_grab(&good)
             },
             DaemonGrab {
@@ -1227,6 +1264,7 @@ mod tests {
             refused: grab.refused.clone(),
             status_phase_at_end: grab.status_phase_at_end.clone(),
             reads: grab.reads,
+            reads_at_arm: grab.reads_at_arm,
             active_nodes: grab.active_nodes,
             pushed_releases: grab.pushed_releases.clone(),
             restored: grab.restored,
