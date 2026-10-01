@@ -34,6 +34,7 @@ use blackroom_experiments::{
 };
 use blackroom_gnome::mutter::display_config::{self, OutputBackup as CanonicalOutputBackup};
 use clap::Parser;
+use remote_emergency_client::client::{Client, Outcome};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use zbus::blocking::{Connection, Proxy};
@@ -47,6 +48,9 @@ const METHOD_TEMPORARY: u32 = 1;
 const PER_CYCLE_TIMEOUT: Duration = Duration::from_secs(10);
 /// `experiment-safety.md` §2 default watchdog window.
 const WATCHDOG_SECONDS_DEFAULT: u64 = 45;
+/// Lease for the owner-loss probe's input grab: it lapses by itself even if the daemon missed the
+/// socket closing.
+const GRAB_LEASE_MS: u64 = 60_000;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -70,6 +74,11 @@ struct Args {
     /// pre-kill evidence. May crash GNOME; requires separate live approval.
     #[arg(long, requires_all = ["pause_after_isolate", "watchdog_seconds"])]
     auto_kill_after_isolate: bool,
+    /// With the owner-loss probe: after isolation take the real physical-input grab through a
+    /// running `remote-emergencyd --enable-grabs` (absolute control socket), so the kill hits an
+    /// owner that holds the display configuration and the daemon connection at once.
+    #[arg(long, requires = "auto_kill_after_isolate")]
+    grab_socket: Option<PathBuf>,
 }
 
 impl Args {
@@ -122,9 +131,11 @@ struct AutoKillPreflight {
 
 impl AutoKillPreflight {
     fn ready(&self) -> bool {
-        self.original_logical_connectors == ["HDMI-1"]
-            && self.raw_connectors.iter().any(|name| name == "HDMI-1")
-            && self.logical_monitor_count == 1
+        matches!(
+            self.original_logical_connectors.as_slice(),
+            [only] if matches!(only.as_str(), "HDMI-1" | "eDP-1")
+                && self.raw_connectors.iter().any(|name| name == only)
+        ) && self.logical_monitor_count == 1
             && self.active_logical_connectors == [self.virtual_connector.as_str()]
             && self.power_save_mode == POWER_SAVE_OFF
             && self.shell_pid_before == self.shell_pid_now
@@ -176,6 +187,36 @@ mod tests {
         ])
         .unwrap();
         assert!(args.auto_kill_after_isolate);
+    }
+
+    #[test]
+    fn automatic_kill_accepts_the_built_in_panel_as_the_sole_output() {
+        let mut preflight = valid_preflight();
+        preflight.original_logical_connectors = vec!["eDP-1".to_string()];
+        assert!(preflight.ready());
+        preflight.original_logical_connectors = vec!["DP-3".to_string()];
+        preflight.raw_connectors.push("DP-3".to_string());
+        assert!(!preflight.ready());
+        let mut preflight = valid_preflight();
+        preflight.original_logical_connectors = vec!["eDP-1".to_string()];
+        preflight.raw_connectors.retain(|name| name != "eDP-1");
+        assert!(!preflight.ready());
+    }
+
+    #[test]
+    fn the_input_grab_is_only_offered_with_the_automatic_probe() {
+        assert!(Args::try_parse_from(["exp06", "--grab-socket", "/run/x.sock"]).is_err());
+        let args = Args::try_parse_from([
+            "exp06",
+            "--pause-after-isolate",
+            "--watchdog-seconds",
+            "45",
+            "--auto-kill-after-isolate",
+            "--grab-socket",
+            "/run/x.sock",
+        ])
+        .unwrap();
+        assert!(args.grab_socket.is_some());
     }
 
     #[test]
@@ -1667,8 +1708,11 @@ fn main() -> anyhow::Result<()> {
         anyhow::ensure!(
             logical0.len() == 1
                 && logical0[0].monitors.len() == 1
-                && logical0[0].monitors[0].connector == "HDMI-1",
-            "automatic owner-loss probe requires HDMI-1 as the sole active output"
+                && matches!(
+                    logical0[0].monitors[0].connector.as_str(),
+                    "HDMI-1" | "eDP-1"
+                ),
+            "automatic owner-loss probe requires eDP-1 or HDMI-1 as the sole active output"
         );
         anyhow::ensure!(
             std::path::Path::new("/usr/bin/kill").is_file(),
@@ -1764,8 +1808,20 @@ fn main() -> anyhow::Result<()> {
                 watchdog_started,
             )?;
             anyhow::ensure!(preflight.ready(), "automatic owner-loss preflight failed");
+            // The grab is taken last, right before the final check; a refusal exits through the
+            // guards, which restore the display.
+            let mut grab_nodes = None;
+            let mut grab_client = None;
+            if let Some(socket) = &args.grab_socket {
+                let mut client = Client::connect(socket, Duration::from_secs(30))?;
+                match client.isolate(GRAB_LEASE_MS)? {
+                    Outcome::Isolated { nodes } => grab_nodes = Some(nodes),
+                    other => anyhow::bail!("the daemon did not grab: {other:?}"),
+                }
+                grab_client = Some(client);
+            }
             let report = ExperimentReport {
-                experiment: "Experiment 6 — Automatic HDMI-only Owner-Loss Probe".to_string(),
+                experiment: "Experiment 6 — Automatic Owner-Loss Probe (sole built-in or HDMI output)".to_string(),
                 environment: "Development workstation (host = target), Ubuntu 26.04 / GNOME 50.1"
                     .to_string(),
                 objective: "Observe process death while a virtual-only display configuration is active."
@@ -1776,7 +1832,10 @@ fn main() -> anyhow::Result<()> {
                     .to_string(),
                 expected: "Physical panels show no desktop during isolation; watchdog or Mutter restores the original topology without a Shell crash."
                     .to_string(),
-                observed: redact(&format!("pre_kill={preflight:#?}"), redact_on),
+                observed: redact(
+                    &format!("pre_kill={preflight:#?}; grab_nodes={grab_nodes:?}"),
+                    redact_on,
+                ),
                 evidence: vec![
                     dir.join("backup.json").display().to_string(),
                     dir.join("pre_kill.json").display().to_string(),
@@ -1795,7 +1854,7 @@ fn main() -> anyhow::Result<()> {
                 &preflight,
             )?;
             println!(
-                "Pre-kill evidence at {}; backup={}; watchdog={} ({}s); PID={}",
+                "Pre-kill evidence at {}; backup={}; watchdog={} ({}s); PID={}; grab_nodes={grab_nodes:?}",
                 dir.display(),
                 backup_path.display(),
                 watchdog_unit,
@@ -1815,6 +1874,8 @@ fn main() -> anyhow::Result<()> {
                 final_preflight.ready(),
                 "automatic owner-loss final check failed"
             );
+            // Held open until the kill: the kernel closing it is what the daemon must notice.
+            let _held_until_kill = grab_client;
             let status = Command::new("/usr/bin/kill")
                 .args(["-s", "KILL", &std::process::id().to_string()])
                 .status()?;

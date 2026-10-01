@@ -126,3 +126,9 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   FEAS-A recorded PASS-WITH-LIMITS under the replacement design, Architecture Review #1 = MODIFY. Conflict C27 filed in
   the assessment register and `docs/plans/amendment-20261001-lock-inhibits-remote-access.md` written (option A:
   no remote unlock by default; option B needs a separate decision). Phase 9 offline work may start.
+- 2026-10-01 (Phase 9, shortest path to a real live test): the open Gate F observation is the eDP-only owner-kill.
+  exp06's `--auto-kill-after-isolate` was hard-wired to HDMI-1; it now accepts a sole eDP-1 or HDMI-1 output and an
+  optional `--grab-socket` takes the real physical-input grab (remote-emergencyd, 60 s lease) before the self-SIGKILL, so the
+  killed owner holds the display configuration and the daemon connection at once. Offline: tests, clippy green.
+  Full real-backend wiring of the agent transaction is NOT built; this live run is an experiment-level composition
+  of existing modules, named as such in the Phase 9 gate.
