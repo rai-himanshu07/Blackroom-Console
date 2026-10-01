@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # Runs exp13 against a throwaway --headless GNOME Shell on a private D-Bus session. The real session bus,
 # display and input are never addressed (exp13 also refuses a DisplayConfig owner that is not --headless).
-# Usage: docs/ops/headless-repro.sh [--no-consumer] [--hold-ms N]   (BR_GDB=1 prints the Shell's crash backtrace)
+# Usage: docs/ops/headless-repro.sh [--no-consumer] [--keep-virtual] [--join-before-stop] [--hold-ms N]
+# (BR_GDB=1 prints the Shell's crash backtrace.) Default = the crashing variant: consumer streaming, restore omits the virtual monitor.
 set -u
 cd "$(dirname "$0")/../.." || exit 2
 BIN=target/debug/exp13_virtual_restore
 if [ "${1:-}" != "--inner" ]; then
   [ -x "$BIN" ] || { echo "build first: cargo build -p blackroom-experiments --bin exp13_virtual_restore"; exit 2; }
-  exec env -u XDG_SESSION_ID -u WAYLAND_DISPLAY -u DISPLAY GSETTINGS_BACKEND=memory \
+  exec env -u XDG_SESSION_ID -u WAYLAND_DISPLAY -u DISPLAY GSETTINGS_BACKEND=memory BR_PRIVATE_BUS=1 \
     dbus-run-session -- "$0" --inner "$@"
 fi
 shift
+# Never start a Shell on the real session bus (a direct --inner call or a failed dbus-run-session).
+[ "${BR_PRIVATE_BUS:-}" = 1 ] && [ "${DBUS_SESSION_BUS_ADDRESS:-}" != "unix:path=${XDG_RUNTIME_DIR:-/nonexistent}/bus" ] \
+  || { echo "refusing: not on a private D-Bus session"; exit 2; }
+trap 'rm -f "${XDG_RUNTIME_DIR:-/nonexistent}"/blackroom-repro "${XDG_RUNTIME_DIR:-/nonexistent}"/blackroom-repro.lock' EXIT
 log=$(mktemp /tmp/br-headless-shell.XXXXXX)
 runner=()
 [ -n "${BR_GDB:-}" ] && runner=(gdb -batch -nx -ex 'handle SIGPIPE nostop noprint pass' -ex run -ex 'bt 14' \

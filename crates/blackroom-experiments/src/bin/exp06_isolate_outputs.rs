@@ -420,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn restore_config_keeps_virtual_monitor_until_the_session_stops() {
+    fn restore_config_keeps_virtual_monitor_right_of_restored_ones() {
         let backup = DisplayBackup {
             session_id: "3".to_string(),
             shell_pid: 1,
@@ -438,7 +438,7 @@ mod tests {
             topology: vec![LogicalMonitorBackup {
                 x: 0,
                 y: 0,
-                scale: 1.25,
+                scale: 1.0,
                 transform: 0,
                 primary: true,
                 monitors: vec![("eDP-1".to_string(), "internal".to_string())],
@@ -447,17 +447,21 @@ mod tests {
             hash_version: display_config::CONFIGURATION_HASH_VERSION,
             configuration_hash: 0,
         };
-        let config = with_kept_virtual(&to_write_side(&backup).unwrap(), &backup, "Meta-0", "m");
+        let restored = to_write_side(&backup).unwrap();
+        let config = with_kept_virtual(&restored, &backup, "Meta-0", "m").unwrap();
         assert_eq!(config.len(), 2);
         assert_eq!(config[0].monitors[0].connector, "eDP-1");
-        assert_eq!((config[1].x, config[1].y), (1536, 0));
+        assert_eq!((config[1].x, config[1].y), (1920, 0));
         assert!(!config[1].primary);
         assert_eq!(config[1].monitors[0].connector, "Meta-0");
+        let mut scaled = restored;
+        scaled[0].scale = 1.25;
+        assert!(with_kept_virtual(&scaled, &backup, "Meta-0", "m").is_err());
 
         let logical = |connector: &str, x: i32, primary: bool| LogicalMonitorEntry {
             x,
             y: 0,
-            scale: if primary { 1.25 } else { 1.0 },
+            scale: 1.0,
             transform: 0,
             primary,
             monitors: vec![ConnectorInfo {
@@ -468,7 +472,7 @@ mod tests {
             }],
             properties: HashMap::new(),
         };
-        let live = [logical("eDP-1", 0, true), logical("Meta-0", 1536, false)];
+        let live = [logical("eDP-1", 0, true), logical("Meta-0", 1920, false)];
         assert!(!original_topology_matches(&backup, &live));
         assert!(topology_matches_excluding(&backup, &live, Some("Meta-0")));
         assert!(!topology_matches_excluding(&backup, &live, Some("HDMI-1")));
@@ -1490,14 +1494,15 @@ fn verify_live_restore_identity(
 /// Mutter 50.1 dereferences a NULL view in the ScreenCast virtual-stream `monitors-changed`
 /// handler when an enabled stream's virtual monitor has no logical monitor (Shell SIGSEGV,
 /// exp13). The restore config must therefore keep the virtual monitor, right of the restored
-/// ones, until the ScreenCast session is stopped.
+/// ones, until the ScreenCast session is stopped. Fails closed unless every restored monitor
+/// has scale 1.0 and no transform.
 fn with_kept_virtual(
     original: &[LogicalMonitorConfig],
     backup: &DisplayBackup,
     virtual_connector: &str,
     virtual_mode_id: &str,
-) -> Vec<LogicalMonitorConfig> {
-    let (x, y) = original
+) -> anyhow::Result<Vec<LogicalMonitorConfig>> {
+    let restored: Vec<_> = original
         .iter()
         .map(|lm| {
             let width = lm
@@ -1505,10 +1510,10 @@ fn with_kept_virtual(
                 .first()
                 .and_then(|m| backup.outputs.iter().find(|o| o.connector == m.connector))
                 .map_or(0, |o| o.width);
-            (lm.x + (f64::from(width) / lm.scale).ceil() as i32, lm.y)
+            (lm.x, lm.y, width, lm.scale, lm.transform)
         })
-        .max_by_key(|(right_edge, _)| *right_edge)
-        .unwrap_or((0, 0));
+        .collect();
+    let (x, y) = display_config::kept_virtual_origin(&restored)?;
     let mut config = original.to_vec();
     config.push(LogicalMonitorConfig {
         x,
@@ -1522,7 +1527,7 @@ fn with_kept_virtual(
             properties: HashMap::new(),
         }],
     });
-    config
+    Ok(config)
 }
 
 fn restore_original(
@@ -2256,7 +2261,7 @@ fn main() -> anyhow::Result<()> {
             &backup,
             &virtual_connector,
             &virtual_mode_id,
-        )
+        )?
     } else {
         original_write_side.clone()
     };
@@ -2466,6 +2471,10 @@ fn main() -> anyhow::Result<()> {
 
     let remaining = poll_for_connector_gone(&conn, &virtual_connector)?;
     let virtual_connector_fully_gone = !remaining.contains(&virtual_connector);
+    if virtual_connector_fully_gone {
+        // The kept-virtual config would name a connector that no longer exists.
+        restore_guard.original.clone_from(&original_write_side);
+    }
     let monitored_unit = cleanup_watchdog_unit.as_deref().unwrap_or(&watchdog_unit);
     let observed = capture_final_state(&conn, &backup, monitored_unit);
     let post_stop_restore_attempted = should_repair_post_stop(

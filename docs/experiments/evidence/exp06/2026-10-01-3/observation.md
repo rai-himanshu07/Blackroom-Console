@@ -66,28 +66,39 @@ consumer nodes lived in the real PipeWire daemon and vanished with the process.
 
 | Variant | Runs | Result |
 |---|---|---|
-| consumer streaming, restore omits the virtual monitor (the probe's restore) | 4 | headless Shell SIGSEGV (status 139) 4/4 |
-| no consumer at restore (earlier clean exp06 runs) | 1 | safe, topology verified |
-| consumer streaming, restore keeps the virtual monitor, then Stop | 4 | safe, topology verified 4/4 |
-| same, consumer disconnected before Stop | 1 | safe, topology verified |
+| consumer streaming, restore omits the virtual monitor (the probe's restore) | 5 (one under gdb) | headless Shell SIGSEGV (status 139) 5/5 |
+| no consumer at restore (earlier clean exp06 runs) | 2 | safe, topology verified |
+| consumer streaming, restore keeps the virtual monitor, then Stop while it streams | 6 | safe, topology verified 6/6 |
+| same, consumer disconnected before Stop | 2 | safe, topology verified 2/2 |
 
-Under gdb the crash is byte-identical to the real one: libmutter-relative frames 0x15dd47, 0x15df44, 0xc3be7, 0x1b84f6,
-0xc6c30 and 0x776ab, `meta_monitor_manager_rebuild` and `meta_monitor_manager_apply_monitors_config` in the stack, the
-faulting instruction `addl $0x1,0x18(%r14,%rax,1)` with `rax=-0x100` (the negative GObject private offset), i.e. the
-`inhibit_cursor_overlay_count++` of `meta_stage_view_inhibit_cursor_overlay` on a NULL view (r14 itself was not
-recorded). Cause established for this Mutter build (50.1-0ubuntu2.4). The RemoteDesktop/EIS session, the fullscreen
-page and the input grab are not needed for the crash.
+The last five runs of the matrix (after the review fixes) also printed the consumer's frame count at restore: 30-31
+frames, up from 2-4 when the connector appeared, so the consumer was streaming; the no-consumer control had stopped at 4.
+The shell logs live in /tmp and are not committed; only these summaries are.
 
-Changes: `display_config::restore_physical_outputs_keeping_virtual`; exp06 `--integrated-probe` now restores with
-`with_kept_virtual` (also inside the drop-time `RestoreGuard`) and checks the topology ignoring the kept virtual monitor;
-`exp13_virtual_restore` and the runner. Open hazards: the `exp07_restore` watchdog still applies the physical-only config,
-so a watchdog that fires while the owner is alive with a streaming consumer would crash the Shell the same way (needs the
-same keep-virtual rule before any live integrated run); the fix is not yet exercised on the real session; an upstream
-report (missing NULL check in the virtual stream `monitors-changed-internal` handler, also on upstream main) is not
-filed. Side effect: coreutils `timeout` re-raises the child's SIGSEGV, so apport wrote a crash report for `timeout` in
-/var/crash.
+Under gdb the crash matches the real one: the headless backtrace frames at libmutter offsets 0x15dd47, 0x15df44, 0xc3be7,
+0x1b84f6, 0xc6c30 and 0x776ab equal the real core's offsets for the same frames (computed from its ProcMaps; the headless
+trace stopped at 14 frames, so the real frame at 0x8178c was not compared), with `meta_monitor_manager_rebuild` and
+`meta_monitor_manager_apply_monitors_config` in the stack. The faulting instruction exists only from the headless run:
+`addl $0x1,0x18(%r14,%rax,1)` with `rax=-0x100` (the negative GObject private offset), consistent with
+`inhibit_cursor_overlay_count++` of `meta_stage_view_inhibit_cursor_overlay` on a NULL view (r14 and the fault address were
+not recorded; libmutter is stripped, so the NULL view is inferred from the source and this instruction). Root cause:
+reproduced, high confidence, for this Mutter build (50.1-0ubuntu2.4). The RemoteDesktop/EIS session, the fullscreen page
+and the input grab are not needed for the crash.
 
-Consequences: the Mutter-instability stop (Doc 00 section 49) applies again. No further live display, input or
-session experiment until the crash is investigated and the operator approves a bisect. The integrated script is guarded.
-Not tested: whether the injection, grab and capture parts worked (no data). State after: nothing left running; the
-temporary ACLs on event2-5 were still present.
+Changes: `display_config::restore_physical_outputs_keeping_virtual` and its pure helper `kept_virtual_origin`; exp06
+`--integrated-probe` restores with `with_kept_virtual` (also inside the drop-time `RestoreGuard`, which falls back to the
+physical-only config once the virtual connector is gone after Stop) and checks the topology ignoring the kept virtual
+monitor; `exp13_virtual_restore` and the runner. Review-driven limit: the kept virtual monitor is placed only when every
+restored monitor has scale 1.0 and no transform (Mutter's layout width uses `round(width / scale)` in logical layout mode
+and the plain mode width in physical mode, and `layout-mode` is not read); otherwise the integrated probe refuses before it
+changes anything. The recorded eDP-only backup qualifies; HiDPI scaling would need `layout-mode` handling. Open hazards:
+the `exp07_restore` watchdog still applies the physical-only config, so a watchdog that fires while the owner is alive
+with a streaming consumer would crash the Shell the same way (needs the same keep-virtual rule before any live integrated
+run); the fix is not yet exercised on the real session; an upstream report (missing NULL check in the virtual stream
+`monitors-changed-internal` handler, also on upstream main) is not filed. Side effect: coreutils `timeout` re-raises the
+child's SIGSEGV, so apport wrote a crash report for `timeout` in /var/crash.
+
+Consequences: the Mutter-instability stop (Doc 00 section 49) stays in force for the real session: no live display,
+input or session experiment until the exp07 hazard is closed, a reviewed plan exists and the operator approves one run.
+The integrated script is guarded. Not tested: whether the injection, grab and capture parts work (no data). State after
+the crash: nothing left running; the operator removed the temporary ACLs on event2-5 afterwards.

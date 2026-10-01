@@ -543,6 +543,31 @@ pub fn restore_physical_outputs(
     set_power_save_mode(conn, POWER_SAVE_ON)
 }
 
+/// Origin for a virtual monitor kept right of the restored monitors, each given as
+/// `(x, y, mode width, scale, transform)`. Only scale 1.0 without a transform is supported:
+/// Mutter's layout width is `round(width / scale)` in logical layout mode and the plain mode width
+/// in physical mode and `layout-mode` is not read, so other cases could leave a gap or an overlap
+/// that Mutter rejects.
+pub fn kept_virtual_origin(
+    restored: &[(i32, i32, i32, f64, u32)],
+) -> Result<(i32, i32), BlackroomError> {
+    let mut origin: Option<(i32, i32)> = None;
+    for &(x, y, width, scale, transform) in restored {
+        if (scale - 1.0).abs() > f64::EPSILON || transform != 0 {
+            return Err(display_restore_failed(
+                "keeping the virtual monitor needs scale 1.0 and no transform on every restored monitor",
+            ));
+        }
+        let right_edge = x + width;
+        if origin.is_none_or(|(best, _)| right_edge > best) {
+            origin = Some((right_edge, y));
+        }
+    }
+    origin.ok_or_else(|| {
+        display_restore_failed("no restored monitor to place the virtual monitor next to")
+    })
+}
+
 /// [`restore_physical_outputs`] that keeps `virtual_connector` as an extra logical monitor
 /// right of the restored ones. Mutter 50.1 dereferences a NULL view in the ScreenCast
 /// virtual-stream `monitors-changed` handler when an enabled stream's virtual monitor has no
@@ -555,8 +580,8 @@ pub fn restore_physical_outputs_keeping_virtual(
 ) -> Result<(), BlackroomError> {
     let mut config = to_write_side(backup)?;
     let (serial, monitors, _logical) = read_state(conn)?;
-    let virtual_mode_id = virtual_mode_id(&monitors, virtual_connector)?;
-    let (x, y) = config
+    let mode_id = virtual_mode_id(&monitors, virtual_connector)?;
+    let restored: Vec<_> = config
         .iter()
         .map(|lm| {
             let width = lm
@@ -564,10 +589,10 @@ pub fn restore_physical_outputs_keeping_virtual(
                 .first()
                 .and_then(|m| backup.outputs.iter().find(|o| o.connector == m.connector))
                 .map_or(0, |o| o.width);
-            (lm.x + (f64::from(width) / lm.scale).ceil() as i32, lm.y)
+            (lm.x, lm.y, width, lm.scale, lm.transform)
         })
-        .max_by_key(|(right_edge, _)| *right_edge)
-        .unwrap_or((0, 0));
+        .collect();
+    let (x, y) = kept_virtual_origin(&restored)?;
     config.push(LogicalMonitorConfig {
         x,
         y,
@@ -576,7 +601,7 @@ pub fn restore_physical_outputs_keeping_virtual(
         primary: false,
         monitors: vec![MonitorRef {
             connector: virtual_connector.to_string(),
-            mode_id: virtual_mode_id,
+            mode_id,
             properties: HashMap::new(),
         }],
     });
@@ -791,5 +816,16 @@ mod tests {
         assert_eq!(config[0].monitors.len(), 1);
         assert_eq!(config[0].monitors[0].connector, "REMOTE-0");
         assert_eq!(config[0].monitors[0].mode_id, "m9");
+    }
+
+    #[test]
+    fn kept_virtual_origin_is_right_of_the_rightmost_monitor_and_fails_closed() {
+        assert_eq!(
+            kept_virtual_origin(&[(0, 0, 1920, 1.0, 0), (1920, 120, 1280, 1.0, 0)]).unwrap(),
+            (3200, 120)
+        );
+        assert!(kept_virtual_origin(&[(0, 0, 1920, 1.75, 0)]).is_err());
+        assert!(kept_virtual_origin(&[(0, 0, 1920, 1.0, 1)]).is_err());
+        assert!(kept_virtual_origin(&[]).is_err());
     }
 }

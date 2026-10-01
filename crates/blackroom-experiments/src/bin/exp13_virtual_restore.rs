@@ -114,6 +114,10 @@ fn main() -> anyhow::Result<()> {
     println!("isolated; holding {} ms", args.hold_ms);
     thread::sleep(Duration::from_millis(args.hold_ms));
 
+    println!(
+        "consumer frames at restore: {}",
+        frames.load(Ordering::Relaxed)
+    );
     let restored = if args.keep_virtual {
         println!("restoring (virtual monitor kept as an extra logical monitor)");
         restore_physical_outputs_keeping_virtual(&conn, &original, &virtual_connector)
@@ -126,13 +130,13 @@ fn main() -> anyhow::Result<()> {
     if args.join_before_stop {
         stop.store(true, Ordering::Relaxed);
         if let Some(handle) = consumer.take() {
-            let _ = handle.join();
+            println!("consumer result: {:?}", handle.join());
         }
     }
     let stopped = session.stop();
     stop.store(true, Ordering::Relaxed);
     if let Some(handle) = consumer.take() {
-        let _ = handle.join();
+        println!("consumer result: {:?}", handle.join());
     }
     println!("session stop: {stopped:?}");
     let verified = verify_restored(&conn, &original);
