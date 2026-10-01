@@ -35,3 +35,17 @@ The owner-provenance classification stayed `INDETERMINATE`, and no remote
 unlock/capture/input continuity was tested. See the unique Experiment 11
 [lock-only observation](../experiments/evidence/exp11/2026-09-28-lock-only/observation.md);
 FEAS-A remains unproven. No repeat was authorized.
+## Experiment 11 harness (built 2026-10-01, not yet run live)
+
+`exp11_lock_semantics --operator-present` attaches a RemoteDesktop/EIS sender and a ScreenCast monitor
+capture, locks the selected session once, injects harmless input into the lock screen, and waits for the
+operator to unlock with their own password. The loopback observer page is the witness, judged at three
+points: the pre-lock Shift tap arrives; while locked no key, button, pointer or wheel event reaches the
+page (pointer and wheel are the real witnesses, the page has no keyboard focus while locked, and the
+page's heartbeat must keep running or the run is PARTIAL); after the unlock the same EIS connection
+delivers Shift, `a` and Left once each. The capture consumer stays attached and each phase must deliver a
+frame (a quiet locked screen only makes that window inconclusive). It refuses to start while a grab holder
+is running, aborts before locking if the pre-lock checks fail, never types or reads a password, and keeps
+the physical-input grab and virtual monitor out of this first run. Lock signals (`GetActive`,
+`LockedHint`, `ActiveChanged`) stay unverified for provenance as above. FEAS-A remains unproven until a
+supervised run and the later same-session experiment (plan `plan-20261001-phase8-11-closure.md`).

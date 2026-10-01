@@ -6,6 +6,8 @@
 
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use pipewire as pw;
@@ -39,6 +41,48 @@ pub fn capture_frames(
     frame_target: u32,
     timeout: Duration,
 ) -> Result<CaptureOutcome, BlackroomError> {
+    capture(
+        node_id,
+        preferred_width,
+        preferred_height,
+        frame_target,
+        timeout,
+        None,
+        None,
+    )
+}
+
+/// Like [`capture_frames`] but keeps one consumer attached until `stop` is set (checked every
+/// 100 ms) or `max` elapses, publishing the running frame count in `frames` so a caller can read
+/// it at phase boundaries (lock, unlock) without reconnecting.
+pub fn capture_until_stopped(
+    node_id: u32,
+    preferred_width: i32,
+    preferred_height: i32,
+    stop: Arc<AtomicBool>,
+    frames: Arc<AtomicU32>,
+    max: Duration,
+) -> Result<CaptureOutcome, BlackroomError> {
+    capture(
+        node_id,
+        preferred_width,
+        preferred_height,
+        u32::MAX,
+        max,
+        Some(stop),
+        Some(frames),
+    )
+}
+
+fn capture(
+    node_id: u32,
+    preferred_width: i32,
+    preferred_height: i32,
+    frame_target: u32,
+    timeout: Duration,
+    stop: Option<Arc<AtomicBool>>,
+    shared_frames: Option<Arc<AtomicU32>>,
+) -> Result<CaptureOutcome, BlackroomError> {
     pw::init();
     let mainloop = pw::main_loop::MainLoopRc::new(None).map_err(pipewire_unavailable)?;
     let context = pw::context::ContextRc::new(&mainloop, None).map_err(pipewire_unavailable)?;
@@ -48,11 +92,13 @@ pub fn capture_frames(
     struct UserData {
         mainloop: pw::main_loop::MainLoopRc,
         frame_count: Rc<Cell<u32>>,
+        shared_frames: Option<Arc<AtomicU32>>,
         frame_target: u32,
     }
     let data = UserData {
         mainloop: mainloop.clone(),
         frame_count: frame_count.clone(),
+        shared_frames,
         frame_target,
     };
     let stream = pw::stream::StreamBox::new(
@@ -71,6 +117,9 @@ pub fn capture_frames(
             if stream.dequeue_buffer().is_some() {
                 let count = user_data.frame_count.get() + 1;
                 user_data.frame_count.set(count);
+                if let Some(shared) = &user_data.shared_frames {
+                    shared.store(count, Ordering::Relaxed);
+                }
                 if count >= user_data.frame_target {
                     user_data.mainloop.quit();
                 }
@@ -156,6 +205,23 @@ pub fn capture_frames(
         .update_timer(Some(timeout), None)
         .into_result()
         .map_err(pipewire_unavailable)?;
+
+    let _stop_timer = match stop {
+        Some(flag) => {
+            let quit_on_stop = mainloop.clone();
+            let poll = mainloop.loop_().add_timer(move |_| {
+                if flag.load(Ordering::Relaxed) {
+                    quit_on_stop.quit();
+                }
+            });
+            let every = Duration::from_millis(100);
+            poll.update_timer(Some(every), Some(every))
+                .into_result()
+                .map_err(pipewire_unavailable)?;
+            Some(poll)
+        }
+        None => None,
+    };
 
     mainloop.run();
     stream.disconnect().map_err(pipewire_unavailable)?;

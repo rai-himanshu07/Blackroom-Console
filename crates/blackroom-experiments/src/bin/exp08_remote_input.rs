@@ -16,25 +16,21 @@
 //! kill skips `Drop`; owner-death teardown of a RemoteDesktop session is unobserved.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::thread::sleep;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use blackroom_core::epoch::SecurityEpoch;
 use blackroom_core::error::{BlackroomError, ErrorCode};
-use blackroom_core::lease::{Capability, ControlLease, InputAuthorization};
-use blackroom_core::state::State;
+use blackroom_experiments::eis_support::{
+    Authority, DeviceSeen, Devices, bind_devices, command_line, pump,
+};
 use blackroom_experiments::observer::{FRESH, Observer};
 use blackroom_experiments::{
     CommonArgs, ExperimentReport, ExperimentResult, current_uid, discover, evidence_dir,
     write_evidence,
 };
-use blackroom_gnome::mutter::eis::EiConnection;
 use blackroom_gnome::mutter::remote_desktop::RemoteDesktopSession;
 use clap::Parser;
-use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
-use reis::event::{Device, DeviceCapability, DeviceResumed, EiEvent};
 use remote_emergency_client::client::{Client, Outcome};
 use serde::Serialize;
 use serde_json::Value;
@@ -135,13 +131,6 @@ impl DaemonGrab {
             _ => 0,
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-struct DeviceSeen {
-    event: &'static str,
-    name: Option<String>,
-    capabilities: Vec<&'static str>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -352,165 +341,6 @@ fn evaluate_tally(tally: &Value) -> (bool, Vec<String>) {
     (notes.is_empty(), notes)
 }
 
-struct Authority {
-    lease: ControlLease,
-    signature: Signature,
-    verifying_key: VerifyingKey,
-}
-
-impl Authority {
-    fn new(ttl: Duration) -> Self {
-        use getrandom::rand_core::UnwrapErr;
-        let now = SystemTime::now();
-        let signing_key = SigningKey::generate(&mut UnwrapErr(getrandom::SysRng));
-        let lease = ControlLease {
-            session_id: "rs_EXP08".to_string(),
-            host_id: "bc_EXP08".to_string(),
-            user_id: "exp08".to_string(),
-            client_id: "cl_EXP08".to_string(),
-            security_epoch: SecurityEpoch::INITIAL,
-            issued_at: now,
-            expires_at: now + ttl,
-            capabilities: vec![Capability::View, Capability::Control],
-        };
-        Self {
-            signature: lease.sign(&signing_key),
-            verifying_key: signing_key.verifying_key(),
-            lease,
-        }
-    }
-
-    fn authorization(&self, revoked: bool) -> InputAuthorization<'_> {
-        InputAuthorization {
-            lease: &self.lease,
-            signature: &self.signature,
-            verifying_key: &self.verifying_key,
-            authenticated: true,
-            authorized: true,
-            current_epoch: SecurityEpoch::INITIAL,
-            current_state: State::RemoteActive,
-            current_session_id: &self.lease.session_id,
-            revoked,
-            now: SystemTime::now(),
-        }
-    }
-}
-
-const ALL_CAPABILITIES: [(DeviceCapability, &str); 7] = [
-    (DeviceCapability::Pointer, "pointer"),
-    (DeviceCapability::PointerAbsolute, "pointer_absolute"),
-    (DeviceCapability::Keyboard, "keyboard"),
-    (DeviceCapability::Touch, "touch"),
-    (DeviceCapability::Scroll, "scroll"),
-    (DeviceCapability::Button, "button"),
-    (DeviceCapability::Text, "text"),
-];
-
-fn describe(event: &'static str, device: &Device) -> DeviceSeen {
-    DeviceSeen {
-        event,
-        name: device.name().map(str::to_owned),
-        capabilities: ALL_CAPABILITIES
-            .iter()
-            .filter(|(capability, _)| device.has_capability(*capability))
-            .map(|(_, label)| *label)
-            .collect(),
-    }
-}
-
-/// Latest resumed device per input kind the run needs.
-#[derive(Default)]
-struct Devices {
-    keyboard: Option<DeviceResumed>,
-    pointer: Option<DeviceResumed>,
-    button: Option<DeviceResumed>,
-    scroll: Option<DeviceResumed>,
-}
-
-impl Devices {
-    fn slots(&mut self) -> [(&mut Option<DeviceResumed>, DeviceCapability); 4] {
-        [
-            (&mut self.keyboard, DeviceCapability::Keyboard),
-            (&mut self.pointer, DeviceCapability::Pointer),
-            (&mut self.button, DeviceCapability::Button),
-            (&mut self.scroll, DeviceCapability::Scroll),
-        ]
-    }
-
-    fn missing(&self) -> Vec<&'static str> {
-        [
-            (self.keyboard.is_none(), "keyboard"),
-            (self.pointer.is_none(), "pointer"),
-            (self.button.is_none(), "button"),
-            (self.scroll.is_none(), "scroll"),
-        ]
-        .into_iter()
-        .filter_map(|(absent, label)| absent.then_some(label))
-        .collect()
-    }
-
-    fn clear(&mut self, device: &Device) {
-        for (slot, _) in self.slots() {
-            if slot
-                .as_ref()
-                .is_some_and(|resumed| &resumed.device == device)
-            {
-                *slot = None;
-            }
-        }
-    }
-
-    fn observe(&mut self, event: &EiEvent, seen: &mut Vec<DeviceSeen>) {
-        match event {
-            EiEvent::DeviceAdded(added) => seen.push(describe("added", &added.device)),
-            EiEvent::DeviceResumed(resumed) => {
-                seen.push(describe("resumed", &resumed.device));
-                for (slot, capability) in self.slots() {
-                    if resumed.device.has_capability(capability) {
-                        *slot = Some(resumed.clone());
-                    }
-                }
-            }
-            EiEvent::DevicePaused(paused) => self.clear(&paused.device),
-            EiEvent::DeviceRemoved(removed) => {
-                seen.push(describe("removed", &removed.device));
-                self.clear(&removed.device);
-            }
-            EiEvent::SeatRemoved(_) | EiEvent::Disconnected(_) => *self = Self::default(),
-            _ => {}
-        }
-    }
-}
-
-/// Drains events for `duration`, keeping `devices` current. Returns the
-/// transport error text if the socket closed while draining.
-fn pump(
-    eis: &mut EiConnection,
-    devices: &mut Devices,
-    seen: &mut Vec<DeviceSeen>,
-    duration: Duration,
-    mut on_event: impl FnMut(&EiEvent),
-) -> Option<String> {
-    let deadline = Instant::now() + duration;
-    while Instant::now() < deadline {
-        match eis.next_event_until(deadline.saturating_duration_since(Instant::now())) {
-            Ok(Some(event)) => {
-                devices.observe(&event, seen);
-                on_event(&event);
-            }
-            Ok(None) => {}
-            Err(error) => return Some(error.to_string()),
-        }
-    }
-    None
-}
-
-fn command_line(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
-    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    (!text.is_empty()).then_some(text)
-}
-
 fn preflight(run: &mut Run) -> anyhow::Result<()> {
     anyhow::ensure!(
         std::env::var("XDG_SESSION_TYPE").is_ok_and(|value| value == "wayland"),
@@ -706,36 +536,8 @@ fn execute(args: &Args, run: &mut Run, observer: &Observer) -> anyhow::Result<()
         .map_err(|error| block(run, "EIS handshake", error))?;
 
     let mut devices = Devices::default();
-    let mut bound = false;
-    let negotiation_deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < negotiation_deadline && !(bound && devices.missing().is_empty()) {
-        match eis
-            .next_event_until(Duration::from_millis(250))
-            .map_err(|error| block(run, "EIS negotiation", error))?
-        {
-            Some(EiEvent::SeatAdded(added)) if !bound => {
-                eis.bind_seat(
-                    &added,
-                    DeviceCapability::Keyboard
-                        | DeviceCapability::Pointer
-                        | DeviceCapability::Button
-                        | DeviceCapability::Scroll,
-                )
-                .map_err(|error| block(run, "EIS seat bind", error))?;
-                bound = true;
-            }
-            Some(event) => devices.observe(&event, &mut run.devices_seen),
-            None => {}
-        }
-    }
-    if !bound || !devices.missing().is_empty() {
-        let missing = devices.missing();
-        return Err(block(
-            run,
-            "EIS negotiation",
-            format!("seat bound={bound}, missing resumed devices: {missing:?}"),
-        ));
-    }
+    bind_devices(&mut eis, &mut devices, &mut run.devices_seen)
+        .map_err(|(step, detail)| block(run, step, detail))?;
 
     // Focus must still hold after setup, before the first injected event.
     if !observer.wait_ready(Duration::from_secs(30), Duration::from_secs(2)) {
@@ -1269,18 +1071,5 @@ mod tests {
             pushed_releases: grab.pushed_releases.clone(),
             restored: grab.restored,
         }
-    }
-
-    #[test]
-    fn authority_signs_a_lease_that_validates_and_revokes() {
-        let authority = Authority::new(Duration::from_secs(30));
-        assert!(authority.authorization(false).validate().is_ok());
-        assert_eq!(
-            authority
-                .authorization(true)
-                .validate()
-                .map_err(|error| error.code),
-            Err(ErrorCode::LeaseRevoked)
-        );
     }
 }
