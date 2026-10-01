@@ -248,7 +248,8 @@ fn a_grant_holds_the_grab_while_renewed_and_revoke_restores_it() {
     assert_eq!(started.state, "REMOTE_ACTIVE");
     assert_eq!(host.daemon_saw(), ["isolate 10000"]);
 
-    // The browser heartbeat keeps the daemon lease alive; hostd renews it on its own tick.
+    // hostd renews the daemon lease on its own tick; the Start and this Renew are both fresh
+    // heartbeats (the 15 s staleness rule is covered with an injected clock in isolation.rs).
     let renew = OfflineCommand::Renew {
         epoch: started.epoch,
         grant_id: started.input_grant.clone().unwrap(),
@@ -287,6 +288,9 @@ fn a_refused_grab_fails_the_start_closed_and_leaves_no_grant() {
         ["grant", "revoke"],
         "the agent was told to stand down"
     );
+    // The proof was not burned: the same client can try again instead of being locked out.
+    let again = host.start();
+    assert_eq!(again.code.as_deref(), Some("INPUT_ISOLATION_FAILED"));
     assert!(host.audit().contains("\"cause\":\"isolation_failed\""));
     assert!(!host.state.path().join("recovery-pending").exists());
     assert!(!host.state.path().join("emergency-stop").exists());
@@ -304,8 +308,10 @@ fn losing_the_grab_ends_the_grant_without_any_browser_action() {
     wait_for("hostd to revoke the grant", || {
         host.agent_saw() == ["grant", "revoke"]
     });
-    assert!(host.audit().contains("\"cause\":\"isolation_lost\""));
-    assert!(!host.state.path().join("recovery-pending").exists());
+    wait_for("the audit entry and the recovery marker", || {
+        host.audit().contains("\"cause\":\"isolation_lost\"")
+            && !host.state.path().join("recovery-pending").exists()
+    });
     let status = host.send(&OfflineCommand::Status {});
     assert_eq!(status.state, "LOCAL_LOCKED");
     let renew = OfflineCommand::Renew {
@@ -326,6 +332,24 @@ fn losing_the_grab_ends_the_grant_without_any_browser_action() {
             .count(),
         2
     );
+}
+
+#[test]
+fn a_vanishing_gateway_revokes_the_grant_and_releases_the_grab() {
+    let _serial = SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut host = launch(Daemon::Healthy);
+    assert!(host.start().accepted);
+    host.gateway.shutdown(std::net::Shutdown::Both).unwrap();
+    wait_for("the agent revoke", || {
+        host.agent_saw() == ["grant", "revoke"]
+    });
+    wait_for("the grab to be released", || {
+        let seen = host.daemon_saw();
+        seen.iter().any(|call| call == "restore")
+            && seen.last().map(String::as_str) == Some("closed")
+    });
 }
 
 #[test]

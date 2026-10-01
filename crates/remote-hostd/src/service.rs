@@ -428,8 +428,6 @@ pub fn run(
                         let stream = agent.as_mut().expect("agent connected");
                         if acknowledged(stream, &update, directory)? {
                             input_sequence = 0;
-                            verifier.rotate(next_proof.clone());
-                            invalid_start_attempts = 0;
                             let mut response = with_deadlines(
                                 reply(&host, true, None),
                                 &update,
@@ -438,13 +436,16 @@ pub fn run(
                                 host.epoch(),
                             );
                             current_grant = Some(update);
-                            response.next_proof = Some(next_proof);
-                            response.input_grant = Some(input_grant);
                             let engaged = match gate.as_mut() {
                                 Some(gate) => gate.engage(Instant::now()).is_ok(),
                                 None => true,
                             };
                             if engaged {
+                                // A refused grab leaves the proof usable, so a client can retry.
+                                verifier.rotate(next_proof.clone());
+                                invalid_start_attempts = 0;
+                                response.next_proof = Some(next_proof);
+                                response.input_grant = Some(input_grant);
                                 response
                             } else {
                                 current_grant = None;

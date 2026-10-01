@@ -60,6 +60,10 @@ a grant lives.
   (`isolation_lost`) without any browser action.
 - **End of grant:** Revoke, expiry, abuse limit or any other teardown restores the grab and closes the
   connection, so `blackroom emergency-status` works while idle.
+- **Trust and failure handling:** hostd refuses a daemon whose socket peer is not its own uid
+  (`daemon_untrusted`), retries only a dropped connection, treats a timeout as final, and leaves the
+  Start proof usable after a refused grab. The signed grant is issued before the grab, so a grab that
+  takes most of the 30 s lease (a key held down) can lapse the first lease; Start again.
 - **Not covered:** a daemon crash between ticks is noticed within one tick, and the stop marker after
   a chord still takes the existing `emergency_required` path.
 

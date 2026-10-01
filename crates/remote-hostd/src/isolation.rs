@@ -66,16 +66,34 @@ enum Attempt {
     Refused(String),
 }
 
+/// Only a connection that was dropped is retried; a timeout or a bad reply is final, so one hung
+/// daemon cannot hold hostd's single loop for more than one `ENGAGE_TIMEOUT`.
+fn dropped(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::UnexpectedEof | io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
+    )
+}
+
+/// The daemon must run as hostd's own user, like the stop marker it writes; anything else that
+/// answers on this path could claim a grab that does not exist.
+fn peer_is_hostd(client: &Client) -> bool {
+    rustix::net::sockopt::socket_peercred(client.socket())
+        .is_ok_and(|peer| peer.uid.as_raw() == rustix::process::getuid().as_raw())
+}
+
 impl DaemonIsolation {
     fn attempt(&self, lease_ms: u64) -> Result<Client, Attempt> {
         let mut client = Client::connect(&self.socket, ENGAGE_TIMEOUT)
             .map_err(|_| Attempt::Retry("daemon_unreachable"))?;
-        match client
-            .isolate(lease_ms)
-            .map_err(|_| Attempt::Retry("daemon_io"))?
-        {
-            Outcome::Isolated { .. } => Ok(client),
-            Outcome::Refused(reason) | Outcome::Error(reason) => Err(Attempt::Refused(reason)),
+        if !peer_is_hostd(&client) {
+            return Err(Attempt::Refused("daemon_untrusted".to_string()));
+        }
+        match client.isolate(lease_ms) {
+            Ok(Outcome::Isolated { .. }) => Ok(client),
+            Ok(Outcome::Refused(reason) | Outcome::Error(reason)) => Err(Attempt::Refused(reason)),
+            Err(error) if dropped(&error) => Err(Attempt::Retry("daemon_io")),
+            Err(_) => Err(Attempt::Refused("daemon_io".to_string())),
         }
     }
 }
@@ -157,10 +175,14 @@ impl IsolationGate {
     }
 
     pub fn engage(&mut self, now: Instant) -> Result<(), String> {
+        let started = Instant::now();
         self.isolation.engage(ISOLATION_LEASE)?;
+        // The grab can take many seconds (the daemon waits for keys to be released); the lease
+        // and the heartbeat count from when it was granted.
+        let granted = now + started.elapsed();
         self.engaged = true;
-        self.last_heartbeat = now;
-        self.last_tick = now;
+        self.last_heartbeat = granted;
+        self.last_tick = granted;
         Ok(())
     }
 
@@ -258,6 +280,9 @@ mod tests {
         Duration::from_secs(n)
     }
 
+    // `engage` counts from when the grab was granted, a few microseconds after `start`.
+    const SLACK: Duration = Duration::from_millis(100);
+
     #[test]
     fn a_refused_engage_leaves_the_gate_disengaged_and_nothing_to_release() {
         let (mut gate, log, start) = fixture();
@@ -273,7 +298,7 @@ mod tests {
         let (mut gate, log, start) = fixture();
         gate.engage(start).unwrap();
         assert_eq!(gate.tick(start + secs(1)), None, "too early");
-        assert_eq!(gate.tick(start + secs(2)), None);
+        assert_eq!(gate.tick(start + secs(2) + SLACK), None);
         gate.heartbeat(start + secs(10));
         assert_eq!(gate.tick(start + secs(12)), None);
         assert_eq!(
@@ -313,14 +338,20 @@ mod tests {
         let (mut gate, log, start) = fixture();
         gate.engage(start).unwrap();
         log.borrow_mut().fail_renew = Some("daemon_io".into());
-        assert_eq!(gate.tick(start + secs(2)), Some("daemon_io".to_string()));
+        assert_eq!(
+            gate.tick(start + secs(2) + SLACK),
+            Some("daemon_io".to_string())
+        );
         assert!(!gate.is_engaged());
         assert_eq!(gate.tick(start + secs(4)), None, "nothing left to check");
 
         let (mut gate, log, start) = fixture();
         gate.engage(start).unwrap();
         log.borrow_mut().lost = Some("chord".into());
-        assert_eq!(gate.tick(start + secs(2)), Some("chord".to_string()));
+        assert_eq!(
+            gate.tick(start + secs(2) + SLACK),
+            Some("chord".to_string())
+        );
         assert_eq!(log.borrow().calls.last(), Some(&"release"));
     }
 

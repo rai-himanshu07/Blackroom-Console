@@ -39,6 +39,11 @@ impl Client {
         })
     }
 
+    /// The connection, e.g. to check the daemon's peer credentials.
+    pub fn socket(&self) -> &UnixStream {
+        &self.stream
+    }
+
     /// Replaces the per-reply timeout, e.g. a long one for `isolate` and a short one afterwards.
     pub fn set_reply_timeout(&mut self, timeout: Duration) -> io::Result<()> {
         self.stream.set_read_timeout(Some(timeout))?;
