@@ -74,4 +74,15 @@ grab by the first check 15 s later (socket closing, not the 60 s lease); the pan
 reported no desktop content during the blank, the picture back within about a minute, working input and an intact
 desktop. Limits: one run, same uid, the owner was the exp06 probe (not the product agent), no remote input, capture
 or lock in the run, the recovery time is the watchdog interval (about 45 s of dark panel), exact release times not
-recorded, no repeat, no other layout. The unexplained historical Shell SIGSEGV is neither reproduced nor explained.
+recorded, no repeat, no other layout.
+
+## Shell SIGSEGV reproduced (2026-10-01 23:02, integrated probe) - stop condition
+
+The integrated probe (remote session and observer page, virtual monitor with a capture consumer, isolation, input grab,
+then the orderly restore) crashed GNOME Shell with SIGSEGV inside the restore `ApplyMonitorsConfig`
+(`meta_monitor_manager_apply_monitors_config` -> `meta_monitor_manager_rebuild` -> a `monitors-changed` handler), one
+second after the remote session's EIS socket closed; the session was lost. Evidence and stack summary:
+`docs/experiments/evidence/exp06/2026-10-01-3/observation.md`. The earlier statement that the historical SIGSEGV had
+not been reproduced no longer holds. The Mutter-instability stop (Doc 00 section 49) applies again: no further live
+display, input or session experiments until the cause is investigated and the operator approves a bounded bisect.
+The cause is not established.

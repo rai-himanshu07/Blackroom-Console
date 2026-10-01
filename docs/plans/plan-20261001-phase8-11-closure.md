@@ -148,3 +148,9 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   judging, capture join after the restore, no teardown lock after an early grab end, original watchdog disarmed, pass flag).
   Helpers moved into `eis_support`/`lock_support`. The run is `docs/ops/live-integrated-run.sh` (`--check` is read-only).
   This is an experiment-level composition; the production agent is still on the fake backend.
+- 2026-10-01 23:02 (Phase 9 integrated live run, evidence exp06/2026-10-01-3): **GNOME Shell crashed (SIGSEGV) during the restore
+  `ApplyMonitorsConfig`, the session was lost** (details and stack summary in the observation). Stop condition (Doc 00
+  section 49): all live display/input/session experiments are stopped; `docs/ops/live-integrated-run.sh` is guarded
+  (`BLACKROOM_STOP_LIFTED=1`). FEAS-F/H are not met for the integrated composition. Open: cause (leading hypothesis: the
+  RemoteDesktop session stop racing the `monitors-changed` handler; other new factors: PipeWire consumer, fullscreen
+  window on the virtual monitor), then a bounded bisect only with the operator's approval, and an upstream report.

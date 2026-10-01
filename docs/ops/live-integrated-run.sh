@@ -11,6 +11,12 @@
 # and afterwards: sudo setfacl -x u:user /dev/input/event2 /dev/input/event3 /dev/input/event4 /dev/input/event5
 set -u
 cd "$(dirname "$0")/../.." || exit 2
+if [ "${BLACKROOM_STOP_LIFTED:-}" != "1" ]; then
+  echo "STOPPED: the 2026-10-01 run crashed GNOME Shell (SIGSEGV in the restore ApplyMonitorsConfig, session lost)."
+  echo "See docs/experiments/evidence/exp06/2026-10-01-3/observation.md. Do not run this until the crash is"
+  echo "investigated and the operator lifts the stop (BLACKROOM_STOP_LIFTED=1)."
+  exit 3
+fi
 export XDG_RUNTIME_DIR=/run/user/1000
 LIVE=/run/user/1000/blackroom-live
 SOCK=$LIVE/emergency.sock
