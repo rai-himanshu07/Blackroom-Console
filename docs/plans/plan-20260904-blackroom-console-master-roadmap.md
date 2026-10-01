@@ -265,7 +265,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     remote input driving the unlock dialog, are **not achievable through Mutter RemoteDesktop**. exp12 (PASS)
     observed the replacement path: new sessions are refused while locked, `loginctl unlock-session` from a same-user
     process unlocks in under a second, fresh RemoteDesktop/EIS works right after, and the login session, Shell
-    and page survive two lock cycles. FEAS-A decision and Architecture Review #1 (MODIFY expected) are the
+    and page survive two lock cycles. FEAS-A decision and Architecture Review #1 (PROCEED, MODIFY, PAUSE or STOP) are the
     operator's; see `docs/gnome/lock-semantics.md`.
   - Verify: session locked before remote activation stays attached (virtual monitor,
     capture, EIS) through lock; remote input can drive the unlock dialog; after unlock the

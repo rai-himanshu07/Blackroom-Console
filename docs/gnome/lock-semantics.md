@@ -1,7 +1,8 @@
 # Same-Session Lock: Offline Contract
 
-**Status:** synthetic lifecycle plus real read-only observation; FEAS-A unproven.
-No live session was locked.
+**Status:** synthetic lifecycle, real read-only observation and three supervised live lock runs (2026-09-28
+lock-only; exp11 and exp12 on 2026-10-01). FEAS-A is **not met as originally worded**; a replacement path
+is observed with limits (see the Experiment 12 section); the gate decision is the operator's.
 
 The agent's offline lifecycle calls the fake lock operation and separately
 checks observed lock state before acknowledging activation. It checks the
@@ -47,7 +48,7 @@ delivers Shift, `a` and Left once each. The capture consumer stays attached and 
 frame (a quiet locked screen only makes that window inconclusive). It refuses to start while a grab holder
 is running, aborts before locking if the pre-lock checks fail, never types or reads a password, and keeps
 the physical-input grab and virtual monitor out of this first run. Lock signals (`GetActive`,
-`LockedHint`, `ActiveChanged`) stay unverified for provenance as above. FEAS-A remains unproven until a
+`LockedHint`, `ActiveChanged`) stay unverified for provenance as above. (Superseded by the results below.) FEAS-A remained unproven until a
 supervised run and the later same-session experiment (plan `plan-20261001-phase8-11-closure.md`).
 
 **Result (attempt 5, evidence `docs/experiments/evidence/exp11/2026-10-01-5/observation.md`):** the lock engaged in
@@ -73,26 +74,40 @@ report unlocked; any other route counts as a manual unlock and the run is PARTIA
 session after the unlock must deliver Shift, `a`, Left once each; the session is disconnected, locked and
 unlocked once more. The login session id, the Shell PID and the observer page instance (a served-page counter)
 must be unchanged. No password is typed or read; a same-user process can unlock its own session through
-logind, so the lock screen is not a boundary against such a process. FEAS-A stays open until this has run.
+logind, so the lock screen is not a boundary against such a process. (Superseded: the run happened, see the result below.)
 
 **Result (evidence `docs/experiments/evidence/exp12/2026-10-01/observation.md`, PASS):** a `CreateSession` while
-locked is refused (`Session creation inhibited`), confirming that remote access is inhibited for the whole time
-the session is locked; `loginctl unlock-session` from a process of the session's own user unlocked it in under a
-second (twice, exit 0, no polkit prompt); a fresh RemoteDesktop/EIS session right after the unlock delivered
-input; the login session id, Shell PID and observer page survived two lock cycles. Phase 8 Verify items:
+locked is refused (`Session creation inhibited`), consistent with remote access being inhibited while the
+session is locked (observed once, about 0.7 s after the first lock; the source says for the whole locked mode); `loginctl unlock-session` from a process of the session's own user unlocked it in under a
+second (twice, exit 0, no polkit prompt); a fresh RemoteDesktop/EIS session created after the unlock (accepted at 58.97 s, 3.7 s after
+`ActiveChanged(false)`; no earlier attempt, so the earliest allowed moment is unmeasured) delivered input; the login session id, Shell PID and observer page survived two lock cycles. Phase 8 Verify items:
 
 | Roadmap item | Outcome |
 |---|---|
-| Session locked before activation stays attached (virtual monitor, capture, EIS) through lock | **Not achievable**: lock ends every remote session; capture and virtual monitor not exercised, stream delivered no frames behind a fullscreen page |
+| Session locked before activation stays attached (virtual monitor, capture, EIS) through lock | **Not achievable**: the EIS connection ended at the lock (observed); ScreenCast/virtual-monitor sessions are expected to end too (source reading, not observed; the capture stream delivered no frames behind a fullscreen page) |
 | Remote input can drive the unlock dialog | **Not achievable** through Mutter RemoteDesktop |
 | Replacement: unlock by logind from a user process, fresh sessions after unlock | Observed twice (same uid, built-in layout) |
-| After unlock physical outputs stay disabled and input stays isolated | Not tested; belongs to the Phase 9 activation transaction |
+| After unlock physical outputs stay disabled and input stays isolated | **Not achievable as worded** (a virtual monitor needs an unlocked session, so activation must unlock first and the window between unlock and output blanking is a Phase 9 design item); not tested |
 | Identifiable session state survives lock, remote, disconnect, lock | Observed for the session id, Shell PID and one window (the observer page) |
-| Lock on teardown verified via `GetActive` | Observed (both signals, `ActiveChanged` events) |
+| Lock on teardown verified via `GetActive` | Both signals agreed and `ActiveChanged` arrived, but without provenance (the ScreenSaver owner is not mapped to the login1 session); the shipped observer still classifies this `INDETERMINATE` and `remote_mode_allowed=false` |
 
 Design consequences for Architecture Review #1: locking the session is a built-in kill switch for remote access
-(every remote session ends in under a second and none can start while locked), which fits the emergency path;
+(the EIS connection ended in under a second and new sessions are refused while locked; ScreenCast follows from the source reading), which fits the emergency path;
 remote unlock is a hostd-side decision (authenticate, then logind `Unlock`), not input into the unlock dialog;
 RemoteDesktop and ScreenCast sessions are created after each unlock and recreated after each lock; a
 different-uid hostd needs a polkit grant for `org.freedesktop.login1.lock-sessions` (Phase 11). The gate
 decision is the operator's (plan step 3).
+
+**Limits of the replacement path (review 2026-10-01):** one run on eDP-1, one uid; unlock is possible for any
+process of the session's own user (logind authorises the session's uid; observed from inside the session, not
+over SSH), so the lock screen is no boundary against such a process; no capture or virtual monitor after the
+unlock; one window checked (the observer page), no workspaces; lock signals without provenance; no lock under a
+physical grab or display isolation (the unobserved owner-loss case of Gate F); unlock-to-ready latency not
+measured; the kill-switch property needs `org.gnome.desktop.lockdown disable-lock-screen=false`.
+
+**Documents that assume what this finding invalidates (to amend after the gate decision):** Doc 02 (locked
+console with remote control), Doc 07 section 9 (activation order has no unlock step and an exposure window
+between unlock, virtual monitor and output disable) and section 10 (rollback must lock first), the "only a
+physical user unlocks" statements in Docs 01, 04, 05 and 14 (now an explicit exception: hostd-authenticated
+logind unlock), Doc 10 Exp 12 (remote view of the same state), Doc 06 (a polkit rule for hostd's uid), and the
+roadmap Phase 8 Verify items 1 to 3.

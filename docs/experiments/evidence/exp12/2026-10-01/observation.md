@@ -15,7 +15,8 @@ and never typed a password; the program did the unlock.
   the page and that the page stayed alive; it is not a leak test of an accepted remote session.
 - Unlock 1: `loginctl unlock-session 2` from the program, exit 0, no stderr, session reported unlocked after
   976 ms (method `loginctl`, not manual).
-- Fresh RemoteDesktop + EIS session right after the unlock: accepted; Shift, `a`, Left each arrived exactly once,
+- Fresh RemoteDesktop + EIS session after the unlock (accepted at 58.97 s, 3.7 s after `ActiveChanged(false)`;
+  no earlier attempt was made): accepted; Shift, `a`, Left each arrived exactly once,
   plain, no repeat, nothing untrusted.
 - Disconnect, lock 2 (749 ms), 8 s hold, unlock 2 by logind (984 ms, exit 0).
 - Same login session id (2), same GNOME Shell PID (6842), observer page served once and never reloaded.
