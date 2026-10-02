@@ -13,13 +13,14 @@ set -u
 cd "$(dirname "$0")/../.." || exit 2
 if [ "${BLACKROOM_STOP_LIFTED:-}" != "1" ]; then
   echo "STOPPED: the 2026-10-01 run crashed GNOME Shell (SIGSEGV in the restore ApplyMonitorsConfig, session lost)."
-  echo "See docs/experiments/evidence/exp06/2026-10-01-3/observation.md. Do not run this until the crash is"
-  echo "investigated and the operator lifts the stop (BLACKROOM_STOP_LIFTED=1)."
+  echo "Cause and fix: docs/experiments/evidence/exp06/2026-10-01-3/observation.md. Run only with the"
+  echo "operator's approval for this run: BLACKROOM_STOP_LIFTED=1 docs/ops/live-integrated-run.sh"
   exit 3
 fi
 export XDG_RUNTIME_DIR=/run/user/1000
 LIVE=/run/user/1000/blackroom-live
 SOCK=$LIVE/emergency.sock
+SESS=$(loginctl show-user "$(id -un)" -p Display --value)
 EV=docs/experiments/evidence/exp06
 fail=0
 bad() { echo "PREFLIGHT FAIL: $*"; fail=1; }
@@ -37,7 +38,7 @@ preflight() {
   done
   [ "$(systemctl --user is-active gnome-remote-desktop.service)" != "active" ] || bad "gnome-remote-desktop is active"
   [ "$(gsettings get org.gnome.desktop.lockdown disable-lock-screen)" = "false" ] || bad "disable-lock-screen is not false"
-  [ "$(loginctl show-session 2 -p LockedHint --value)" = "no" ] || bad "session 2 is locked"
+  [ "$(loginctl show-session "$SESS" -p LockedHint --value)" = "no" ] || bad "graphical session $SESS is locked or unknown"
   for b in target/debug/exp06_isolate_outputs target/debug/exp07_restore target/debug/remote-emergencyd target/debug/blackroom; do
     [ -x "$b" ] || bad "missing $b (cargo build -p blackroom-experiments -p remote-emergencyd -p blackroom-cli)"
   done
@@ -48,14 +49,14 @@ preflight
 if [ "$fail" -ne 0 ]; then echo "Not starting."; exit 1; fi
 if [ "${1:-}" = "--check" ]; then echo "Preflight OK (nothing changed)."; exit 0; fi
 
-cat <<'EOF'
+cat <<EOF
 About to run the integrated live test. Have you: saved work, closed other windows, plugged in AC,
 kept the lid open, and opened the tablet SSH session?
 Sequence: this terminal prints a URL; open it in Firefox, press F11, then hands off keyboard, touchpad,
 lid and power button. The panel goes black for about a minute, the lock screen shows for a few
 seconds, then everything returns by itself.
 Recovery from the tablet: pkill -KILL -x remote-emergenc ; exp07_restore --keep-live-virtual --backup <path in the evidence dir> ;
-loginctl unlock-session 2. The restore watchdog fires 120 s after it is armed.
+loginctl unlock-session $SESS. The restore watchdog fires 120 s after it is armed.
 EOF
 read -r -p "Type START to begin: " answer
 [ "$answer" = "START" ] || { echo "Aborted."; exit 1; }
