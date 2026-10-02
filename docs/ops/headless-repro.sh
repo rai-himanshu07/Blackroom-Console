@@ -5,7 +5,7 @@
 # (BR_GDB=1 prints the Shell's crash backtrace.) Default = the crashing variant: consumer streaming, restore omits the virtual monitor.
 set -u
 cd "$(dirname "$0")/../.." || exit 2
-BIN=target/debug/exp13_virtual_restore
+BIN=${BR_BIN:-target/debug/exp13_virtual_restore}
 if [ "${1:-}" != "--inner" ]; then
   [ -x "$BIN" ] || { echo "build first: cargo build -p blackroom-experiments --bin exp13_virtual_restore"; exit 2; }
   exec env -u XDG_SESSION_ID -u WAYLAND_DISPLAY -u DISPLAY GSETTINGS_BACKEND=memory BR_PRIVATE_BUS=1 \

@@ -74,6 +74,73 @@ pub fn capture_until_stopped(
     )
 }
 
+/// Serialised `EnumFormat` pod: raw video, RGBx or BGRx, `preferred_*` as the default size.
+pub(crate) fn video_format_pod(
+    preferred_width: i32,
+    preferred_height: i32,
+) -> Result<Vec<u8>, BlackroomError> {
+    let obj = spa::pod::object!(
+        spa::utils::SpaTypes::ObjectParamFormat,
+        spa::param::ParamType::EnumFormat,
+        spa::pod::property!(
+            spa::param::format::FormatProperties::MediaType,
+            Id,
+            spa::param::format::MediaType::Video
+        ),
+        spa::pod::property!(
+            spa::param::format::FormatProperties::MediaSubtype,
+            Id,
+            spa::param::format::MediaSubtype::Raw
+        ),
+        spa::pod::property!(
+            spa::param::format::FormatProperties::VideoFormat,
+            Choice,
+            Enum,
+            Id,
+            spa::param::video::VideoFormat::RGBx,
+            spa::param::video::VideoFormat::RGBx,
+            spa::param::video::VideoFormat::BGRx,
+        ),
+        spa::pod::property!(
+            spa::param::format::FormatProperties::VideoSize,
+            Choice,
+            Range,
+            Rectangle,
+            spa::utils::Rectangle {
+                width: preferred_width as u32,
+                height: preferred_height as u32
+            },
+            spa::utils::Rectangle {
+                width: 1,
+                height: 1
+            },
+            spa::utils::Rectangle {
+                width: 7680,
+                height: 4320
+            }
+        ),
+        spa::pod::property!(
+            spa::param::format::FormatProperties::VideoFramerate,
+            Choice,
+            Range,
+            Fraction,
+            spa::utils::Fraction { num: 60, denom: 1 },
+            spa::utils::Fraction { num: 0, denom: 1 },
+            spa::utils::Fraction {
+                num: 1000,
+                denom: 1
+            }
+        ),
+    );
+    Ok(spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &spa::pod::Value::Object(obj),
+    )
+    .map_err(pipewire_unavailable)?
+    .0
+    .into_inner())
+}
+
 fn capture(
     node_id: u32,
     preferred_width: i32,
@@ -128,66 +195,7 @@ fn capture(
         .register()
         .map_err(pipewire_unavailable)?;
 
-    let obj = spa::pod::object!(
-        spa::utils::SpaTypes::ObjectParamFormat,
-        spa::param::ParamType::EnumFormat,
-        spa::pod::property!(
-            spa::param::format::FormatProperties::MediaType,
-            Id,
-            spa::param::format::MediaType::Video
-        ),
-        spa::pod::property!(
-            spa::param::format::FormatProperties::MediaSubtype,
-            Id,
-            spa::param::format::MediaSubtype::Raw
-        ),
-        spa::pod::property!(
-            spa::param::format::FormatProperties::VideoFormat,
-            Choice,
-            Enum,
-            Id,
-            spa::param::video::VideoFormat::RGBx,
-            spa::param::video::VideoFormat::RGBx,
-            spa::param::video::VideoFormat::BGRx,
-        ),
-        spa::pod::property!(
-            spa::param::format::FormatProperties::VideoSize,
-            Choice,
-            Range,
-            Rectangle,
-            spa::utils::Rectangle {
-                width: preferred_width as u32,
-                height: preferred_height as u32
-            },
-            spa::utils::Rectangle {
-                width: 1,
-                height: 1
-            },
-            spa::utils::Rectangle {
-                width: 7680,
-                height: 4320
-            }
-        ),
-        spa::pod::property!(
-            spa::param::format::FormatProperties::VideoFramerate,
-            Choice,
-            Range,
-            Fraction,
-            spa::utils::Fraction { num: 60, denom: 1 },
-            spa::utils::Fraction { num: 0, denom: 1 },
-            spa::utils::Fraction {
-                num: 1000,
-                denom: 1
-            }
-        ),
-    );
-    let values: Vec<u8> = spa::pod::serialize::PodSerializer::serialize(
-        std::io::Cursor::new(Vec::new()),
-        &spa::pod::Value::Object(obj),
-    )
-    .map_err(pipewire_unavailable)?
-    .0
-    .into_inner();
+    let values = video_format_pod(preferred_width, preferred_height)?;
     let mut params =
         [Pod::from_bytes(&values).ok_or_else(|| pipewire_unavailable("bad format pod"))?];
     stream

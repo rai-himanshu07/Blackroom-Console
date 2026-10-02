@@ -18,4 +18,5 @@ pub mod pipewire_capture;
 pub mod remote_desktop;
 pub mod screencast;
 pub mod session;
+pub mod video;
 pub mod virtual_monitor;

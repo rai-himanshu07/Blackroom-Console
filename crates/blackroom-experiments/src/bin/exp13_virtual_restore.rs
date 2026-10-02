@@ -15,7 +15,7 @@ use blackroom_gnome::mutter::display_config::{
 use blackroom_gnome::mutter::pipewire_capture::capture_until_stopped;
 use blackroom_gnome::mutter::screencast::ScreenCastSession;
 use clap::Parser;
-use zbus::blocking::{Connection, Proxy};
+use zbus::blocking::Connection;
 
 #[derive(Parser, Debug)]
 #[command(about = "Experiment 13: virtual-monitor restore crash repro (headless Shell only)")]
@@ -34,26 +34,6 @@ struct Args {
     join_before_stop: bool,
 }
 
-/// Refuses unless the compositor owning DisplayConfig on this bus was started `--headless`.
-fn require_headless_shell(conn: &Connection) -> anyhow::Result<()> {
-    let dbus = Proxy::new(
-        conn,
-        "org.freedesktop.DBus",
-        "/org/freedesktop/DBus",
-        "org.freedesktop.DBus",
-    )?;
-    let pid: u32 = dbus.call(
-        "GetConnectionUnixProcessID",
-        &("org.gnome.Mutter.DisplayConfig",),
-    )?;
-    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline"))?;
-    anyhow::ensure!(
-        cmdline.split(|b| *b == 0).any(|arg| arg == b"--headless"),
-        "refusing to run: the DisplayConfig owner (pid {pid}) is not a --headless compositor"
-    );
-    Ok(())
-}
-
 fn connectors(backup: &blackroom_gnome::mutter::display_config::DisplayBackup) -> Vec<String> {
     backup.outputs.iter().map(|o| o.connector.clone()).collect()
 }
@@ -61,7 +41,7 @@ fn connectors(backup: &blackroom_gnome::mutter::display_config::DisplayBackup) -
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let conn = Connection::session()?;
-    require_headless_shell(&conn)?;
+    blackroom_experiments::require_headless_shell(&conn)?;
 
     let original = snapshot(&conn, "headless-repro")?;
     let before = connectors(&original);

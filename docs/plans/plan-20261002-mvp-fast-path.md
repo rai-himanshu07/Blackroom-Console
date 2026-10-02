@@ -37,3 +37,7 @@ in `docs/ops/experiment-safety.md`; log one line per run below.
 ## Log
 - 2026-10-02: plan adopted; workflow policy amended (AGENTS.md, WORKFLOW_CONFIG.md, copilot-instructions.md,
   experiment-safety.md "Standing approval").
+- 2026-10-02 M1 done: `blackroom_gnome::mutter::video` (`stream_jpeg`, `JpegSlot`, rate limit, BGRx/RGBx) with 4 unit tests;
+  `exp14_mjpeg_probe` on the throwaway headless Shell produced a correct 1920x1080 JPEG (about 45 KB, colours right) from a
+  real Mutter ScreenCast stream; an idle desktop yields about 1 frame/s (damage driven), so the server must resend the last
+  frame as a keepalive. New dependency `jpeg-encoder` (licence IJG allowed in deny.toml).

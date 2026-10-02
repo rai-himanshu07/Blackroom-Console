@@ -7,6 +7,7 @@
 pub mod cli;
 pub mod eis_support;
 pub mod evidence;
+pub mod headless;
 pub mod introspect;
 pub mod lock_support;
 pub mod observer;
@@ -14,6 +15,7 @@ pub mod session;
 
 pub use cli::CommonArgs;
 pub use evidence::{ExperimentReport, ExperimentResult, evidence_dir, redact, write_evidence};
+pub use headless::require_headless_shell;
 pub use introspect::{
     BusKind, InspectedTarget, ParsedInterface, ParsedMethod, ParsedProperty, ParsedSignal, Target,
     introspect_target, method_present, parse_introspection_xml, slug,
