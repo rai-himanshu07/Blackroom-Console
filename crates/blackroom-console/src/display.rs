@@ -341,6 +341,110 @@ pub fn lock_session(session_id: &str) -> bool {
     }
 }
 
+pub const RECOVERY_MARKER: &str = "recovery.json";
+
+/// A logind `block` inhibitor for suspend and idle sleep; it ends when the returned fd is dropped.
+pub fn inhibit_sleep() -> anyhow::Result<zbus::zvariant::OwnedFd> {
+    let system = Connection::system()?;
+    let manager = Proxy::new(
+        &system,
+        "org.freedesktop.login1",
+        "/org/freedesktop/login1",
+        "org.freedesktop.login1.Manager",
+    )?;
+    let fd: zbus::zvariant::OwnedFd = manager.call(
+        "Inhibit",
+        &(
+            "sleep:idle",
+            "Blackroom Console",
+            "a remote console session is running",
+            "block",
+        ),
+    )?;
+    Ok(fd)
+}
+
+#[derive(Serialize, Deserialize)]
+struct RecoveryMarker {
+    pid: u32,
+    backup: PathBuf,
+}
+
+/// Written before the display is touched and cleared once it is verified restored, so a console
+/// that dies mid-session leaves a trace the next start acts on.
+pub fn write_recovery_marker(dir: &Path, backup: &Path) -> anyhow::Result<()> {
+    let marker = RecoveryMarker {
+        pid: std::process::id(),
+        backup: backup.to_path_buf(),
+    };
+    write_private(dir, RECOVERY_MARKER, &serde_json::to_vec(&marker)?)?;
+    Ok(())
+}
+
+pub fn clear_recovery_marker(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join(RECOVERY_MARKER));
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Recovery {
+    /// No marker, or the writer is still running.
+    Nothing,
+    /// A marker that no longer applies (no backup, or another login session) was removed.
+    Cleared(String),
+    /// The unclean session's display was restored and the screen locked.
+    Restored,
+    /// The restore failed: Start stays refused until the marker is dealt with.
+    Pending(String),
+}
+
+#[derive(Deserialize)]
+struct BackupIdentity {
+    session_id: String,
+    shell_pid: u32,
+}
+
+/// Acts on a marker left by a console that died mid-session. `alive` tells whether the writer pid
+/// is still a console, `same_login` compares the backup's session and Shell pid with the live ones,
+/// `restore` runs the restore binary against the backup (and locks).
+pub fn recover(
+    dir: &Path,
+    alive: impl Fn(u32) -> bool,
+    same_login: impl Fn(&str, u32) -> bool,
+    restore: impl Fn(&Path) -> bool,
+) -> Recovery {
+    let marker_path = dir.join(RECOVERY_MARKER);
+    let Ok(text) = std::fs::read_to_string(&marker_path) else {
+        return Recovery::Nothing;
+    };
+    let Ok(marker) = serde_json::from_str::<RecoveryMarker>(&text) else {
+        let _ = std::fs::remove_file(&marker_path);
+        return Recovery::Cleared("unreadable marker".into());
+    };
+    if marker.pid != std::process::id() && alive(marker.pid) {
+        return Recovery::Nothing;
+    }
+    let identity = std::fs::read_to_string(&marker.backup)
+        .ok()
+        .and_then(|text| serde_json::from_str::<BackupIdentity>(&text).ok());
+    let Some(identity) = identity else {
+        let _ = std::fs::remove_file(&marker_path);
+        return Recovery::Cleared("no readable backup left".into());
+    };
+    if !same_login(&identity.session_id, identity.shell_pid) {
+        let _ = std::fs::remove_file(&marker_path);
+        return Recovery::Cleared("the backup belongs to another login session".into());
+    }
+    if restore(&marker.backup) {
+        let _ = std::fs::remove_file(&marker_path);
+        Recovery::Restored
+    } else {
+        Recovery::Pending(format!(
+            "the display restore of an unclean session failed; check the panel, then remove {}",
+            marker_path.display()
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use blackroom_gnome::mutter::display_config::{LogicalMonitorBackup, OutputBackup};
@@ -405,6 +509,110 @@ mod tests {
         assert!(args.contains(&"--keep-live-virtual".to_string()));
         let dash = args.iter().position(|a| a == "--").unwrap();
         assert!(args[dash + 1].starts_with('/'));
+    }
+
+    fn recovery_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("br-recover-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn marked(dir: &Path, session: &str, shell: u32, pid: u32) {
+        let backup = write_private(
+            dir,
+            "backup.json",
+            format!(r#"{{"session_id":"{session}","shell_pid":{shell}}}"#).as_bytes(),
+        )
+        .unwrap();
+        let marker = RecoveryMarker { pid, backup };
+        write_private(dir, RECOVERY_MARKER, &serde_json::to_vec(&marker).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn recovery_does_nothing_without_a_marker_or_with_a_live_writer() {
+        let dir = recovery_dir("none");
+        let calls = std::cell::Cell::new(0);
+        let go = |alive: bool| {
+            recover(
+                &dir,
+                |_| alive,
+                |_, _| true,
+                |_| {
+                    calls.set(calls.get() + 1);
+                    true
+                },
+            )
+        };
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(go(true), Recovery::Nothing);
+        marked(&dir, "3", 7, 999_999);
+        assert_eq!(go(true), Recovery::Nothing);
+        assert!(dir.join(RECOVERY_MARKER).exists());
+        assert_eq!(calls.get(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recovery_clears_markers_that_no_longer_apply_without_restoring() {
+        let dir = recovery_dir("stale");
+        let restored = std::cell::Cell::new(false);
+        let restore = |_: &Path| {
+            restored.set(true);
+            true
+        };
+        marked(&dir, "3", 7, 999_999);
+        std::fs::remove_file(dir.join("backup.json")).unwrap();
+        assert!(matches!(
+            recover(&dir, |_| false, |_, _| true, restore),
+            Recovery::Cleared(_)
+        ));
+        assert!(!dir.join(RECOVERY_MARKER).exists());
+        marked(&dir, "3", 7, 999_999);
+        assert!(matches!(
+            recover(
+                &dir,
+                |_| false,
+                |session, shell| (session, shell) == ("4", 7),
+                restore
+            ),
+            Recovery::Cleared(_)
+        ));
+        assert!(!dir.join(RECOVERY_MARKER).exists());
+        assert!(!restored.get());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recovery_restores_an_unclean_session_and_keeps_the_marker_when_that_fails() {
+        let dir = recovery_dir("restore");
+        marked(&dir, "3", 7, 999_999);
+        let same = |session: &str, shell: u32| (session, shell) == ("3", 7);
+        assert!(matches!(
+            recover(&dir, |_| false, same, |_| false),
+            Recovery::Pending(_)
+        ));
+        assert!(dir.join(RECOVERY_MARKER).exists());
+        assert_eq!(recover(&dir, |_| false, same, |_| true), Recovery::Restored);
+        assert!(!dir.join(RECOVERY_MARKER).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore = "needs the system bus: cargo test -p blackroom-console -- --ignored sleep_inhibitor"]
+    fn sleep_inhibitor_is_listed_while_held_and_gone_after_drop() {
+        let listed = || {
+            let out = Command::new("systemd-inhibit")
+                .arg("--list")
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).contains("a remote console session is running")
+        };
+        assert!(!listed());
+        let fd = inhibit_sleep().unwrap();
+        assert!(listed());
+        drop(fd);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!listed());
     }
 
     #[test]

@@ -42,6 +42,12 @@ disabling it while locked brings the block back only once the remote sessions ha
 Stop order: restore the display, stop the capture, lock, and only then release the input grab, so the local
 keyboard never reaches an unlocked desktop while the panel comes back. The grab lease is renewed before the lock.
 
+State directory (`$XDG_RUNTIME_DIR/blackroom-console`): `last_stop.json` records how far the last Stop got (`step`,
+and the report once done), so a Stop that dies half way is visible afterwards; `recovery.json` exists while a live
+session holds the display and is removed after a verified restore. If a console dies mid-session, the next console
+start restores from `backup.json` (same login session and Shell only) and locks; if that fails, Start is refused
+with the file to remove after checking the panel. A live session also holds a logind `sleep:idle` block inhibitor.
+
 Offline simulation state (never a live host): hostd appends security events to
 `audit.log` in its state directory (owner-only, 1 MiB then one rotation; static
 codes, epochs and principal ids only, never proofs, demo codes, input grants

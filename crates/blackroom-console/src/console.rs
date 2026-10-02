@@ -7,7 +7,7 @@
 //! All GNOME objects live on one actor thread, so the handle is a cheap, thread-safe `Clone`.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -175,6 +175,8 @@ struct Shared {
     phase: Mutex<Phase>,
     slot: Mutex<Option<Arc<JpegSlot>>>,
     last_stop: Mutex<Option<StopReport>>,
+    /// Set when the start-up recovery of an unclean session failed; Start is refused meanwhile.
+    recovery_pending: Mutex<Option<String>>,
     beat: Mutex<Instant>,
     notes: Mutex<Vec<String>>,
     size: Mutex<(u32, u32)>,
@@ -208,6 +210,7 @@ impl RemoteConsole {
             phase: Mutex::new(Phase::Idle),
             slot: Mutex::new(None),
             last_stop: Mutex::new(None),
+            recovery_pending: Mutex::new(None),
             beat: Mutex::new(Instant::now()),
             notes: Mutex::new(Vec::new()),
             size: Mutex::new((0, 0)),
@@ -398,10 +401,48 @@ struct Active<'c> {
     last_lease: Instant,
     last_watchdog: Instant,
     released_early: Vec<String>,
+    /// Dropping it ends the logind inhibitor that stops suspend and idle sleep mid-session.
+    sleep_inhibitor: Option<zbus::zvariant::OwnedFd>,
+}
+
+/// Restores the display and locks the screen when a previous console died mid-session.
+/// Returns the refusal text when that failed.
+fn recover_on_start(conn: &Connection, config: &ConsoleConfig) -> Option<String> {
+    let outcome = display::recover(
+        &config.state_dir,
+        |pid| {
+            std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                .is_ok_and(|comm| comm.trim() == "blackroom-conso")
+        },
+        |session_id, shell_pid| {
+            discover_session().is_ok_and(|s| s.session_id == session_id)
+                && display::gnome_shell_pid(conn).is_ok_and(|pid| pid == shell_pid)
+        },
+        |backup| {
+            std::process::Command::new(&config.restore_bin)
+                .arg("--backup")
+                .arg(backup)
+                .args(["--keep-live-virtual", "--lock-after"])
+                .stdin(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+        },
+    );
+    tracing::info!(?outcome, "start-up recovery check");
+    match outcome {
+        display::Recovery::Pending(text) => Some(text),
+        _ => None,
+    }
 }
 
 fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<ConsoleConfig>) {
     let conn = Connection::session();
+    if let Ok(conn) = &conn
+        && !config.headless
+        && let Some(pending) = recover_on_start(conn, config)
+    {
+        *lock_ok(&shared.recovery_pending) = Some(pending);
+    }
     let mut active: Option<Active<'_>> = None;
     loop {
         match receiver.recv_timeout(TICK) {
@@ -454,12 +495,28 @@ fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<Co
     }
 }
 
+/// `last_stop.json` shows how far a Stop got even when the process dies in the middle of it.
+fn persist_stop(dir: &Path, state: &str, reason: &str, step: &str, report: Option<&StopReport>) {
+    let at_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let body = serde_json::json!({
+        "state": state, "reason": reason, "step": step, "at_unix": at_unix, "report": report,
+    });
+    if let Err(error) = display::write_private(dir, "last_stop.json", body.to_string().as_bytes()) {
+        tracing::warn!(%error, "could not write last_stop.json");
+    }
+}
+
 fn finish(active: Active<'_>, reason: &str) -> StopReport {
     let shared = Arc::clone(&active.shared);
+    let state_dir = active.config.state_dir.clone();
     *lock_ok(&shared.phase) = Phase::Stopping;
     tracing::info!(reason, "stopping the remote console");
+    persist_stop(&state_dir, "stopping", reason, "begin", None);
     let report = active.teardown(reason);
     tracing::info!(?report, "remote console stopped");
+    persist_stop(&state_dir, "stopped", reason, "done", Some(&report));
     *lock_ok(&shared.slot) = None;
     *lock_ok(&shared.tuning) = None;
     *lock_ok(&shared.last_stop) = Some(report.clone());
@@ -472,6 +529,9 @@ fn begin<'c>(
     config: &Arc<ConsoleConfig>,
     shared: &Arc<Shared>,
 ) -> Result<Active<'c>, String> {
+    if let Some(pending) = lock_ok(&shared.recovery_pending).clone() {
+        return Err(format!("recovery pending: {pending}"));
+    }
     lock_ok(&shared.notes).clear();
     shared.input_accepted.store(0, Ordering::Relaxed);
     shared.input_refused.store(0, Ordering::Relaxed);
@@ -503,6 +563,7 @@ fn begin<'c>(
         last_lease: Instant::now(),
         last_watchdog: Instant::now(),
         released_early: Vec::new(),
+        sleep_inhibitor: None,
     };
     match active.setup() {
         Ok(()) => {
@@ -542,6 +603,13 @@ impl<'c> Active<'c> {
             self.preflight_live(&config)?
         };
 
+        if !config.headless {
+            match display::inhibit_sleep() {
+                Ok(fd) => self.sleep_inhibitor = Some(fd),
+                Err(error) => self.note(format!("could not hold off suspend: {error:#}")),
+            }
+        }
+
         let backup = display_config::snapshot(self.conn, &self.session.session_id)
             .map_err(|e| anyhow::anyhow!("display snapshot: {e}"))?;
         let (width, height) = single_monitor(&backup, config.headless)?;
@@ -549,6 +617,9 @@ impl<'c> Active<'c> {
         let shell_pid = display::gnome_shell_pid(self.conn)?;
         let backup_path = display::write_backup(&config.state_dir, &backup, shell_pid)?;
         tracing::info!(path = %backup_path.display(), "display backup written");
+        if !config.headless {
+            display::write_recovery_marker(&config.state_dir, &backup_path)?;
+        }
         self.backup = Some(BackupCtx {
             canonical: backup,
             shell_pid,
@@ -787,6 +858,8 @@ impl<'c> Active<'c> {
         };
 
         // The grab is held until after the lock so local input never reaches an unlocked desktop.
+        let state_dir = self.config.state_dir.clone();
+        let stage = |step: &str| persist_stop(&state_dir, "stopping", reason, step, None);
         self.renew_grab();
 
         if let Some(remote) = self.remote.as_mut() {
@@ -798,6 +871,7 @@ impl<'c> Active<'c> {
             }
         }
         self.remote = None;
+        stage("input closed");
 
         if self.isolated
             && let (Some(backup), Some(connector)) = (&self.backup, &self.virtual_connector)
@@ -839,6 +913,7 @@ impl<'c> Active<'c> {
         if let Some(connector) = &self.virtual_connector {
             report.virtual_gone = Some(wait_connector_gone(self.conn, connector));
         }
+        stage("screencast stopped");
 
         if self.isolated
             && let Some(backup) = &self.backup
@@ -867,23 +942,30 @@ impl<'c> Active<'c> {
             }
             report.topology_restored = Some(restored);
         }
+        stage("topology verified");
 
         if report.topology_restored != Some(false)
             && let Some(mut watchdog) = self.watchdog.take()
         {
             watchdog.disarm();
         }
+        stage("watchdog handled");
 
         self.renew_grab();
         if self.isolated && !self.config.headless {
             report.locked = Some(display::lock_session(&self.session.session_id));
         }
+        stage("lock requested");
 
         if let Some(mut client) = self.grab.take() {
             self.released_early.extend(client.take_released());
             report.released_early.clone_from(&self.released_early);
             report.grab_released = Some(client.restore().is_ok());
         }
+        if !self.config.headless && (!self.isolated || report.topology_restored == Some(true)) {
+            display::clear_recovery_marker(&self.config.state_dir);
+        }
+        self.sleep_inhibitor = None;
         report
     }
 
