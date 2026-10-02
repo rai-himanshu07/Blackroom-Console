@@ -84,9 +84,17 @@ fn main() -> anyhow::Result<()> {
 
     let deadline = Instant::now() + Duration::from_secs(15);
     let virtual_connector = loop {
-        let now = connectors(&snapshot(&conn, "headless-repro")?);
-        if let Some(found) = now.into_iter().find(|c| !before.contains(c)) {
-            break found;
+        let current = snapshot(&conn, "headless-repro")?;
+        if let Some(found) = current
+            .outputs
+            .iter()
+            .find(|o| !before.contains(&o.connector))
+        {
+            println!(
+                "virtual identity: vendor={} serial={}",
+                found.vendor, found.serial
+            );
+            break found.connector.clone();
         }
         anyhow::ensure!(
             Instant::now() < deadline,

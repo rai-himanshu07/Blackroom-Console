@@ -91,14 +91,17 @@ physical-only config once the virtual connector is gone after Stop) and checks t
 monitor; `exp13_virtual_restore` and the runner. Review-driven limit: the kept virtual monitor is placed only when every
 restored monitor has scale 1.0 and no transform (Mutter's layout width uses `round(width / scale)` in logical layout mode
 and the plain mode width in physical mode, and `layout-mode` is not read); otherwise the integrated probe refuses before it
-changes anything. The recorded eDP-only backup qualifies; HiDPI scaling would need `layout-mode` handling. Open hazards:
-the `exp07_restore` watchdog still applies the physical-only config, so a watchdog that fires while the owner is alive
-with a streaming consumer would crash the Shell the same way (needs the same keep-virtual rule before any live integrated
-run); the fix is not yet exercised on the real session; an upstream report (missing NULL check in the virtual stream
+changes anything. The recorded eDP-only backup qualifies; HiDPI scaling would need `layout-mode` handling.
+`exp07_restore --keep-live-virtual` (both watchdogs of the integrated probe pass it; earlier flows do not) applies the same
+rule to the watchdog restore: it keeps live `MetaVendor`/`Meta-N` virtual monitors (identity read from the headless Shell:
+vendor `MetaVendor`, connector `Meta-1`), falls back to the plain restore when a restored monitor is not scale 1.0, and its
+topology check ignores the kept monitors; it is unit-tested only (its apply path needs the real login1 identity), and
+windows may stay on the kept virtual monitor until the session is stopped. Open hazards: the fix is not yet exercised on
+the real session; an upstream report (missing NULL check in the virtual stream
 `monitors-changed-internal` handler, also on upstream main) is not filed. Side effect: coreutils `timeout` re-raises the
 child's SIGSEGV, so apport wrote a crash report for `timeout` in /var/crash.
 
 Consequences: the Mutter-instability stop (Doc 00 section 49) stays in force for the real session: no live display,
-input or session experiment until the exp07 hazard is closed, a reviewed plan exists and the operator approves one run.
+input or session experiment until a reviewed plan exists and the operator approves one run.
 The integrated script is guarded. Not tested: whether the injection, grab and capture parts work (no data). State after
 the crash: nothing left running; the operator removed the temporary ACLs on event2-5 afterwards.

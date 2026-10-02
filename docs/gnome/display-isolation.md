@@ -90,6 +90,7 @@ ScreenCast virtual-stream `monitors-changed-internal` handler dereferences a NUL
 (a PipeWire consumer is streaming) and the virtual monitor has no logical monitor, which is exactly what a physical-only
 restore config produces (same on upstream main). Earlier clean runs had no streaming consumer at restore. Rule: while a
 virtual-monitor stream may be enabled, every applied config must keep the virtual monitor (extra logical monitor), and
-the session is stopped afterwards; verified safe 8/8 on the headless Shell (scale 1.0 only), not yet on the real session; the
-`exp07_restore` watchdog still lacks this rule. See the
+the session is stopped afterwards; verified safe 8/8 on the headless Shell (scale 1.0 only), not yet on the real session;
+`exp07_restore --keep-live-virtual` (passed by both watchdogs of `exp06 --integrated-probe`) applies the same rule to the
+watchdog restore, unit-tested only. See the
 observation's Headless reproduction section.

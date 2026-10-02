@@ -1415,6 +1415,7 @@ fn arm_watchdog(
     unit_name: &str,
     seconds: u64,
     backup_path: &std::path::Path,
+    keep_live_virtual: bool,
 ) -> anyhow::Result<()> {
     let restore_bin = exp07_restore_path()?;
     // Absolute: without an explicit --working-directory, the transient
@@ -1435,6 +1436,7 @@ fn arm_watchdog(
             "--backup".to_string(),
             backup_path.display().to_string(),
         ])
+        .args(keep_live_virtual.then_some("--keep-live-virtual"))
         .status()?;
     anyhow::ensure!(
         status.success(),
@@ -2252,7 +2254,12 @@ fn main() -> anyhow::Result<()> {
     let watchdog_unit = format!("blackroom-exp06-watchdog-{}", now.unix_timestamp());
     let watchdog_seconds = args.watchdog_duration();
     let watchdog_started = Instant::now();
-    arm_watchdog(&watchdog_unit, watchdog_seconds, &backup_path)?;
+    arm_watchdog(
+        &watchdog_unit,
+        watchdog_seconds,
+        &backup_path,
+        args.integrated_probe,
+    )?;
     let watchdog_armed = true;
 
     let restore_config = if args.integrated_probe {
@@ -2399,7 +2406,12 @@ fn main() -> anyhow::Result<()> {
         }
         verify_live_restore_identity(&conn, &backup.session_id, backup.shell_pid)?;
         let cleanup_unit = format!("{watchdog_unit}-cleanup");
-        arm_watchdog(&cleanup_unit, WATCHDOG_SECONDS_DEFAULT, &backup_path)?;
+        arm_watchdog(
+            &cleanup_unit,
+            WATCHDOG_SECONDS_DEFAULT,
+            &backup_path,
+            args.integrated_probe,
+        )?;
         println!(
             "Cleanup watchdog={} ({}s)",
             cleanup_unit, WATCHDOG_SECONDS_DEFAULT

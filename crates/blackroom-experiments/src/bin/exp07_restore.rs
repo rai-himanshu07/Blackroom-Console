@@ -43,6 +43,11 @@ struct Args {
     /// never guess which snapshot to apply).
     #[arg(long)]
     backup: PathBuf,
+    /// Keep every live ScreenCast virtual monitor as an extra logical monitor right of the
+    /// restored ones (Mutter 50.1 crashes if an enabled stream's virtual monitor has none, exp13).
+    /// Set by `exp06 --integrated-probe`'s watchdogs, where a consumer may be streaming.
+    #[arg(long)]
+    keep_live_virtual: bool,
 }
 
 // ---------------------------------------------------------------------
@@ -53,7 +58,6 @@ struct Args {
 #[derive(Debug, Clone, Type, Deserialize)]
 struct ConnectorInfo {
     connector: String,
-    #[allow(dead_code)]
     vendor: String,
     #[allow(dead_code)]
     product: String,
@@ -342,8 +346,17 @@ fn to_write_side(backup: &DisplayBackup) -> anyhow::Result<Vec<LogicalMonitorCon
 
 /// Doc 05 §61: verify every expected physical output is restored with the
 /// correct mode/position/scale/primary — field comparison, not just a hash,
-/// so a mismatch's exact cause is diagnosable.
-fn topology_matches(backup: &DisplayBackup, logical: &[LogicalMonitorEntry]) -> bool {
+/// so a mismatch's exact cause is diagnosable. Logical monitors holding a
+/// `kept` virtual connector are ignored.
+fn topology_matches(
+    backup: &DisplayBackup,
+    logical: &[LogicalMonitorEntry],
+    kept: &[String],
+) -> bool {
+    let logical: Vec<&LogicalMonitorEntry> = logical
+        .iter()
+        .filter(|entry| !entry.monitors.iter().any(|m| kept.contains(&m.connector)))
+        .collect();
     if logical.len() != backup.topology.len() {
         return false;
     }
@@ -423,11 +436,92 @@ fn unexpected_connectors(backup: &DisplayBackup, monitors: &[MonitorEntry]) -> V
         .collect()
 }
 
+/// Mutter names ScreenCast virtual outputs `Meta-N` with vendor `MetaVendor`.
+fn is_virtual_monitor(info: &ConnectorInfo) -> bool {
+    info.vendor == "MetaVendor" && info.connector.starts_with("Meta-")
+}
+
+/// Restore config for `--keep-live-virtual`: the backup's topology plus every live virtual
+/// monitor absent from it, placed right of the restored ones. Falls back to the plain config
+/// (nothing kept) when the restored monitors are not all scale 1.0 without a transform, because
+/// recovery matters more than keeping a virtual monitor.
+fn restore_config(
+    backup: &DisplayBackup,
+    monitors: &[MonitorEntry],
+    keep_live_virtual: bool,
+) -> anyhow::Result<(Vec<LogicalMonitorConfig>, Vec<String>)> {
+    let mut config = to_write_side(backup)?;
+    if !keep_live_virtual {
+        return Ok((config, Vec::new()));
+    }
+    let live: Vec<(String, String, i32)> = monitors
+        .iter()
+        .filter(|m| {
+            is_virtual_monitor(&m.connector_info)
+                && !backup
+                    .outputs
+                    .iter()
+                    .any(|o| o.connector == m.connector_info.connector)
+        })
+        .filter_map(|m| {
+            let mode = m
+                .modes
+                .iter()
+                .find(|mode| is_current_mode(&mode.properties))?;
+            Some((
+                m.connector_info.connector.clone(),
+                mode.id.clone(),
+                mode.width,
+            ))
+        })
+        .collect();
+    if live.is_empty() {
+        return Ok((config, Vec::new()));
+    }
+    let restored: Vec<_> = config
+        .iter()
+        .map(|lm| {
+            let width = lm
+                .monitors
+                .first()
+                .and_then(|m| backup.outputs.iter().find(|o| o.connector == m.connector))
+                .map_or(0, |o| o.width);
+            (lm.x, lm.y, width, lm.scale, lm.transform)
+        })
+        .collect();
+    let (mut x, y) = match display_config::kept_virtual_origin(&restored) {
+        Ok(origin) => origin,
+        Err(error) => {
+            eprintln!("Not keeping the live virtual monitor: {error}");
+            return Ok((config, Vec::new()));
+        }
+    };
+    let mut kept = Vec::new();
+    for (connector, mode_id, width) in live {
+        config.push(LogicalMonitorConfig {
+            x,
+            y,
+            scale: 1.0,
+            transform: 0,
+            primary: false,
+            monitors: vec![MonitorRef {
+                connector: connector.clone(),
+                mode_id,
+                properties: HashMap::new(),
+            }],
+        });
+        x += width;
+        kept.push(connector);
+    }
+    Ok((config, kept))
+}
+
 #[derive(Debug, Serialize)]
 struct Findings {
     backup_path: String,
     monitors_before_restore: Vec<String>,
     unexpected_connectors_before_restore: Vec<String>,
+    kept_virtual_connectors: Vec<String>,
     apply_error: Option<String>,
     retried: bool,
     topology_matches: bool,
@@ -443,14 +537,20 @@ fn require_verified_restore(result: ExperimentResult) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn attempt_restore(conn: &Connection, backup: &DisplayBackup) -> anyhow::Result<()> {
+/// Returns the virtual connectors kept in the applied config.
+fn attempt_restore(
+    conn: &Connection,
+    backup: &DisplayBackup,
+    keep_live_virtual: bool,
+) -> anyhow::Result<Vec<String>> {
     verify_live_identity(conn, backup)?;
-    let write_side = to_write_side(backup)?;
-    let (serial, ..) = read_state(conn)?;
+    let (serial, monitors, _logical) = read_state(conn)?;
+    let (config, kept) = restore_config(backup, &monitors, keep_live_virtual)?;
     verify_live_identity(conn, backup)?;
-    apply_monitors_config(conn, serial, &write_side)?;
+    apply_monitors_config(conn, serial, &config)?;
     verify_live_identity(conn, backup)?;
-    set_power_save_mode(conn, POWER_SAVE_ON)
+    set_power_save_mode(conn, POWER_SAVE_ON)?;
+    Ok(kept)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -480,17 +580,26 @@ fn main() -> anyhow::Result<()> {
 
     // Doc 05 §62: retry safely once; never claim success if physical state
     // remains unknown.
-    let mut apply_error = attempt_restore(&conn, &backup).err().map(|e| e.to_string());
+    let mut kept_virtual_connectors = Vec::new();
+    let mut attempt = || match attempt_restore(&conn, &backup, args.keep_live_virtual) {
+        Ok(kept) => {
+            kept_virtual_connectors = kept;
+            None
+        }
+        Err(error) => Some(error.to_string()),
+    };
+    let mut apply_error = attempt();
     let mut retried = false;
     if apply_error.is_some() {
         retried = true;
-        apply_error = attempt_restore(&conn, &backup).err().map(|e| e.to_string());
+        apply_error = attempt();
     }
 
     let deadline = Instant::now() + POLL_WAIT;
     let (restored, topology_ok, configuration_hash_matches, monitors_final) = loop {
         let (_serial, monitors, logical) = read_state(&conn)?;
-        let topology_ok = apply_error.is_none() && topology_matches(&backup, &logical);
+        let topology_ok =
+            apply_error.is_none() && topology_matches(&backup, &logical, &kept_virtual_connectors);
         let configuration_hash_matches = expected_hash
             .map(|hash| restored_output_hash(&backup, &monitors, &logical) == Some(hash));
         let restored = topology_ok && configuration_hash_matches.unwrap_or(true);
@@ -504,6 +613,7 @@ fn main() -> anyhow::Result<()> {
         backup_path: args.backup.display().to_string(),
         monitors_before_restore,
         unexpected_connectors_before_restore,
+        kept_virtual_connectors,
         apply_error: apply_error.clone(),
         retried,
         topology_matches: topology_ok,
@@ -734,7 +844,11 @@ mod tests {
             properties: HashMap::new(),
         });
         assert!(validated_hash(&backup).is_ok());
-        assert!(topology_matches(&backup, std::slice::from_ref(&logical)));
+        assert!(topology_matches(
+            &backup,
+            std::slice::from_ref(&logical),
+            &[]
+        ));
         assert_eq!(
             restored_output_hash(&backup, &monitors, std::slice::from_ref(&logical)),
             backup.configuration_hash
@@ -801,7 +915,101 @@ mod tests {
             }],
             properties: HashMap::new(),
         };
-        assert!(!topology_matches(&backup, &[logical, hdmi]));
+        assert!(!topology_matches(&backup, &[logical, hdmi], &[]));
+    }
+
+    #[test]
+    fn keep_live_virtual_adds_the_virtual_monitor_and_falls_back_on_scaling() {
+        let panel = ConnectorInfo {
+            connector: "eDP-1".into(),
+            vendor: "vendor".into(),
+            product: "panel".into(),
+            serial: "internal".into(),
+        };
+        let backup = DisplayBackup {
+            session_id: "3".into(),
+            shell_pid: 1,
+            outputs: vec![OutputBackup {
+                connector: "eDP-1".into(),
+                vendor: "vendor".into(),
+                product: "panel".into(),
+                serial: "internal".into(),
+                mode_id: "mode-1".into(),
+                width: 1920,
+                height: 1080,
+                refresh_rate: 60.0,
+                enabled: Some(true),
+            }],
+            topology: vec![LogicalMonitorBackup {
+                x: 0,
+                y: 0,
+                scale: 1.0,
+                transform: 0,
+                primary: true,
+                monitors: vec![("eDP-1".into(), "internal".into())],
+            }],
+            primary_output: None,
+            hash_version: None,
+            configuration_hash: None,
+        };
+        let virtual_monitor = |connector: &str, vendor: &str| MonitorEntry {
+            connector_info: ConnectorInfo {
+                connector: connector.into(),
+                vendor: vendor.into(),
+                product: "Virtual remote monitor".into(),
+                serial: "0x1".into(),
+            },
+            modes: vec![ModeInfo {
+                id: "v-mode".into(),
+                width: 1280,
+                height: 720,
+                refresh_rate: 60.0,
+                preferred_scale: 1.0,
+                supported_scales: vec![1.0],
+                properties: HashMap::from([(
+                    "is-current".into(),
+                    OwnedValue::try_from(Value::from(true)).unwrap(),
+                )]),
+            }],
+            properties: HashMap::new(),
+        };
+        let monitors = vec![virtual_monitor("Meta-0", "MetaVendor")];
+
+        let (plain, kept) = restore_config(&backup, &monitors, false).unwrap();
+        assert_eq!((plain.len(), kept.len()), (1, 0));
+        let (config, kept) = restore_config(&backup, &monitors, true).unwrap();
+        assert_eq!(kept, ["Meta-0"]);
+        assert_eq!((config.len(), config[1].x, config[1].y), (2, 1920, 0));
+        assert!(!config[1].primary);
+        assert_eq!(config[1].monitors[0].mode_id, "v-mode");
+        let lookalike = vec![virtual_monitor("Meta-0", "Other")];
+        assert!(
+            restore_config(&backup, &lookalike, true)
+                .unwrap()
+                .1
+                .is_empty()
+        );
+
+        let mut scaled = backup.clone();
+        scaled.topology[0].scale = 1.25;
+        let (fallback, kept) = restore_config(&scaled, &monitors, true).unwrap();
+        assert_eq!((fallback.len(), kept.len()), (1, 0));
+
+        let logical = |identity: ConnectorInfo, x: i32| LogicalMonitorEntry {
+            x,
+            y: 0,
+            scale: 1.0,
+            transform: 0,
+            primary: x == 0,
+            monitors: vec![identity],
+            properties: HashMap::new(),
+        };
+        let live = [
+            logical(panel, 0),
+            logical(monitors[0].connector_info.clone(), 1920),
+        ];
+        assert!(!topology_matches(&backup, &live, &[]));
+        assert!(topology_matches(&backup, &live, &["Meta-0".to_string()]));
     }
 
     #[test]

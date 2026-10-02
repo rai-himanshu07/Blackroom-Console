@@ -159,6 +159,11 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   the real crash. Fix (operator chose design A): restore with the virtual monitor kept as an extra logical monitor
   (scale 1.0 only, else the probe refuses), then Stop (`restore_physical_outputs_keeping_virtual`, exp06 integrated path
   and its `RestoreGuard`); verified safe 8/8 on the headless Shell. One independent review done (FIX_FIRST, fixes applied:
-  guard fallback after Stop, scale rule, wording). Open before any live retest: `exp07_restore` watchdog has the same
-  hazard with a live owner and a streaming consumer; operator approval for one real-session run (the stop stays in
-  force); upstream report.
+  guard fallback after Stop, scale rule, wording). Open before any live retest: operator approval for one real-session
+  run (the stop stays in force); upstream report.
+- 2026-10-02 (exp07 hardening, offline): `exp07_restore --keep-live-virtual` keeps every live `MetaVendor`/`Meta-N` virtual
+  monitor (identity confirmed on the headless Shell) as an extra logical monitor right of the restored ones, falls back to
+  the plain restore when a restored monitor is not scale 1.0 (recovery first), and its topology check ignores the kept
+  monitors; `exp06 --integrated-probe` passes the flag to both watchdogs only, so earlier flows are unchanged. Unit-tested
+  only: exp07's apply path needs the real login1 session identity and was not run headless. Known side effect to expect:
+  windows may stay on the kept virtual monitor until the session is stopped.
