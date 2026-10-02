@@ -50,6 +50,7 @@ for (let i = 0; i < 60; i++) {
 console.log("state:", JSON.stringify(state));
 check("webrtc video decoded at 1920 wide", state.w === 1920, `(videoWidth ${state.w})`);
 check("webrtc element shown", state.shown === "block");
+check("Stop button is visible while running", (await js("getComputedStyle(document.getElementById('stop')).display")) !== "none");
 await sleep(3000);
 const stats = await js(`(async () => { const r = await fetch('/status', {credentials: 'same-origin'}); const s = await r.json(); const q = document.getElementById('rtc'); return {s, frames: q.getVideoPlaybackQuality ? q.getVideoPlaybackQuality().totalVideoFrames : -1, chip: document.getElementById('chip').textContent}; })()`);
 console.log("status:", JSON.stringify(stats).slice(0, 400));
