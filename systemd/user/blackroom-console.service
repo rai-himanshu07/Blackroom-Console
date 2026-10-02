@@ -1,0 +1,29 @@
+# DRAFT, not installed or loaded. The remote console as two user units: the input-grab daemon and the web app.
+#
+# Install by hand (paths below assume the repo at /media/user/Playground/Playground_Sys/Blackroom Console):
+#   cp systemd/user/blackroom-console.service systemd/user/blackroom-console-emergencyd.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user start blackroom-console.service
+#   cat $XDG_RUNTIME_DIR/blackroom-console/url        # the token URL for the tablet (new on every start)
+#
+# Preconditions the units do not provide: rw ACLs for the user on /dev/input/event2-5 (an operator setfacl or a udev
+# rule), gnome-remote-desktop masked, SSH from a second device, exp07_restore built next to the console binary.
+# The restore watchdog is armed by the app itself with systemd-run, not by this unit.
+#
+# ExecStart paths with a space must be double-quoted as a whole (this repo path contains one).
+
+[Unit]
+Description=Blackroom Console web app (remote view and input)
+Requires=blackroom-console-emergencyd.service
+After=blackroom-console-emergencyd.service graphical-session.target
+
+[Service]
+Type=simple
+ExecStart="/media/user/Playground/Playground_Sys/Blackroom Console/target/release/blackroom-console" --grab-socket %t/blackroom-live/emergency.sock --listen 0.0.0.0:8080
+WorkingDirectory=/media/user/Playground/Playground_Sys/Blackroom Console
+# SIGTERM runs Stop (restore, lock) before exit; leave it time.
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

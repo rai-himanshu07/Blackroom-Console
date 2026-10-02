@@ -183,6 +183,15 @@ pub fn backup_json(backup: &DisplayBackup, shell_pid: u32) -> anyhow::Result<Str
 
 /// Writes `backup.json` into `dir` (created private) and returns its absolute path.
 pub fn write_backup(dir: &Path, backup: &DisplayBackup, shell_pid: u32) -> anyhow::Result<PathBuf> {
+    write_private(
+        dir,
+        "backup.json",
+        backup_json(backup, shell_pid)?.as_bytes(),
+    )
+}
+
+/// Writes `name` (mode 0600) into `dir` (created 0700) and returns its absolute path.
+pub fn write_private(dir: &Path, name: &str, contents: &[u8]) -> anyhow::Result<PathBuf> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     std::fs::DirBuilder::new()
@@ -190,14 +199,14 @@ pub fn write_backup(dir: &Path, backup: &DisplayBackup, shell_pid: u32) -> anyho
         .mode(0o700)
         .create(dir)
         .with_context(|| format!("create {}", dir.display()))?;
-    let path = std::path::absolute(dir.join("backup.json"))?;
+    let path = std::path::absolute(dir.join(name))?;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
         .mode(0o600)
         .open(&path)?;
-    file.write_all(backup_json(backup, shell_pid)?.as_bytes())?;
+    file.write_all(contents)?;
     Ok(path)
 }
 
