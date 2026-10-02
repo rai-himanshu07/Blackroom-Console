@@ -258,6 +258,7 @@ struct StreamState {
     slot: Arc<JpegSlot>,
     tuning: Arc<VideoTuning>,
     last_encoded: Option<Instant>,
+    odd_buffers: u32,
 }
 
 /// Consumes PipeWire node `node_id` until `stop` is set, publishing each frame (rate limited) as a
@@ -310,6 +311,7 @@ fn run_stream(
         slot: Arc::clone(slot),
         tuning: Arc::clone(tuning),
         last_encoded: None,
+        odd_buffers: 0,
     };
     let _listener = stream
         .add_local_listener_with_user_data(state)
@@ -349,6 +351,17 @@ fn run_stream(
                 return;
             };
             let chunk = data.chunk();
+            let (chunk_size, chunk_flags) = (chunk.size(), chunk.flags().bits());
+            // Mutter flags buffers that carry no new picture (empty/corrupted); encoding one shows stale pixels.
+            if chunk_size == 0 || chunk_flags != 0 {
+                state.odd_buffers += 1;
+                if state.odd_buffers <= 30 {
+                    tracing::info!(chunk_size, chunk_flags, "unusual PipeWire buffer");
+                }
+                if chunk_flags != 0 {
+                    return;
+                }
+            }
             let (offset, stride) = (chunk.offset() as usize, chunk.stride().max(0) as usize);
             let Some(bytes) = data.data() else { return };
             let Some(pixels) = visible_pixels(bytes, offset, stride, width, height) else {
