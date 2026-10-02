@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/blackroom-cli",
+    "crates/blackroom-console",
     "crates/blackroom-core",
     "crates/blackroom-experiments",
     "crates/blackroom-gnome",

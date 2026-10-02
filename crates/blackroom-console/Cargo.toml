@@ -1,29 +1,32 @@
 [package]
-name = "blackroom-experiments"
+name = "blackroom-console"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-description = "Document 10 feasibility experiments (read-only Phase 0-1, mutating from Phase 4) and shared evidence-reporting helpers (discardable)."
+description = "Remote console: browser view and input for this laptop's desktop while the local panel and input are isolated."
+
+[lints]
+workspace = true
 
 [dependencies]
 anyhow = "1.0.104"
-blackroom-console = { version = "0.1.0", path = "../blackroom-console" }
+axum = "0.8.9"
 blackroom-core = { version = "0.1.0", path = "../blackroom-core" }
 blackroom-gnome = { version = "0.1.0", path = "../blackroom-gnome" }
 clap = { version = "4.6.6", features = ["derive"] }
-evdev = "0.13.2"
 ed25519-dalek = { version = "3.0.0", features = ["rand_core"] }
+futures-util = { version = "0.3.34", default-features = false }
 getrandom = "0.4.3"
-pipewire = "0.10.1"
 reis = "0.7.1"
-remote-input-helper = { version = "0.1.0", path = "../remote-input-helper" }
 remote-emergency-client = { version = "0.1.0", path = "../remote-emergency-client" }
-rustix = { version = "1.1.4", features = ["net", "process"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-time = { version = "0.3.55", features = ["formatting", "macros", "parsing"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 zbus = "5.19.0"
+
+[dev-dependencies]
+tower = { version = "0.5.2", features = ["util"] }

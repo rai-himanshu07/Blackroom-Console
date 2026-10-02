@@ -95,15 +95,20 @@ pub struct Devices {
     pub pointer: Option<DeviceResumed>,
     pub button: Option<DeviceResumed>,
     pub scroll: Option<DeviceResumed>,
+    pub pointer_absolute: Option<DeviceResumed>,
 }
 
 impl Devices {
-    fn slots(&mut self) -> [(&mut Option<DeviceResumed>, DeviceCapability); 4] {
+    fn slots(&mut self) -> [(&mut Option<DeviceResumed>, DeviceCapability); 5] {
         [
             (&mut self.keyboard, DeviceCapability::Keyboard),
             (&mut self.pointer, DeviceCapability::Pointer),
             (&mut self.button, DeviceCapability::Button),
             (&mut self.scroll, DeviceCapability::Scroll),
+            (
+                &mut self.pointer_absolute,
+                DeviceCapability::PointerAbsolute,
+            ),
         ]
     }
 
@@ -171,6 +176,7 @@ pub fn bind_devices(
                     &added,
                     DeviceCapability::Keyboard
                         | DeviceCapability::Pointer
+                        | DeviceCapability::PointerAbsolute
                         | DeviceCapability::Button
                         | DeviceCapability::Scroll,
                 )
@@ -287,6 +293,94 @@ impl Remote<'_> {
                 "no active keyboard device",
             )),
         }
+    }
+
+    /// Applies queued EIS events for up to `duration` so the resumed devices stay current.
+    pub fn pump(&mut self, duration: Duration) -> Option<String> {
+        pump(
+            &mut self.eis,
+            &mut self.devices,
+            &mut Vec::new(),
+            duration,
+            |_| {},
+        )
+    }
+
+    /// Runs `send` on the device chosen by `pick`; on a stale device it applies queued events once
+    /// and retries.
+    fn with_device(
+        &mut self,
+        pick: fn(&Devices) -> &Option<DeviceResumed>,
+        label: &str,
+        send: impl Fn(&mut EiConnection, &DeviceResumed) -> Result<(), BlackroomError>,
+    ) -> Result<(), BlackroomError> {
+        for attempt in 0..2 {
+            let device = pick(&self.devices).clone().ok_or_else(|| {
+                BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    format!("no active {label} device"),
+                )
+            })?;
+            match send(&mut self.eis, &device) {
+                Err(error) if attempt == 0 && error.code == ErrorCode::MutterUnavailable => {
+                    self.pump(Duration::from_millis(30));
+                }
+                other => return other,
+            }
+        }
+        unreachable!("the second attempt always returns")
+    }
+
+    pub fn key(
+        &mut self,
+        authority: &Authority,
+        code: u32,
+        pressed: bool,
+    ) -> Result<(), BlackroomError> {
+        self.with_device(
+            |d| &d.keyboard,
+            "keyboard",
+            |eis, device| eis.send_key(&authority.authorization(false), device, code, pressed),
+        )
+    }
+
+    pub fn button(
+        &mut self,
+        authority: &Authority,
+        code: u32,
+        pressed: bool,
+    ) -> Result<(), BlackroomError> {
+        self.with_device(
+            |d| &d.button,
+            "button",
+            |eis, device| eis.send_button(&authority.authorization(false), device, code, pressed),
+        )
+    }
+
+    pub fn pointer_absolute(
+        &mut self,
+        authority: &Authority,
+        x: f32,
+        y: f32,
+    ) -> Result<(), BlackroomError> {
+        self.with_device(
+            |d| &d.pointer_absolute,
+            "absolute pointer",
+            |eis, device| eis.send_pointer_absolute(&authority.authorization(false), device, x, y),
+        )
+    }
+
+    pub fn scroll(
+        &mut self,
+        authority: &Authority,
+        dx: f32,
+        dy: f32,
+    ) -> Result<(), BlackroomError> {
+        self.with_device(
+            |d| &d.scroll,
+            "scroll",
+            |eis, device| eis.send_scroll_delta(&authority.authorization(false), device, dx, dy),
+        )
     }
 }
 

@@ -336,6 +336,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "blackroom-console"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "blackroom-core",
+ "blackroom-gnome",
+ "clap",
+ "ed25519-dalek",
+ "futures-util",
+ "getrandom 0.4.3",
+ "reis",
+ "remote-emergency-client",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "zbus",
+]
+
+[[package]]
 name = "blackroom-core"
 version = "0.1.0"
 dependencies = [
@@ -355,6 +378,7 @@ name = "blackroom-experiments"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blackroom-console",
  "blackroom-core",
  "blackroom-gnome",
  "clap",

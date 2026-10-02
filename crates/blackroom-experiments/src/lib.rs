@@ -4,8 +4,9 @@
 //!
 //! This crate is discardable scaffolding for the feasibility PoC, not
 //! production code (assessment §6.1 repository layout).
+pub use blackroom_console::eis_support;
+
 pub mod cli;
-pub mod eis_support;
 pub mod evidence;
 pub mod headless;
 pub mod introspect;
