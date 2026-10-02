@@ -101,6 +101,11 @@ struct Args {
     /// Seconds the isolated, grabbed state is held in the integrated probe.
     #[arg(long, default_value_t = 25, value_parser = clap::value_parser!(u64).range(5..=40), requires = "integrated_probe")]
     hold_secs: u64,
+    /// Integrated probe only: after the remote taps the operator types letters and moves the
+    /// touchpad for the rest of the hold (prompted on the page); passes only if the daemon read
+    /// that activity from the grabbed nodes while the page saw nothing but the injected keys.
+    #[arg(long, requires = "integrated_probe")]
+    physical_check: bool,
 }
 
 impl Args {
@@ -113,6 +118,10 @@ impl Args {
         anyhow::ensure!(
             !self.integrated_probe || self.watchdog_seconds == Some(120),
             "--integrated-probe needs --watchdog-seconds 120 (setup, hold and restore must finish before it fires)"
+        );
+        anyhow::ensure!(
+            !self.physical_check || self.hold_secs >= PHYSICAL_MIN_HOLD_SECS,
+            "--physical-check needs --hold-secs {PHYSICAL_MIN_HOLD_SECS} or more"
         );
         Ok(())
     }
@@ -417,6 +426,59 @@ mod tests {
         ));
         assert!(!original_topology_matches(&backup, &[original, hdmi]));
         assert!(!cleanup_verified(true, false, true, true));
+    }
+
+    #[test]
+    fn physical_check_passes_only_with_enough_real_activity_and_a_clean_page() {
+        let mut run = Integrated {
+            tally: Some(Json::Null),
+            non_key_events: Some(0),
+            grab_nodes: Some(4),
+            daemon_phase_during: Some("isolated".to_string()),
+            grab_restored: Some(true),
+            daemon_phase_after: Some("idle".to_string()),
+            lock_teardown: Some(LockTeardown {
+                engaged_after_ms: Some(1),
+                unlock: Some(Unlock {
+                    method: Some("loginctl"),
+                    ..Unlock::default()
+                }),
+            }),
+            ..Integrated::default()
+        };
+        assert!(integrated_pass(&run), "the plain probe needs no activity");
+        run.physical_check = true;
+        assert!(!integrated_pass(&run), "no reads read: inconclusive");
+        run.daemon_reads_end = Some(PHYSICAL_MIN_READS - 1);
+        assert!(!integrated_pass(&run));
+        run.daemon_reads_end = Some(PHYSICAL_MIN_READS);
+        assert!(integrated_pass(&run));
+        run.non_key_events = Some(1);
+        assert!(!integrated_pass(&run), "a leaked touchpad event fails it");
+        run.non_key_events = Some(0);
+        run.tally_notes.push("2 unexpected key events".to_string());
+        assert!(!integrated_pass(&run), "a leaked key fails it");
+    }
+
+    #[test]
+    fn physical_check_needs_a_long_enough_hold() {
+        let base = [
+            "exp06",
+            "--pause-after-isolate",
+            "--watchdog-seconds",
+            "120",
+            "--integrated-probe",
+            "--grab-socket",
+            "/run/x.sock",
+            "--physical-check",
+        ];
+        let mut short = base.to_vec();
+        short.extend(["--hold-secs", "25"]);
+        assert!(Args::try_parse_from(short).unwrap().validate().is_err());
+        let mut long = base.to_vec();
+        long.extend(["--hold-secs", "35"]);
+        assert!(Args::try_parse_from(long).unwrap().validate().is_ok());
+        assert!(Args::try_parse_from(["exp06", "--physical-check"]).is_err());
     }
 
     #[test]
@@ -1885,6 +1947,10 @@ const KEY_A: u32 = 30;
 const KEY_LEFTSHIFT: u32 = 42;
 const KEY_LEFT: u32 = 105;
 const BTN_LEFT: u32 = 272;
+/// The physical check needs time after the three remote taps for the operator to type and swipe.
+const PHYSICAL_MIN_HOLD_SECS: u64 = 30;
+/// Fewer grabbed-node events than this means nobody really typed or swiped: inconclusive, not a pass.
+const PHYSICAL_MIN_READS: u64 = 20;
 /// How long the page gets to regain focus by itself before the single focus click.
 const FOCUS_WAIT_BEFORE_CLICK: Duration = Duration::from_secs(3);
 const PAGE_WAIT: Duration = Duration::from_secs(300);
@@ -1918,6 +1984,9 @@ struct Integrated {
     grab_refused: Option<String>,
     daemon_phase_during: Option<String>,
     daemon_reads_during: Option<u64>,
+    /// Grabbed-node events the daemon read by the end of the hold (the operator's typing and swiping).
+    daemon_reads_end: Option<u64>,
+    physical_check: bool,
     injections: Vec<String>,
     tally: Option<Json>,
     tally_notes: Vec<String>,
@@ -1945,6 +2014,10 @@ fn integrated_pass(run: &Integrated) -> bool {
         && run.grab_nodes == Some(4)
         && run.daemon_phase_during.as_deref() == Some("isolated")
         && run.released_early.is_empty()
+        && (!run.physical_check
+            || run
+                .daemon_reads_end
+                .is_some_and(|reads| reads >= PHYSICAL_MIN_READS))
         && run.grab_restored == Some(true)
         && run.daemon_phase_after.as_deref() == Some("idle")
         && run.lock_teardown.as_ref().is_some_and(|lock| {
@@ -1972,6 +2045,11 @@ fn prepare_integrated<'a>(conn: &'a Connection, args: &Args) -> anyhow::Result<I
         "the session is locked or its lock state is unreadable"
     );
     let observer = Observer::start(OBSERVER_PAGE)?;
+    if args.physical_check {
+        observer.set_prompt(
+            "PHYSICAL INPUT TEST. Hands off everything until this line says TYPE AND SWIPE NOW.",
+        );
+    }
     println!("Open this in a browser on the desktop, press F11, keep it focused, touch nothing:");
     println!("  {}", observer.url());
     anyhow::ensure!(
@@ -1997,6 +2075,7 @@ fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) 
     let mut out = Integrated {
         remote_session_before_isolation: ctx.remote.is_some(),
         capture_frames_at_isolation: frames.load(Ordering::Relaxed),
+        physical_check: args.physical_check,
         ..Integrated::default()
     };
     let hold_started = Instant::now();
@@ -2074,7 +2153,28 @@ fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) 
     let hold = Duration::from_secs(args.hold_secs);
     let halfway = hold / 2;
     let mut sampled = false;
+    let mut stop_prompted = false;
+    if args.physical_check {
+        if injected {
+            ctx.observer.set_prompt(&format!(
+                "TYPE AND SWIPE NOW for about {} s: letters, digits and the touchpad only. No Ctrl, Alt, Super, Fn, lid or power button.",
+                args.hold_secs.saturating_sub(8)
+            ));
+        } else {
+            out.notes
+                .push("physical check skipped: no remote taps were judged".into());
+        }
+    }
     while hold_started.elapsed() < hold {
+        if args.physical_check
+            && injected
+            && !stop_prompted
+            && hold_started.elapsed() + Duration::from_secs(4) >= hold
+        {
+            stop_prompted = true;
+            ctx.observer
+                .set_prompt("STOP typing now. Hands off everything.");
+        }
         if !sampled && hold_started.elapsed() >= halfway {
             sampled = true;
             if let Some(connected) = client.as_mut()
@@ -2087,6 +2187,25 @@ fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) 
         thread::sleep(Duration::from_millis(200));
     }
     // Judged at the end of the hold, so anything the grab let through would be in it.
+    if let Some(connected) = client.as_mut()
+        && let Ok(status) = connected.status()
+    {
+        out.daemon_reads_end = status.reads;
+    }
+    if args.physical_check {
+        ctx.observer
+            .set_prompt("TEST OVER. Hands off: the screen returns by itself.");
+        if injected
+            && out
+                .daemon_reads_end
+                .is_none_or(|reads| reads < PHYSICAL_MIN_READS)
+        {
+            out.notes.push(format!(
+                "physical check inconclusive: the daemon read {:?} events from the grabbed nodes (< {PHYSICAL_MIN_READS})",
+                out.daemon_reads_end
+            ));
+        }
+    }
     ctx.observer.wait_beats(2, Duration::from_secs(3));
     out.tally = ctx.observer.snapshot(|state| state.tally.clone());
     // Without a tally reset the tally still holds the operator's pre-isolation F11, so it is not judged.

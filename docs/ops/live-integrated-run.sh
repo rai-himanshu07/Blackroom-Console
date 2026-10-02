@@ -5,6 +5,7 @@
 # Run it from the repo root IN YOUR OWN TERMINAL with the tablet SSH session open:
 #   docs/ops/live-integrated-run.sh --check    # read-only preflight, changes nothing
 #   docs/ops/live-integrated-run.sh            # the live run
+#   BLACKROOM_PHYSICAL_CHECK=1 docs/ops/live-integrated-run.sh   # also types/swipes during a 35 s hold
 #
 # Needs temporary ACLs on event2-5 (you run sudo, never the script):
 #   sudo setfacl -m u:user:rw /dev/input/event2 /dev/input/event3 /dev/input/event4 /dev/input/event5
@@ -22,6 +23,14 @@ LIVE=/run/user/1000/blackroom-live
 SOCK=$LIVE/emergency.sock
 SESS=$(loginctl show-user "$(id -un)" -p Display --value)
 EV=docs/experiments/evidence/exp06
+HOLD=25
+PHYSICAL=""
+PHYSICAL_NOTE=""
+if [ "${BLACKROOM_PHYSICAL_CHECK:-}" = "1" ]; then
+  HOLD=35
+  PHYSICAL="--physical-check"
+  PHYSICAL_NOTE="PHYSICAL INPUT CHECK: when the page says TYPE AND SWIPE NOW, type letters and digits and swipe the touchpad until it says STOP. No Ctrl, Alt, Super, Fn, lid or power button; leave the wireless dongle keyboard and mouse alone."
+fi
 fail=0
 bad() { echo "PREFLIGHT FAIL: $*"; fail=1; }
 
@@ -55,6 +64,7 @@ kept the lid open, and opened the tablet SSH session?
 Sequence: this terminal prints a URL; open it in Firefox, press F11, then hands off keyboard, touchpad,
 lid and power button. The panel goes black for about a minute, the lock screen shows for a few
 seconds, then everything returns by itself.
+$PHYSICAL_NOTE
 Recovery from the tablet: pkill -KILL -x remote-emergenc ; exp07_restore --keep-live-virtual --backup <path in the evidence dir> ;
 loginctl unlock-session $SESS. The restore watchdog fires 120 s after it is armed.
 EOF
@@ -81,7 +91,7 @@ sleep 1
 target/debug/blackroom emergency-status --socket "$SOCK" || { echo "daemon not answering"; exit 2; }
 
 target/debug/exp06_isolate_outputs --pause-after-isolate --watchdog-seconds 120 \
-  --integrated-probe --grab-socket "$SOCK" --hold-secs 25
+  --integrated-probe --grab-socket "$SOCK" --hold-secs "$HOLD" $PHYSICAL
 code=$?
 echo "exp06 exit code: $code"
 latest=$(ls -td "$EV"/*/ 2> /dev/null | head -n 1)
@@ -90,7 +100,7 @@ if [ -f "${latest}integrated.json" ]; then
 import json, sys
 j = json.load(open(sys.argv[1]))
 print("PASS" if j.get("pass") else "NOT PASS", sys.argv[1])
-for k in ("grab_nodes", "grab_refused", "daemon_phase_during", "released_early", "grab_restored",
+for k in ("grab_nodes", "grab_refused", "daemon_phase_during", "daemon_reads_end", "physical_check", "released_early", "grab_restored",
           "daemon_phase_after", "page_ready_after_isolation", "focus_click", "injections", "tally_notes",
           "non_key_events", "capture_frames_in_hold", "capture_error", "notes"):
     print(f"  {k}: {j.get(k)}")
