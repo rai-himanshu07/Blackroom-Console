@@ -274,7 +274,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
   - Gate: **FEAS-A** PASS; **Architecture Review #1** (Doc 11 §47): PROCEED / MODIFY /
     STOP recorded in `docs/HANDOFF.md`. Report.
 
-- [ ] **Phase 9 — Complete local lifecycle** (**LIVE STOP 2026-10-01: Shell SIGSEGV in the integrated probe; fixed, restore survived once on 2026-10-02, remote input under isolation untested; see `docs/gnome/display-isolation.md`**) (`11.P9`, `11.P10`, `11.P11`; Docs 10 Exp 13–20, 25, 30–36; 07 §9–§11, §18–§30; 05 §63–§72, §84–§99; 19 §30–§31 dev subset)
+- [ ] **Phase 9 — Complete local lifecycle** (**LIVE STOP 2026-10-01: Shell SIGSEGV in the integrated probe; fixed; two real-session runs on 2026-10-02 survived and the second passed the probe rule (remote input under isolation seen), physical-input blocking in the integrated hold and the rest of FEAS-F/H unproven; see `docs/gnome/display-isolation.md`**) (`11.P9`, `11.P10`, `11.P11`; Docs 10 Exp 13–20, 25, 30–36; 07 §9–§11, §18–§30; 05 §63–§72, §84–§99; 19 §30–§31 dev subset)
   - Files: `crates/gnome-session-agent/src/{transaction.rs, teardown.rs, recovery.rs}`
     wiring the real `GnomeBackend` into the Doc 07 §9 22-step activation, §10 rollback and
     §5.8 teardown; `crates/remote-hostd/` PoC controller (local only: no network, mocked

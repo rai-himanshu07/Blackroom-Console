@@ -1,0 +1,122 @@
+{
+  "remote_session_before_isolation": true,
+  "devices_seen_before_isolation": 0,
+  "page_ready_after_isolation": true,
+  "focus_click": null,
+  "grab_nodes": 4,
+  "grab_refused": null,
+  "daemon_phase_during": "isolated",
+  "daemon_reads_during": 0,
+  "injections": [
+    "remote_key_tap_shift: accepted",
+    "remote_key_tap_a: accepted",
+    "remote_key_tap_left: accepted"
+  ],
+  "tally": {
+    "buttons": [],
+    "epoch": 1,
+    "keys": [
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": true,
+        "t": 9901,
+        "type": "down"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 9901,
+        "type": "up"
+      },
+      {
+        "code": "KeyA",
+        "repeat": false,
+        "shift": false,
+        "t": 10254,
+        "type": "down"
+      },
+      {
+        "code": "KeyA",
+        "repeat": false,
+        "shift": false,
+        "t": 10255,
+        "type": "up"
+      },
+      {
+        "code": "ArrowLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 10606,
+        "type": "down"
+      },
+      {
+        "code": "ArrowLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 10606,
+        "type": "up"
+      }
+    ],
+    "pointer": {
+      "moves": 0,
+      "positions": []
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 250,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 1508,
+        "visibility": "visible"
+      },
+      {
+        "focus": false,
+        "fullscreen": true,
+        "t": 7287,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 8287,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "tally_notes": [],
+  "capture_frames_at_isolation": 0,
+  "capture_frames_in_hold": 1408,
+  "capture_error": null,
+  "grab_restored": true,
+  "released_early": [],
+  "daemon_phase_after": "idle",
+  "non_key_events": 0,
+  "lock_teardown": {
+    "engaged_after_ms": 687,
+    "unlock": {
+      "method": "loginctl",
+      "logind_exit": 0,
+      "logind_stderr": null,
+      "observed_after_ms": 930
+    }
+  },
+  "notes": [],
+  "pass": true
+}

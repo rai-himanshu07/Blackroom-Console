@@ -90,10 +90,13 @@ ScreenCast virtual-stream `monitors-changed-internal` handler dereferences a NUL
 (a PipeWire consumer is streaming) and the virtual monitor has no logical monitor, which is exactly what a physical-only
 restore config produces (same on upstream main). Earlier clean runs had no streaming consumer at restore. Rule: while a
 virtual-monitor stream may be enabled, every applied config must keep the virtual monitor (extra logical monitor), and
-the session is stopped afterwards; verified safe 8/8 on the headless Shell (scale 1.0 only) and once on the real session
-(2026-10-02 integrated probe: consumer streaming through isolation and restore, no crash, original topology restored, lock
-and logind unlock fine; `docs/experiments/evidence/exp06/2026-10-02/observation.md`; that run injected no input because the
-observer page lost focus at isolation, so remote input under isolation is still untested);
+the session is stopped afterwards; verified safe 8/8 on the headless Shell (scale 1.0 only) and on the real session in two
+integrated probe runs on 2026-10-02 (consumer streaming through isolation and restore, no crash, original topology
+restored, lock and logind unlock fine; `docs/experiments/evidence/exp06/2026-10-02/observation.md` and `2026-10-02-2/`).
+The first run injected no input because the observer page lost focus at isolation and never regained it; the second
+passed by the probe rule (remote Shift/A/Left accepted and seen exactly, no other page event, grab held and released), the
+page having regained focus by itself, so the gated focus click is unexercised and physical-input blocking was not
+touched (nobody used the machine);
 `exp07_restore --keep-live-virtual` (passed by both watchdogs of `exp06 --integrated-probe`) applies the same rule to the
 watchdog restore (unit-tested only; plain `exp07_restore` without the flag does not, so manual recovery with a live owner
 and a streaming consumer needs the flag). See the

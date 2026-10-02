@@ -175,3 +175,12 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   lost focus when the panel was isolated and never regained it, so no input was injected; remote input under isolation and
   physical-input blocking during the integrated hold (nobody touched the machine) remain unproven (FEAS-F/H integrated part).
   Harness defects: pre-isolation F11 left in the end-of-hold tally; `devices_seen_before_isolation` 0. One observation only.
+- 2026-10-02 13:16 (second operator-approved real-session integrated run, evidence exp06/2026-10-02-2; commit `508e198`
+  added a gated focus click and judged the tally only after a reset): **PASS by the probe rule**. Remote Shift/A/Left were
+  accepted under isolation and the page saw exactly them (no pointer, button or wheel event), the daemon isolated 4 nodes,
+  held and released the grab, capture streamed 1408 frames through isolation and restore, no Shell crash (same PID), original
+  topology and hash restored, lock 687 ms and logind unlock fine, cleanup complete. The page regained focus by itself after
+  1 s, so the focus click was not exercised (the first run, with other windows open, never regained focus; cause unverified).
+  Still unproven: physical-input blocking during the integrated hold (nobody touched the machine; the dongle is not grabbed),
+  the focus-click path, other topologies, repeats and soak. Phase 9 real-backend wiring, lifecycle experiments and Phase
+  10-11 remain open.
