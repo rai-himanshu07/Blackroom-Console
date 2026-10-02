@@ -4,5 +4,6 @@
 pub mod console;
 pub mod display;
 pub mod eis_support;
+pub mod server;
 
 pub use console::{ConsoleConfig, InputEvent, Phase, RemoteConsole, Status, StopReport};

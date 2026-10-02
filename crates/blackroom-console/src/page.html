@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Blackroom Console</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: #ddd; font: 14px system-ui, sans-serif; overflow: hidden; }
+  #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px; background: #181818; min-height: 46px; }
+  button { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; font: inherit; touch-action: manipulation; }
+  button.on { background: #1d5fb4; border-color: #5aa0ff; }
+  #stop { background: #8b1a1a; border-color: #d33; display: none; }
+  #start { background: #1a6b2a; border-color: #3c3; }
+  #status { margin-left: auto; opacity: .85; }
+  #mods { display: none; gap: 6px; flex-wrap: wrap; }
+  #stage { position: absolute; top: 58px; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; }
+  #screen { max-width: 100%; max-height: 100%; display: none; touch-action: none; user-select: none; -webkit-user-select: none; cursor: none; }
+  #kb { position: fixed; left: -100px; top: 0; width: 1px; height: 1px; opacity: 0; }
+  #msg { position: absolute; inset: 58px 0 0 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; white-space: pre-line; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="start">Start</button>
+  <button id="stop">Stop</button>
+  <span id="mods">
+    <button data-mod="ControlLeft">Ctrl</button>
+    <button data-mod="AltLeft">Alt</button>
+    <button data-mod="ShiftLeft">Shift</button>
+    <button data-mod="MetaLeft">Super</button>
+    <button data-tap="Escape">Esc</button>
+    <button data-tap="Tab">Tab</button>
+    <button data-tap="ArrowLeft">&larr;</button>
+    <button data-tap="ArrowUp">&uarr;</button>
+    <button data-tap="ArrowDown">&darr;</button>
+    <button data-tap="ArrowRight">&rarr;</button>
+    <button id="rclick">Right-click</button>
+    <button id="kbbtn">Keyboard</button>
+  </span>
+  <span id="status">idle</span>
+</div>
+<div id="stage"><img id="screen" alt="remote desktop" draggable="false"></div>
+<div id="msg">Press Start. The laptop screen goes blank and its keyboard and touchpad stop working until you press Stop.</div>
+<input id="kb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+<script>
+"use strict";
+// Linux evdev codes by KeyboardEvent.code (US layout positions).
+const CODES = {
+  Escape: 1, Digit1: 2, Digit2: 3, Digit3: 4, Digit4: 5, Digit5: 6, Digit6: 7, Digit7: 8, Digit8: 9, Digit9: 10, Digit0: 11,
+  Minus: 12, Equal: 13, Backspace: 14, Tab: 15, KeyQ: 16, KeyW: 17, KeyE: 18, KeyR: 19, KeyT: 20, KeyY: 21, KeyU: 22, KeyI: 23,
+  KeyO: 24, KeyP: 25, BracketLeft: 26, BracketRight: 27, Enter: 28, ControlLeft: 29, KeyA: 30, KeyS: 31, KeyD: 32, KeyF: 33,
+  KeyG: 34, KeyH: 35, KeyJ: 36, KeyK: 37, KeyL: 38, Semicolon: 39, Quote: 40, Backquote: 41, ShiftLeft: 42, Backslash: 43,
+  KeyZ: 44, KeyX: 45, KeyC: 46, KeyV: 47, KeyB: 48, KeyN: 49, KeyM: 50, Comma: 51, Period: 52, Slash: 53, ShiftRight: 54,
+  NumpadMultiply: 55, AltLeft: 56, Space: 57, CapsLock: 58, F1: 59, F2: 60, F3: 61, F4: 62, F5: 63, F6: 64, F7: 65, F8: 66,
+  F9: 67, F10: 68, NumLock: 69, ScrollLock: 70, Numpad7: 71, Numpad8: 72, Numpad9: 73, NumpadSubtract: 74, Numpad4: 75,
+  Numpad5: 76, Numpad6: 77, NumpadAdd: 78, Numpad1: 79, Numpad2: 80, Numpad3: 81, Numpad0: 82, NumpadDecimal: 83,
+  IntlBackslash: 86, F11: 87, F12: 88, NumpadEnter: 96, ControlRight: 97, NumpadDivide: 98, PrintScreen: 99, AltRight: 100,
+  Home: 102, ArrowUp: 103, PageUp: 104, ArrowLeft: 105, ArrowRight: 106, End: 107, ArrowDown: 108, PageDown: 109,
+  Insert: 110, Delete: 111, MetaLeft: 125, MetaRight: 126, ContextMenu: 127,
+};
+// Soft-keyboard text: US layout characters to [KeyboardEvent.code, shift].
+const CHARS = (() => {
+  const map = {};
+  for (const c of "abcdefghijklmnopqrstuvwxyz") { map[c] = ["Key" + c.toUpperCase(), false]; map[c.toUpperCase()] = ["Key" + c.toUpperCase(), true]; }
+  "1234567890".split("").forEach((c) => { map[c] = ["Digit" + c, false]; });
+  "!@#$%^&*()".split("").forEach((c, i) => { map[c] = ["Digit" + "1234567890"[i], true]; });
+  const pairs = [["-", "_", "Minus"], ["=", "+", "Equal"], ["[", "{", "BracketLeft"], ["]", "}", "BracketRight"],
+    ["\\", "|", "Backslash"], [";", ":", "Semicolon"], ["'", "\"", "Quote"], [",", "<", "Comma"], [".", ">", "Period"],
+    ["/", "?", "Slash"], ["`", "~", "Backquote"]];
+  for (const [plain, shifted, code] of pairs) { map[plain] = [code, false]; map[shifted] = [code, true]; }
+  map[" "] = ["Space", false];
+  return map;
+})();
+const BTN = { 0: 0x110, 1: 0x112, 2: 0x111 };
+
+const $ = (id) => document.getElementById(id);
+const screen = $("screen"), statusEl = $("status"), msg = $("msg"), mods = $("mods");
+let running = false;
+let queue = [];
+let flushing = false;
+const heldKeys = new Set();
+const heldButtons = new Set();
+const stickyMods = new Set();
+let rightClickNext = false;
+
+function say(text) { msg.textContent = text; msg.style.display = text ? "flex" : "none"; }
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return response;
+}
+
+function send(event) {
+  if (!running) return;
+  if (event.t === "move" && queue.length && queue[queue.length - 1].t === "move") queue[queue.length - 1] = event;
+  else queue.push(event);
+  flush();
+}
+
+async function flush() {
+  if (flushing) return;
+  flushing = true;
+  try {
+    while (queue.length && running) {
+      const batch = queue; queue = [];
+      const response = await post("/input", batch);
+      if (response.status === 409) { await refresh(); }
+    }
+  } catch (_) { /* the heartbeat decides when the link is lost */ }
+  flushing = false;
+}
+
+function keyEvent(code, down) {
+  const evdev = CODES[code];
+  if (evdev === undefined) return;
+  if (down) heldKeys.add(evdev); else heldKeys.delete(evdev);
+  send({ t: "key", code: evdev, down });
+}
+
+function tap(code) { keyEvent(code, true); keyEvent(code, false); }
+
+function releaseAll() {
+  for (const code of [...heldKeys]) send({ t: "key", code, down: false });
+  for (const code of [...heldButtons]) send({ t: "button", code, down: false });
+  heldKeys.clear(); heldButtons.clear(); stickyMods.clear();
+  mods.querySelectorAll("[data-mod]").forEach((b) => b.classList.remove("on"));
+}
+
+function position(event) {
+  const r = screen.getBoundingClientRect();
+  return { x: Math.min(1, Math.max(0, (event.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (event.clientY - r.top) / r.height)) };
+}
+
+// Pointer: mouse buttons map directly; one finger is move + left button; two fingers scroll; a long press is a right click.
+const touches = new Map();
+let longPress = null;
+let scrollLast = null;
+
+screen.addEventListener("pointerdown", (event) => {
+  if (!running) return;
+  screen.setPointerCapture(event.pointerId);
+  event.preventDefault();
+  if (event.pointerType === "mouse") {
+    send({ t: "move", ...position(event) });
+    const code = BTN[event.button];
+    if (code) { heldButtons.add(code); send({ t: "button", code, down: true }); }
+    return;
+  }
+  touches.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY });
+  if (touches.size === 1) {
+    send({ t: "move", ...position(event) });
+    if (rightClickNext) {
+      rightClickNext = false; $("rclick").classList.remove("on");
+      touches.get(event.pointerId).right = true;
+      heldButtons.add(0x111); send({ t: "button", code: 0x111, down: true });
+    } else {
+      heldButtons.add(0x110); send({ t: "button", code: 0x110, down: true });
+      longPress = setTimeout(() => {
+        const t = touches.get(event.pointerId);
+        if (t && Math.hypot(t.x - t.startX, t.y - t.startY) < 8) {
+          send({ t: "button", code: 0x110, down: false }); heldButtons.delete(0x110);
+          send({ t: "button", code: 0x111, down: true }); send({ t: "button", code: 0x111, down: false });
+          t.consumed = true;
+        }
+      }, 600);
+    }
+  } else {
+    clearTimeout(longPress);
+    if (heldButtons.has(0x110)) { send({ t: "button", code: 0x110, down: false }); heldButtons.delete(0x110); }
+    scrollLast = null;
+  }
+});
+
+screen.addEventListener("pointermove", (event) => {
+  if (!running) return;
+  if (event.pointerType === "mouse") { send({ t: "move", ...position(event) }); return; }
+  const t = touches.get(event.pointerId);
+  if (!t) return;
+  t.x = event.clientX; t.y = event.clientY;
+  if (touches.size === 1) { if (!t.consumed) send({ t: "move", ...position(event) }); }
+  else if (touches.size === 2) {
+    const y = [...touches.values()].reduce((sum, p) => sum + p.y, 0) / 2;
+    if (scrollLast !== null) send({ t: "scroll", dx: 0, dy: (scrollLast - y) * 2 });
+    scrollLast = y;
+  }
+});
+
+function pointerEnd(event) {
+  if (event.pointerType === "mouse") {
+    const code = BTN[event.button];
+    if (code && heldButtons.delete(code)) send({ t: "button", code, down: false });
+    return;
+  }
+  touches.delete(event.pointerId);
+  if (touches.size === 0) {
+    clearTimeout(longPress); scrollLast = null;
+    for (const code of [0x110, 0x111]) if (heldButtons.delete(code)) send({ t: "button", code, down: false });
+  }
+}
+screen.addEventListener("pointerup", pointerEnd);
+screen.addEventListener("pointercancel", pointerEnd);
+screen.addEventListener("contextmenu", (event) => event.preventDefault());
+screen.addEventListener("wheel", (event) => {
+  if (!running) return;
+  event.preventDefault();
+  const unit = event.deltaMode === 1 ? 15 : event.deltaMode === 2 ? 300 : 1;
+  send({ t: "scroll", dx: event.deltaX * unit, dy: event.deltaY * unit });
+}, { passive: false });
+
+// Hardware keyboard: everything goes to the laptop while a session runs.
+window.addEventListener("keydown", (event) => {
+  if (!running || CODES[event.code] === undefined) return;
+  event.preventDefault();
+  if (!event.repeat) keyEvent(event.code, true);
+});
+window.addEventListener("keyup", (event) => {
+  if (!running || CODES[event.code] === undefined) return;
+  event.preventDefault();
+  keyEvent(event.code, false);
+});
+
+// Soft keyboard (tablets): characters arrive as text input, not as key events.
+const kb = $("kb");
+kb.addEventListener("beforeinput", (event) => {
+  if (!running) return;
+  event.preventDefault();
+  if (event.inputType === "deleteContentBackward") tap("Backspace");
+  else if (event.inputType === "insertLineBreak" || event.inputType === "insertParagraph") tap("Enter");
+  else if (event.data) {
+    for (const ch of event.data) {
+      const entry = CHARS[ch];
+      if (!entry) continue;
+      if (entry[1]) keyEvent("ShiftLeft", true);
+      tap(entry[0]);
+      if (entry[1] && !stickyMods.has("ShiftLeft")) keyEvent("ShiftLeft", false);
+    }
+  }
+});
+$("kbbtn").addEventListener("click", () => { kb.focus(); });
+// A focused button would swallow Space and Enter meant for the laptop.
+$("bar").addEventListener("click", (event) => { if (event.target.tagName === "BUTTON" && event.target.id !== "kbbtn") event.target.blur(); });
+
+mods.querySelectorAll("[data-mod]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const code = button.dataset.mod;
+    const on = !stickyMods.has(code);
+    if (on) stickyMods.add(code); else stickyMods.delete(code);
+    button.classList.toggle("on", on);
+    keyEvent(code, on);
+  });
+});
+mods.querySelectorAll("[data-tap]").forEach((button) => button.addEventListener("click", () => tap(button.dataset.tap)));
+$("rclick").addEventListener("click", () => { rightClickNext = !rightClickNext; $("rclick").classList.toggle("on", rightClickNext); });
+
+window.addEventListener("blur", releaseAll);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
+
+function show(state) {
+  running = state.phase === "running";
+  $("start").style.display = running ? "none" : "";
+  $("stop").style.display = running ? "" : "none";
+  mods.style.display = running ? "flex" : "none";
+  if (running) {
+    if (!screen.dataset.live) { screen.dataset.live = "1"; screen.src = "/video?" + Date.now(); }
+    screen.style.display = "block";
+    say(state.notes && state.notes.length ? state.notes.join("\n") : "");
+    statusEl.textContent = `running ${state.width}x${state.height}`;
+  } else {
+    delete screen.dataset.live; screen.removeAttribute("src"); screen.style.display = "none";
+    statusEl.textContent = state.phase;
+    const stop = state.last_stop;
+    if (stop) say(`Stopped: ${stop.reason}\nDisplay restored: ${stop.topology_restored}. Session locked: ${stop.locked}.` + (stop.errors.length ? "\nProblems: " + stop.errors.join("; ") : ""));
+    else if (state.phase === "idle") say("Press Start. The laptop screen goes blank and its keyboard and touchpad stop working until you press Stop.");
+  }
+}
+
+async function refresh() {
+  try {
+    const response = await fetch("/status", { credentials: "same-origin" });
+    if (response.ok) show(await response.json());
+    else if (response.status === 401) say("Not authorised: open the URL printed at start.");
+  } catch (_) { statusEl.textContent = "no connection"; }
+}
+
+$("start").addEventListener("click", async () => {
+  say("Starting...");
+  $("start").disabled = true;
+  try {
+    const response = await post("/start");
+    const body = await response.json();
+    if (!response.ok) say("Could not start: " + (body.error || response.status));
+    else show(body);
+  } catch (error) { say("Could not start: " + error); }
+  $("start").disabled = false;
+});
+
+$("stop").addEventListener("click", async () => {
+  releaseAll();
+  await flush();
+  running = false;
+  say("Stopping...");
+  try { await post("/stop"); } catch (_) { /* status below shows the outcome */ }
+  await refresh();
+});
+
+// The laptop stops the session if this heartbeat is silent for 15 s.
+setInterval(() => { if (running) post("/input", []).catch(() => {}); }, 2000);
+setInterval(refresh, 2000);
+refresh();
+</script>
+</body>
+</html>
