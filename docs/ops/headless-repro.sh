@@ -20,7 +20,7 @@ log=$(mktemp /tmp/br-headless-shell.XXXXXX)
 runner=()
 [ -n "${BR_GDB:-}" ] && runner=(gdb -batch -nx -ex 'handle SIGPIPE nostop noprint pass' -ex run -ex 'bt 14' \
   -ex 'info sharedlibrary libmutter' -ex 'info registers rip rax' -ex 'x/6i $pc' --args)
-timeout -k 3 150 "${runner[@]}" gnome-shell --headless --wayland --no-x11 --wayland-display=blackroom-repro \
+timeout -k 3 "${BR_SHELL_TIMEOUT:-150}" "${runner[@]}" gnome-shell --headless --wayland --no-x11 --wayland-display=blackroom-repro \
   --virtual-monitor 1920x1080 >"$log" 2>&1 &
 shell=$!
 ready=0
