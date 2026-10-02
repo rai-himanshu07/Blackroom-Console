@@ -451,6 +451,144 @@ impl EiConnection {
         })
     }
 
+    /// One key press or release; a held key is a press now and a release later.
+    pub fn send_key(
+        &mut self,
+        authorization: &InputAuthorization<'_>,
+        resumed: &reis::event::DeviceResumed,
+        keycode: u32,
+        pressed: bool,
+    ) -> Result<(), BlackroomError> {
+        let keyboard = resumed
+            .device
+            .interface::<reis::ei::Keyboard>()
+            .ok_or_else(|| {
+                BlackroomError::new(ErrorCode::MutterUnavailable, "EIS keyboard unavailable")
+            })?;
+        let state = if pressed {
+            reis::ei::keyboard::KeyState::Press
+        } else {
+            reis::ei::keyboard::KeyState::Released
+        };
+        self.emit_frame(authorization, resumed, keycode, "keyboard", |keycode| {
+            keyboard.key(keycode, state);
+        })
+    }
+
+    /// One button press or release; a drag is a press, motion, then a release.
+    pub fn send_button(
+        &mut self,
+        authorization: &InputAuthorization<'_>,
+        resumed: &reis::event::DeviceResumed,
+        button_code: u32,
+        pressed: bool,
+    ) -> Result<(), BlackroomError> {
+        let button = resumed
+            .device
+            .interface::<reis::ei::Button>()
+            .ok_or_else(|| {
+                BlackroomError::new(ErrorCode::MutterUnavailable, "EIS button unavailable")
+            })?;
+        let state = if pressed {
+            reis::ei::button::ButtonState::Press
+        } else {
+            reis::ei::button::ButtonState::Released
+        };
+        self.emit_frame(authorization, resumed, button_code, "button", |code| {
+            button.button(code, state);
+        })
+    }
+
+    /// Moves the pointer to `(x, y)` in the device's region (logical pixels of the monitor).
+    pub fn send_pointer_absolute(
+        &mut self,
+        authorization: &InputAuthorization<'_>,
+        resumed: &reis::event::DeviceResumed,
+        x: f32,
+        y: f32,
+    ) -> Result<(), BlackroomError> {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(BlackroomError::new(
+                ErrorCode::IpcInvalidMessage,
+                "EIS absolute pointer position must be finite",
+            ));
+        }
+        let pointer = resumed
+            .device
+            .interface::<reis::ei::PointerAbsolute>()
+            .ok_or_else(|| {
+                BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    "EIS absolute pointer unavailable",
+                )
+            })?;
+        self.emit_frame(
+            authorization,
+            resumed,
+            (x, y),
+            "absolute pointer",
+            |(x, y)| {
+                pointer.motion_absolute(x, y);
+            },
+        )
+    }
+
+    /// Validates the lease, then sends one framed event on an active device. `write` must only emit
+    /// the event, so a failure never leaves emulation started.
+    fn emit_frame<T>(
+        &mut self,
+        authorization: &InputAuthorization<'_>,
+        resumed: &reis::event::DeviceResumed,
+        token: T,
+        label: &'static str,
+        write: impl FnOnce(T),
+    ) -> Result<(), BlackroomError> {
+        authorization.validate()?;
+        let deadline = Instant::now() + Duration::from_millis(10);
+        while Instant::now() < deadline {
+            if self
+                .next_event_until(deadline.saturating_duration_since(Instant::now()))?
+                .is_none()
+            {
+                break;
+            }
+        }
+        authorization.dispatch(token, |token| {
+            if !self.is_ready()
+                || !self
+                    .active_devices
+                    .iter()
+                    .any(|(device, serial)| device == &resumed.device && *serial == resumed.serial)
+            {
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    format!("EIS {label} device is not active"),
+                ));
+            }
+            let sequence = self.sequence.checked_add(1).ok_or_else(|| {
+                BlackroomError::new(ErrorCode::MutterUnavailable, "EIS sequence exhausted")
+            })?;
+            let timestamp = monotonic_micros()?;
+            self.sequence = sequence;
+            resumed
+                .device
+                .device()
+                .start_emulating(resumed.serial, sequence);
+            write(token);
+            resumed.device.device().frame(resumed.serial, timestamp);
+            resumed.device.device().stop_emulating(resumed.serial);
+            if self.context.flush().is_err() {
+                self.connection = None;
+                self.converter = None;
+                return Err(BlackroomError::new(
+                    ErrorCode::MutterUnavailable,
+                    format!("EIS {label} delivery failed"),
+                ));
+            }
+            Ok(())
+        })
+    }
+
     pub fn next_event_until(
         &mut self,
         timeout: Duration,
