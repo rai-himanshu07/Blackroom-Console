@@ -92,6 +92,10 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| "blackroom_console=info,blackroom_gnome=info".into()),
         )
         .init();
+    // Registered before anything starts: a closed terminal sends SIGHUP and the default action would
+    // kill the process with the panel still black.
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let mut hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let args = Args::parse();
     if let Some(socket) = &args.grab_socket {
         anyhow::ensure!(
@@ -164,17 +168,12 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_handle = handle.clone();
     axum::serve(http, app)
         .with_graceful_shutdown(async move {
-            let mut terminate =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                    .expect("install the SIGTERM handler");
-            // A closed terminal sends SIGHUP; without this the panel would stay black.
-            let mut hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
-                .expect("install the SIGHUP handler");
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {}
-                _ = terminate.recv() => {}
-                _ = hangup.recv() => {}
-            }
+            let signal = tokio::select! {
+                _ = tokio::signal::ctrl_c() => "SIGINT",
+                _ = terminate.recv() => "SIGTERM",
+                _ = hangup.recv() => "SIGHUP",
+            };
+            tracing::info!(signal, "shutdown signal received");
             let report = tokio::task::spawn_blocking(move || shutdown_console.stop()).await;
             tracing::info!(?report, "shut down");
             shutdown_handle.graceful_shutdown(Some(Duration::from_secs(3)));
