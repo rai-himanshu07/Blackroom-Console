@@ -13,14 +13,14 @@ It describes policy; live source files and project commands remain authoritative
 - Optional integration guidance: none
 - Engineering rigor: `strong`
 - Installation surface: `governed`
-- Plan tier: `compact`
+- Plan tier: `mini`
 - Validation tier: `focused`
 - Memory policy: `on-demand`
 - Code-intelligence policy: `on-demand`
 - Memory wing: `blackroom_console`
 - codebase-memory project: `Blackroom_Console`
 - Session profile: `auto`
-- Policy overrides: implementation-first; necessary core experiments only (2026-09-27)
+- Policy overrides: implementation-first; necessary core experiments only (2026-09-27); MVP fast path, standing live approval, no routine reviews, light evidence (2026-10-02, `docs/plans/plan-20261002-mvp-fast-path.md`)
 
 ## Command overrides
 
@@ -40,14 +40,14 @@ were `ruff check .` / `pytest -x -q` / `pyright`.)
 
 ## Concrete policy
 
-- Planning gate: inline intent for bounded work, compact plan for coupled work; governed risk record only for security, migrations, live host mutation, or release
+- Planning gate: inline intent by default; a compact plan only for a coupled multi-crate change; a governed record for a release only
 - Validation: one smallest affected check per coherent change; broad relevant checks once at an integration or release boundary, or for a named cross-cutting risk
 - Documentation and handoff: update at meaningful multi-session checkpoints; keep operator evidence for live experiments
 - Memory lifecycle: retrieve project-scoped decisions when needed; checkpoint durable decisions once per substantial session
 - Code intelligence: use the graph for unknown structure or impact, not known-file or literal work; verify live files
 - Change isolation: inspect the approved scope and preserve transactional failure recovery; no extra reviewer for routine progress
 - Safety and approvals: hard path, secret, sandbox, destructive-operation, preview, collision, and transactional safeguards remain active
-- Review: one independent read-only review for a new high-risk mechanism, changed recovery contract, or release; not per offline slice or same-mechanism supervised diagnostic
+- Review: none unless the user asks, plus one at release; not per mechanism, recovery change, or live run
 - Test path: focused
 - Reviewed local protocol guard: disabled (no Stop/agentStop registrations)
 
@@ -56,13 +56,12 @@ were `ruff check .` / `pytest -x -q` / `pyright`.)
 1. Inspect the live project and reuse existing patterns before editing.
 2. Choose inline, compact, or governed routing by actual task risk, not by installation surface.
 3. Run the affected check after a coherent edit; run broad checks once when integration or release requires them.
-4. Continue independent offline host, gateway, and browser work even while a live
-	feasibility gate is open. Keep the live capability disabled and record the gap.
-5. Run only a bounded experiment that answers a named unknown essential to the
-	supported core workflow; defer broad matrices, repetitions, and optional
-	variants. Apply `docs/ops/experiment-safety.md` for every live mutation.
-6. Keep a short handoff and accurate live evidence. Request one independent
-	review for a new high-risk mechanism, changed recovery contract, or release.
+4. Build the MVP vertical slice (`docs/plans/plan-20261002-mvp-fast-path.md`); gates already
+        passed with limits are accepted and are not reopened.
+5. Run a live experiment only when it unblocks the MVP; the standing approval and light
+        evidence rules in `docs/ops/experiment-safety.md` apply to the validated flow.
+6. Keep a short handoff and one log line per live run. Independent review only at release
+        or when asked.
 
 ## Installed file contract
 

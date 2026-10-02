@@ -1,5 +1,8 @@
 # Plan: Blackroom Console — Phase-wise Implementation Roadmap (Phases 0–20)
 
+> **2026-10-02:** build order is overridden by `docs/plans/plan-20261002-mvp-fast-path.md`; phases not on that list are deferred until the MVP works.
+
+
 **Created:** 2026-09-04
 **Status:** approved
 **Approved by:** user (Himanshu), 2026-09-05 — licence GPL-3.0 (SPDX `GPL-3.0-or-later`); AMD hardware `UNKNOWN` for v1
