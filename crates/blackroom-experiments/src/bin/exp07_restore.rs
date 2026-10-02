@@ -48,6 +48,10 @@ struct Args {
     /// Set by `exp06 --integrated-probe`'s watchdogs, where a consumer may be streaming.
     #[arg(long)]
     keep_live_virtual: bool,
+    /// Lock the backed-up session after the restore attempt, pass or fail (dead-man restores:
+    /// the owner is gone, so nothing may be left unlocked). Never unlocks.
+    #[arg(long)]
+    lock_after: bool,
 }
 
 // ---------------------------------------------------------------------
@@ -634,6 +638,19 @@ fn main() -> anyhow::Result<()> {
         }
         thread::sleep(Duration::from_millis(150));
     };
+
+    if args.lock_after {
+        let locked = std::process::Command::new("loginctl")
+            .args(["lock-session", &backup.session_id])
+            .stdin(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        println!(
+            "lock-session {}: {}",
+            backup.session_id,
+            if locked { "ok" } else { "FAILED" }
+        );
+    }
 
     let findings = Findings {
         backup_path: args.backup.display().to_string(),

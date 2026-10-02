@@ -215,6 +215,9 @@ pub fn rewrite_profile_level_id(offer_sdp: &str, payload: u8, id: &str) -> Strin
     out
 }
 
+/// Receives one text message from the browser's input data channel.
+pub type InputSink = Arc<dyn Fn(&str) + Send + Sync>;
+
 pub struct WebRtcSession {
     pipeline: gst::Pipeline,
     rtc: gst::Element,
@@ -235,6 +238,7 @@ impl WebRtcSession {
         tuning: &Arc<VideoTuning>,
         bitrate_kbps: u32,
         h264: &H264Offer,
+        input: InputSink,
     ) -> Result<Self, String> {
         let payload = h264.payload;
         let encoder = pick_encoder()?;
@@ -266,6 +270,18 @@ impl WebRtcSession {
         let encoder_element = pipeline.by_name("enc").ok_or("encoder missing")?;
         let payloader = pipeline.by_name("pay").ok_or("payloader missing")?;
         let source = pipeline.by_name("src").ok_or("source missing")?;
+
+        // The browser opens the channel in its offer; HTTP input stays as the fallback.
+        rtc.connect("on-data-channel", false, move |values| {
+            let channel = values.get(1)?.get::<gst_webrtc::WebRTCDataChannel>().ok()?;
+            let input = Arc::clone(&input);
+            channel.connect_on_message_string(move |_, text| {
+                if let Some(text) = text {
+                    input(text);
+                }
+            });
+            None
+        });
 
         let failure = Arc::new(Mutex::new(None));
         if let Some(bus) = pipeline.bus() {

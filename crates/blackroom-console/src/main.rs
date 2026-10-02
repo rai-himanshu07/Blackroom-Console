@@ -167,9 +167,13 @@ async fn main() -> anyhow::Result<()> {
             let mut terminate =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                     .expect("install the SIGTERM handler");
+            // A closed terminal sends SIGHUP; without this the panel would stay black.
+            let mut hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
+                .expect("install the SIGHUP handler");
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {}
                 _ = terminate.recv() => {}
+                _ = hangup.recv() => {}
             }
             let report = tokio::task::spawn_blocking(move || shutdown_console.stop()).await;
             tracing::info!(?report, "shut down");

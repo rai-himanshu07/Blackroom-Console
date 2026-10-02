@@ -58,6 +58,16 @@ check("server reports the encoder", typeof stats.s.webrtc_encoder === "string", 
 check("quality applied", stats.s.quality === "high");
 check("no webrtc pipeline error", !stats.s.webrtc_error, `(${stats.s.webrtc_error})`);
 
+// Input over the data channel: accepted by the server without a single HTTP /input batch.
+const statusJson = "fetch('/status',{credentials:'same-origin'}).then(r=>r.json())";
+check("input data channel is open", (await js("!!inputChannel && inputChannel.readyState === 'open'")) === true);
+const acceptedBefore = (await js(statusJson)).input_accepted;
+await js("globalThis.__httpBatches = 0; const orig = post; post = (path, body) => { if (path === '/input' && body && body.length) __httpBatches++; return orig(path, body); }; tap('ShiftLeft')");
+await sleep(1500);
+const acceptedAfter = (await js(statusJson)).input_accepted;
+check("data-channel input accepted", acceptedAfter - acceptedBefore >= 2, `(${acceptedBefore} -> ${acceptedAfter})`);
+check("no HTTP input batch was needed", (await js("__httpBatches")) === 0);
+
 await js("document.getElementById('quality').value = 'low'; document.getElementById('quality').dispatchEvent(new Event('change', {bubbles: true}))");
 await sleep(1500);
 check("quality changed live", (await js("fetch('/status',{credentials:'same-origin'}).then(r=>r.json()).then(s=>s.quality)")) === "low");

@@ -233,6 +233,7 @@ pub fn systemd_run_args(
         "--backup".into(),
         backup.display().to_string(),
         "--keep-live-virtual".into(),
+        "--lock-after".into(),
     ]
 }
 
@@ -400,7 +401,8 @@ mod tests {
         assert!(args.contains(&"--timer-property=AccuracySec=1s".to_string()));
         assert!(args.contains(&"--on-active=60s".to_string()));
         assert!(args.contains(&"--working-directory=/repo".to_string()));
-        assert_eq!(args.last().map(String::as_str), Some("--keep-live-virtual"));
+        assert_eq!(args.last().map(String::as_str), Some("--lock-after"));
+        assert!(args.contains(&"--keep-live-virtual".to_string()));
         let dash = args.iter().position(|a| a == "--").unwrap();
         assert!(args[dash + 1].starts_with('/'));
     }

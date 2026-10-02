@@ -73,7 +73,7 @@ cleanup() {
   rmdir "$LIVE" 2> /dev/null
 }
 trap cleanup EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' INT TERM HUP
 
 install -d -m 700 "$LIVE" || exit 2
 # 15 chars: the kernel truncates comm, a longer name would silently match nothing.

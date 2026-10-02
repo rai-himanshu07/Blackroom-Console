@@ -123,7 +123,7 @@ async function post(path, body) {
 }
 
 // ---- video: WebRTC H.264 first, MJPEG as the fallback ----
-let pc = null, usingRtc = false, videoStarted = false, statsTimer = null, lastStats = null, statsText = "", transportNote = "";
+let pc = null, inputChannel = null, usingRtc = false, videoStarted = false, statsTimer = null, lastStats = null, statsText = "", transportNote = "";
 
 function surface() { return usingRtc ? rtcVideo : mjpeg; }
 
@@ -136,6 +136,7 @@ function contentRect() {
 }
 
 function closeRtc() {
+  inputChannel = null;
   if (pc) { pc.onconnectionstatechange = null; pc.close(); pc = null; }
   rtcVideo.srcObject = null; rtcVideo.style.display = "none";
   usingRtc = false;
@@ -171,6 +172,9 @@ async function startWebRtc() {
   const peer = new RTCPeerConnection({ iceServers: [] });
   pc = peer;
   peer.addTransceiver("video", { direction: "recvonly" });
+  const channel = peer.createDataChannel("input");
+  channel.onopen = () => { if (pc === peer) inputChannel = channel; };
+  channel.onclose = () => { if (inputChannel === channel) inputChannel = null; };
   peer.ontrack = (event) => {
     rtcVideo.srcObject = event.streams[0] || new MediaStream([event.track]);
     try { event.receiver.playoutDelayHint = 0; event.receiver.jitterBufferTarget = 0; } catch (_) { /* optional */ }
@@ -229,13 +233,23 @@ function send(event) {
   flush();
 }
 
+// Data channel while it is open, HTTP otherwise (and when a send fails).
+async function sendInput(batch) {
+  const channel = inputChannel;
+  if (channel && channel.readyState === "open") {
+    try { channel.send(JSON.stringify(batch)); return { status: 204 }; }
+    catch (_) { inputChannel = null; }
+  }
+  return post("/input", batch);
+}
+
 async function flush() {
   if (flushing) return;
   flushing = true;
   try {
     while (queue.length && running) {
       const batch = queue; queue = [];
-      const response = await post("/input", batch);
+      const response = await sendInput(batch);
       if (response.status === 409) { await refresh(); }
     }
   } catch (_) { /* the heartbeat decides when the link is lost */ }
@@ -530,7 +544,7 @@ $("stop").addEventListener("click", async () => {
 });
 
 // The laptop stops the session if this heartbeat is silent for 15 s.
-setInterval(() => { if (running) post("/input", []).catch(() => {}); }, 2000);
+setInterval(() => { if (running) sendInput([]).catch(() => {}); }, 2000);
 setInterval(refresh, 2000);
 refresh();
 </script>

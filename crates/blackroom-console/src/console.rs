@@ -26,7 +26,7 @@ use zbus::blocking::Connection;
 
 use crate::display::{self, Watchdog};
 use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote};
-use crate::webrtc::{WebRtcSession, pick_h264};
+use crate::webrtc::{InputSink, WebRtcSession, pick_h264};
 
 const TICK: Duration = Duration::from_millis(25);
 const MAINTENANCE_EVERY: Duration = Duration::from_millis(100);
@@ -39,6 +39,8 @@ const WATCHDOG_SECONDS: u64 = 60;
 const WATCHDOG_EVERY: Duration = Duration::from_secs(20);
 const SETTLE: Duration = Duration::from_secs(10);
 const SESSION_TTL: Duration = Duration::from_secs(24 * 3600);
+/// Same cap as the `POST /input` body.
+const MAX_INPUT_MESSAGE: usize = 64 * 1024;
 const HEADLESS_SESSION: &str = "headless";
 /// GNOME refuses remote sessions on a locked screen unless the Blackroom extension lifts that.
 const LOCKED_HINT: &str = " (the screen is locked: enable the blackroom-locked-remote extension, see docs/ops/README.md, or unlock locally)";
@@ -274,6 +276,21 @@ impl RemoteConsole {
             .map_err(|_| "console actor is gone".to_string())
     }
 
+    /// One data-channel message: the same JSON array as `POST /input`; bad messages are dropped.
+    fn input_json(&self, text: &str) {
+        if text.len() > MAX_INPUT_MESSAGE {
+            return;
+        }
+        match serde_json::from_str::<Vec<InputEvent>>(text) {
+            Ok(events) => {
+                if let Err(error) = self.input(events) {
+                    tracing::debug!(error, "data-channel input refused");
+                }
+            }
+            Err(_) => tracing::debug!("data-channel input malformed"),
+        }
+    }
+
     pub fn beat(&self) {
         *lock_ok(&self.shared.beat) = Instant::now();
     }
@@ -308,7 +325,9 @@ impl RemoteConsole {
         }
         let quality = *lock_ok(&self.shared.quality);
         let h264 = pick_h264(offer_sdp).ok_or("the browser offers no usable H.264")?;
-        let session = WebRtcSession::start(&tuning, quality.bitrate_kbps(), &h264)?;
+        let console = self.clone();
+        let input: InputSink = Arc::new(move |text| console.input_json(text));
+        let session = WebRtcSession::start(&tuning, quality.bitrate_kbps(), &h264, input)?;
         let answer = session.answer(offer_sdp);
         let mut slot = lock_ok(&self.shared.webrtc);
         // Stop may have run while negotiating: its teardown has already passed.
@@ -766,11 +785,8 @@ impl<'c> Active<'c> {
             ..StopReport::default()
         };
 
-        if let Some(mut client) = self.grab.take() {
-            self.released_early.extend(client.take_released());
-            report.released_early.clone_from(&self.released_early);
-            report.grab_released = Some(client.restore().is_ok());
-        }
+        // The grab is held until after the lock so local input never reaches an unlocked desktop.
+        self.renew_grab();
 
         if let Some(remote) = self.remote.as_mut() {
             for code in std::mem::take(&mut self.held_keys) {
@@ -857,10 +873,23 @@ impl<'c> Active<'c> {
             watchdog.disarm();
         }
 
+        self.renew_grab();
         if self.isolated && !self.config.headless {
             report.locked = Some(display::lock_session(&self.session.session_id));
         }
+
+        if let Some(mut client) = self.grab.take() {
+            self.released_early.extend(client.take_released());
+            report.released_early.clone_from(&self.released_early);
+            report.grab_released = Some(client.restore().is_ok());
+        }
         report
+    }
+
+    fn renew_grab(&mut self) {
+        if let Some(client) = self.grab.as_mut() {
+            let _ = client.renew();
+        }
     }
 }
 
