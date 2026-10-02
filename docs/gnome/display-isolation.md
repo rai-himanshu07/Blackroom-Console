@@ -90,13 +90,14 @@ ScreenCast virtual-stream `monitors-changed-internal` handler dereferences a NUL
 (a PipeWire consumer is streaming) and the virtual monitor has no logical monitor, which is exactly what a physical-only
 restore config produces (same on upstream main). Earlier clean runs had no streaming consumer at restore. Rule: while a
 virtual-monitor stream may be enabled, every applied config must keep the virtual monitor (extra logical monitor), and
-the session is stopped afterwards; verified safe 8/8 on the headless Shell (scale 1.0 only) and on the real session in two
-integrated probe runs on 2026-10-02 (consumer streaming through isolation and restore, no crash, original topology
-restored, lock and logind unlock fine; `docs/experiments/evidence/exp06/2026-10-02/observation.md` and `2026-10-02-2/`).
-The first run injected no input because the observer page lost focus at isolation and never regained it; the second
-passed by the probe rule (remote Shift/A/Left accepted and seen exactly, no other page event, grab held and released), the
-page having regained focus by itself, so the gated focus click is unexercised and physical-input blocking was not
-touched (nobody used the machine);
+the session is stopped afterwards; verified safe 8/8 on the headless Shell (scale 1.0 only) and on the real session in four
+integrated probe runs on 2026-10-02 (consumer streaming through isolation and restore, no crash in any, original topology
+restored, lock and logind unlock fine; `docs/experiments/evidence/exp06/2026-10-02*/observation.md`).
+Run 1 injected no input because the observer page lost focus at isolation and never regained it; run 2 passed by the probe
+rule (remote Shift/A/Left accepted and seen exactly, no other page event, grab held and released); run 3 was inconclusive
+(the operator could not see the page prompts on the blank panel); run 4 passed with the physical-input check: the operator
+typed and swiped, the daemon read 1390 events from the grabbed nodes and the page saw only the three injected keys, and the
+gated focus click refocused the page once. One passing run each; the dongle devices are not grabbed;
 `exp07_restore --keep-live-virtual` (passed by both watchdogs of `exp06 --integrated-probe`) applies the same rule to the
 watchdog restore (unit-tested only; plain `exp07_restore` without the flag does not, so manual recovery with a live owner
 and a streaming consumer needs the flag). See the

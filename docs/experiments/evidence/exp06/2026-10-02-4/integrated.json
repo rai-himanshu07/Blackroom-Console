@@ -1,0 +1,124 @@
+{
+  "remote_session_before_isolation": true,
+  "devices_seen_before_isolation": 0,
+  "page_ready_after_isolation": true,
+  "focus_click": "accepted",
+  "grab_nodes": 4,
+  "grab_refused": null,
+  "daemon_phase_during": "isolated",
+  "daemon_reads_during": 538,
+  "daemon_reads_end": 1390,
+  "physical_check": true,
+  "injections": [
+    "remote_key_tap_shift: accepted",
+    "remote_key_tap_a: accepted",
+    "remote_key_tap_left: accepted"
+  ],
+  "tally": {
+    "buttons": [],
+    "epoch": 1,
+    "keys": [
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": true,
+        "t": 13159,
+        "type": "down"
+      },
+      {
+        "code": "ShiftLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 13159,
+        "type": "up"
+      },
+      {
+        "code": "KeyA",
+        "repeat": false,
+        "shift": false,
+        "t": 13517,
+        "type": "down"
+      },
+      {
+        "code": "KeyA",
+        "repeat": false,
+        "shift": false,
+        "t": 13517,
+        "type": "up"
+      },
+      {
+        "code": "ArrowLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 13865,
+        "type": "down"
+      },
+      {
+        "code": "ArrowLeft",
+        "repeat": false,
+        "shift": false,
+        "t": 13865,
+        "type": "up"
+      }
+    ],
+    "pointer": {
+      "moves": 0,
+      "positions": []
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 251,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 2009,
+        "visibility": "visible"
+      },
+      {
+        "focus": false,
+        "fullscreen": true,
+        "t": 7767,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 11521,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "tally_notes": [],
+  "capture_frames_at_isolation": 0,
+  "capture_frames_in_hold": 2114,
+  "capture_error": null,
+  "grab_restored": true,
+  "released_early": [],
+  "daemon_phase_after": "idle",
+  "non_key_events": 0,
+  "lock_teardown": {
+    "engaged_after_ms": 694,
+    "unlock": {
+      "method": "loginctl",
+      "logind_exit": 0,
+      "logind_stderr": null,
+      "observed_after_ms": 954
+    }
+  },
+  "notes": [],
+  "pass": true
+}

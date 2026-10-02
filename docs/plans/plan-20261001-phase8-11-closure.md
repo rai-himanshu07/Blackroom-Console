@@ -191,3 +191,11 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   frames in the 35 s hold, no Shell crash, topology and hash restored, lock 680 ms and logind unlock. The page never lost
   focus in this run (runs 1-3: lost for good, lost 1 s, never lost). Fix: audible cues (one chime to start, two bells to
   stop) plus a countdown in the script text; the page prompt stays as a secondary cue.
+- 2026-10-02 13:36 (fourth integrated run with audible cues, evidence exp06/2026-10-02-4, commit `ea9fbbb`): **PASS with the
+  physical-input check**. The operator typed and swiped after the chime: the daemon read 538 events by mid-hold and 1390
+  by the end from the four grabbed nodes, while the page saw exactly the three injected keys and no other key, pointer,
+  button or wheel event; grab held and released, 2114 frames captured, no Shell crash, topology and hash restored, lock
+  694 ms and logind unlock fine. The gated focus click fired once (page lost focus at isolation, refocused after the
+  click). Limits: one passing run, built-in nodes only (the dongle is not grabbed), no held key at grab start, no chord or
+  hotplug case, no repeats or soak. Remaining Phase 9: real `GnomeBackend`/agent transaction wiring, lifecycle
+  experiments, cycles; Phase 10 emergency, FEAS-G, Go/No-Go and Review #2; Phase 11 after Go.
