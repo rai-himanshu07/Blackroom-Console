@@ -11,7 +11,7 @@
 # and afterwards: sudo setfacl -x u:user /dev/input/event2 /dev/input/event3 /dev/input/event4 /dev/input/event5
 #
 # Recovery from the tablet over SSH if the panel stays black:
-#   pkill -KILL -x remote-emergenc ; cd <repo> ; $BR_TARGET/exp07_restore --keep-live-virtual --backup /run/user/1000/blackroom-console/backup.json
+#   pkill -KILL -x remote-emergenc ; cd <repo> ; $BR_TARGET/exp07_restore --keep-live-virtual --lock-after --backup /run/user/1000/blackroom-console/backup.json
 #   loginctl unlock-session "$(loginctl show-user $USER -p Display --value)"
 set -u
 cd "$(dirname "$0")/../.." || exit 2
@@ -55,9 +55,12 @@ if [ "${1:-}" = "--check" ]; then echo "Preflight OK (nothing changed)."; exit 0
 
 cat <<EOF
 About to start the remote console. Have you: saved work, plugged in AC, kept the lid open, opened the tablet SSH session?
-Pressing Start on the page blanks this panel and grabs the built-in keyboard and touchpad until you press Stop (or the
-tablet goes silent for 15 s). Stop locks the screen. If the screen is locked at Start (extension enabled), the page shows the lock
-screen: type the account password there; it is never bypassed.
+Pressing Start on the page blanks this panel and grabs the built-in keyboard and touchpad until you press Stop, the
+chord (Left Ctrl+Left Shift+Left Alt+Esc, 2 s) is held, or the tablet sends no heartbeat for 15 s. Stop restores the
+display and locks the screen; the grab is released after the lock. If the screen is locked at Start (extension
+enabled), the page shows the lock screen: type the account password there; it is never bypassed. While the
+extension is enabled, locking does not end remote sessions. Not yet observed: Safari/Android decode, iOS fullscreen,
+idle blanking, a crashed console (the 60 s dead-man restore also locks), SIGHUP.
 EOF
 read -r -p "Type START to begin: " answer
 [ "$answer" = "START" ] || { echo "Aborted."; exit 1; }

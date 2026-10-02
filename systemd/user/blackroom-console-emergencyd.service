@@ -1,13 +1,16 @@
-# DRAFT, not installed or loaded. Companion of blackroom-console.service: the physical-input grab daemon, run as the
-# user (ACLs on /dev/input/event2-5 required). The daemon releases its grab when the console's socket closes or the
-# 10 s lease lapses. A frozen daemon needs an external kill (docs/ops/console.sh arms a timer; this draft has none).
+# Companion of blackroom-console.service: the physical-input grab daemon, run as the user (ACLs on
+# /dev/input/event2-5 required). The daemon releases its grab when the console's socket closes or the
+# 10 s lease lapses. A frozen daemon is killed by its systemd watchdog (it sends WATCHDOG=1 while its loop runs).
 
 [Unit]
 Description=Blackroom Console input-grab daemon
 PartOf=blackroom-console.service
+StopWhenUnneeded=yes
 
 [Service]
-Type=simple
+Type=notify
+WatchdogSec=10
+WatchdogSignal=SIGKILL
 RuntimeDirectory=blackroom-live
 RuntimeDirectoryMode=0700
 ExecStart="/media/user/Playground/Playground_Sys/Blackroom Console/target/release/remote-emergencyd" --client-uid %U --enable-grabs --socket %t/blackroom-live/emergency.sock

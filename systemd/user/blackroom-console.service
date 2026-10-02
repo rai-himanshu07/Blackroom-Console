@@ -1,4 +1,5 @@
-# DRAFT, not installed or loaded. The remote console as two user units: the input-grab daemon and the web app.
+# The remote console as two user units: the input-grab daemon and the web app. Start by hand; there is no
+# [Install] section on purpose, so it can never start at login.
 #
 # Install by hand (paths below assume the repo at /media/user/Playground/Playground_Sys/Blackroom Console):
 #   cp systemd/user/blackroom-console.service systemd/user/blackroom-console-emergencyd.service ~/.config/systemd/user/
@@ -13,7 +14,7 @@
 
 [Unit]
 Description=Blackroom Console web app (remote view and input)
-Requires=blackroom-console-emergencyd.service
+BindsTo=blackroom-console-emergencyd.service
 After=blackroom-console-emergencyd.service graphical-session.target
 
 [Service]
@@ -24,6 +25,3 @@ WorkingDirectory=/media/user/Playground/Playground_Sys/Blackroom Console
 TimeoutStopSec=90
 Restart=on-failure
 RestartSec=5
-
-[Install]
-WantedBy=default.target

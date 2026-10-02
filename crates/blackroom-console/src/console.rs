@@ -1,7 +1,8 @@
 //! `RemoteConsole`: start, stop and drive one isolated remote session. The flow is lifted from
 //! `exp06 --integrated-probe`: RemoteDesktop/EIS, a virtual monitor with a video consumer, the
 //! panel isolated, the physical input grab; Stop reverses it keeping the virtual monitor until the
-//! ScreenCast session is stopped (Mutter 50.1 crashes otherwise, exp13) and then locks the session.
+//! ScreenCast session is stopped (Mutter 50.1 crashes otherwise, exp13), locks the session and only
+//! then releases the input grab.
 //!
 //! All GNOME objects live on one actor thread, so the handle is a cheap, thread-safe `Clone`.
 

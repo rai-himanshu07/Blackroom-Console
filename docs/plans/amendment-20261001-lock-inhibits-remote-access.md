@@ -55,3 +55,20 @@ One run on eDP-1, one uid; any same-user process can unlock the session (the loc
 it); capture and virtual monitor were not exercised after unlock; one window checked; lock signals without
 provenance; no lock under a physical grab or isolation; SSH unlock unobserved; unlock-to-ready latency unmeasured;
 the kill switch needs `org.gnome.desktop.lockdown disable-lock-screen=false`.
+
+## Addendum 2026-10-02: the product's locked-screen mode (extension)
+
+Operator decision: no unlock bypass, but the console may start on a locked screen and the account password is typed
+remotely on the lock screen shown in the page. That needs the Shell extension
+`docs/ops/gnome-extension/blackroom-locked-remote@blackroom.local`, which makes `inhibit_remote_access` and
+`uninhibit_remote_access` no-ops (and lifts an existing block when enabled on an already locked screen).
+
+Consequence for the kill-switch list above: while the extension is enabled, locking the screen no longer ends remote
+sessions, so the lock is not a kill switch and the "lock = kill switch" lines in this amendment hold only with the
+extension disabled. Any local process of the same user may also open a remote session on the locked screen. The real
+kill switches then are: the chord (Left Ctrl + Left Shift + Left Alt + Esc, 2 s), the Stop button, 15 s without a
+browser heartbeat, and over SSH a SIGTERM to `blackroom-console` (`systemctl --user stop blackroom-console.service`)
+or `pkill -KILL -x remote-emergenc` plus `exp07_restore --keep-live-virtual --lock-after`. Stop locks the screen
+after restoring the display and releases the input grab only after that lock. The extension is enabled only while
+the console is in use and disabled afterwards; enabling it after the lock and disabling it while locked are
+unobserved live.

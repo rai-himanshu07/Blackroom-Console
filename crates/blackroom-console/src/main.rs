@@ -156,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
     }
     blackroom_console::display::write_private(&state_dir, "url", all_urls.join("\n").as_bytes())?;
     println!(
-        "Panel stuck black? pkill -KILL -x remote-emergenc; exp07_restore --keep-live-virtual --backup {}/backup.json; loginctl unlock-session <id>",
+        "Panel stuck black? pkill -KILL -x remote-emergenc; exp07_restore --keep-live-virtual --lock-after --backup {}/backup.json; loginctl unlock-session <id>",
         state_dir.display()
     );
 
