@@ -39,7 +39,10 @@ preflight() {
   done
   [ "$(systemctl --user is-active gnome-remote-desktop.service)" != "active" ] || bad "gnome-remote-desktop is active"
   [ "$(gsettings get org.gnome.desktop.lockdown disable-lock-screen)" = "false" ] || bad "disable-lock-screen is not false"
-  [ "$(loginctl show-session "$SESS" -p LockedHint --value)" = "no" ] || bad "graphical session $SESS is locked or unknown"
+  if [ "$(loginctl show-session "$SESS" -p LockedHint --value)" != "no" ]; then
+    gnome-extensions list --enabled | grep -qx blackroom-locked-remote@blackroom.local \
+      || bad "session $SESS is locked and the blackroom-locked-remote extension is not enabled (docs/ops/README.md)"
+  fi
   for b in blackroom-console exp07_restore remote-emergencyd blackroom; do
     [ -x "$T/$b" ] || bad "missing $T/$b (cargo build --release --workspace)"
   done
@@ -53,7 +56,8 @@ if [ "${1:-}" = "--check" ]; then echo "Preflight OK (nothing changed)."; exit 0
 cat <<EOF
 About to start the remote console. Have you: saved work, plugged in AC, kept the lid open, opened the tablet SSH session?
 Pressing Start on the page blanks this panel and grabs the built-in keyboard and touchpad until you press Stop (or the
-tablet goes silent for 15 s). Stop locks the screen: unlock it with your password.
+tablet goes silent for 15 s). Stop locks the screen. If the screen is locked at Start (extension enabled), the page shows the lock
+screen: type the account password there; it is never bypassed.
 EOF
 read -r -p "Type START to begin: " answer
 [ "$answer" = "START" ] || { echo "Aborted."; exit 1; }

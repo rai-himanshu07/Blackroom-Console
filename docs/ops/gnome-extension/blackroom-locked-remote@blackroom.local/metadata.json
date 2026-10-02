@@ -1,0 +1,7 @@
+{
+  "name": "Blackroom locked remote access",
+  "description": "Lets the Blackroom console attach to the lock screen so the account password is typed remotely. Enable only while using the console.",
+  "uuid": "blackroom-locked-remote@blackroom.local",
+  "shell-version": ["50"],
+  "session-modes": ["user", "unlock-dialog"]
+}

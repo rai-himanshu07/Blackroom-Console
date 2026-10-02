@@ -8,6 +8,12 @@ safely on real hardware.
 - `live-grab-runbook.md` + `live-grab-session.sh` — supervised live test of the physical-input
   grab through gateway, hostd and `remote-emergencyd`, driven from a second device over SSH.
 
+Locked screen: GNOME refuses remote sessions while locked. `gnome-extension/blackroom-locked-remote@blackroom.local`
+lifts that so the console can show the lock screen and the account password is typed remotely (no unlock bypass).
+Install once: copy the directory to `~/.local/share/gnome-shell/extensions/`, log out and in, then
+`gnome-extensions enable blackroom-locked-remote@blackroom.local` while using the console and `disable` afterwards.
+While it is enabled and the screen is locked, any local process of your user may open a remote session.
+
 Offline simulation state (never a live host): hostd appends security events to
 `audit.log` in its state directory (owner-only, 1 MiB then one rotation; static
 codes, epochs and principal ids only, never proofs, demo codes, input grants

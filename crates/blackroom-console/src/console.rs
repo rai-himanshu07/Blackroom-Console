@@ -40,6 +40,8 @@ const WATCHDOG_EVERY: Duration = Duration::from_secs(20);
 const SETTLE: Duration = Duration::from_secs(10);
 const SESSION_TTL: Duration = Duration::from_secs(24 * 3600);
 const HEADLESS_SESSION: &str = "headless";
+/// GNOME refuses remote sessions on a locked screen unless the Blackroom extension lifts that.
+const LOCKED_HINT: &str = " (the screen is locked: enable the blackroom-locked-remote extension, see docs/ops/README.md, or unlock locally)";
 
 #[derive(Debug, Clone)]
 pub struct ConsoleConfig {
@@ -512,12 +514,13 @@ impl<'c> Active<'c> {
 
     fn setup(&mut self) -> anyhow::Result<()> {
         let config = Arc::clone(&self.config);
-        if config.headless {
+        let locked = if config.headless {
             display::require_headless_shell(self.conn)?;
             self.session.session_id = HEADLESS_SESSION.into();
+            false
         } else {
-            self.preflight_live(&config)?;
-        }
+            self.preflight_live(&config)?
+        };
 
         let backup = display_config::snapshot(self.conn, &self.session.session_id)
             .map_err(|e| anyhow::anyhow!("display snapshot: {e}"))?;
@@ -532,9 +535,15 @@ impl<'c> Active<'c> {
         });
 
         let mut seen: Vec<DeviceSeen> = Vec::new();
-        let remote = open_remote(self.conn, &self.authority, &mut seen)
-            .map_err(|(step, detail)| anyhow::anyhow!("remote session {step}: {detail}"))?;
+        let remote =
+            open_remote(self.conn, &self.authority, &mut seen).map_err(|(step, detail)| {
+                let hint = if locked { LOCKED_HINT } else { "" };
+                anyhow::anyhow!("remote session {step}: {detail}{hint}")
+            })?;
         self.remote = Some(remote);
+        if locked {
+            self.note("started on the lock screen: type the account password to unlock".into());
+        }
 
         let before = display::connectors(self.conn)?;
         let sc = ScreenCastSession::create(self.conn)?;
@@ -602,7 +611,8 @@ impl<'c> Active<'c> {
         Ok(())
     }
 
-    fn preflight_live(&mut self, config: &ConsoleConfig) -> anyhow::Result<()> {
+    /// Returns whether the screen is locked; the password is then typed remotely, never bypassed.
+    fn preflight_live(&mut self, config: &ConsoleConfig) -> anyhow::Result<bool> {
         let socket = config
             .grab_socket
             .as_ref()
@@ -618,14 +628,10 @@ impl<'c> Active<'c> {
         let observed = lock::observe(&self.session)
             .map_err(|e| anyhow::anyhow!("lock state unreadable: {e}"))?;
         anyhow::ensure!(
-            !observed.screen_saver_active && !observed.logind_locked_hint,
-            "the session is locked"
-        );
-        anyhow::ensure!(
             !display::watchdog_pending(),
             "a console restore timer is still pending (wait for it to fire or stop it)"
         );
-        Ok(())
+        Ok(observed.screen_saver_active || observed.logind_locked_hint)
     }
 
     fn verify_identity(&self) -> Result<(), String> {
