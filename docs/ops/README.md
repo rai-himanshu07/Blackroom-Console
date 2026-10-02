@@ -12,6 +12,7 @@ Locked screen: GNOME refuses remote sessions while locked. `gnome-extension/blac
 lifts that so the console can show the lock screen and the account password is typed remotely (no unlock bypass).
 Install once: copy the directory to `~/.local/share/gnome-shell/extensions/`, log out and in, then
 `gnome-extensions enable blackroom-locked-remote@blackroom.local` while using the console and `disable` afterwards.
+Enable it while unlocked, before locking: enabling it on an already locked screen does not lift the block.
 While it is enabled and the screen is locked, any local process of your user may open a remote session.
 
 Offline simulation state (never a live host): hostd appends security events to

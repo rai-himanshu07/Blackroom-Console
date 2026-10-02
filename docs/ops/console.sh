@@ -40,7 +40,7 @@ preflight() {
   [ "$(systemctl --user is-active gnome-remote-desktop.service)" != "active" ] || bad "gnome-remote-desktop is active"
   [ "$(gsettings get org.gnome.desktop.lockdown disable-lock-screen)" = "false" ] || bad "disable-lock-screen is not false"
   if [ "$(loginctl show-session "$SESS" -p LockedHint --value)" != "no" ]; then
-    gnome-extensions list --enabled | grep -qx blackroom-locked-remote@blackroom.local \
+    gnome-extensions list --enabled --active | grep -qx blackroom-locked-remote@blackroom.local \
       || bad "session $SESS is locked and the blackroom-locked-remote extension is not enabled (docs/ops/README.md)"
   fi
   for b in blackroom-console exp07_restore remote-emergencyd blackroom; do
