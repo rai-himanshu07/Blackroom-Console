@@ -38,6 +38,15 @@ struct Args {
     headless: bool,
 }
 
+/// Docker (172.16/12) and libvirt (192.168.122/24) bridges are not reachable from a tablet.
+fn is_virtual_bridge(address: &str) -> bool {
+    address.starts_with("192.168.122.")
+        || address
+            .strip_prefix("172.")
+            .and_then(|rest| rest.split('.').next()?.parse::<u8>().ok())
+            .is_some_and(|second| (16..=31).contains(&second))
+}
+
 fn lan_addresses() -> Vec<String> {
     std::process::Command::new("hostname")
         .arg("-I")
@@ -46,7 +55,7 @@ fn lan_addresses() -> Vec<String> {
         .map(|out| {
             String::from_utf8_lossy(&out.stdout)
                 .split_whitespace()
-                .filter(|address| !address.contains(':'))
+                .filter(|address| !address.contains(':') && !is_virtual_bridge(address))
                 .map(str::to_string)
                 .collect()
         })

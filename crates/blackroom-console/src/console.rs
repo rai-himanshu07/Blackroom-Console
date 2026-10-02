@@ -279,6 +279,7 @@ struct Active<'c> {
     last_maintenance: Instant,
     last_lease: Instant,
     last_watchdog: Instant,
+    released_early: Vec<String>,
 }
 
 fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<ConsoleConfig>) {
@@ -382,6 +383,7 @@ fn begin<'c>(
         last_maintenance: Instant::now(),
         last_lease: Instant::now(),
         last_watchdog: Instant::now(),
+        released_early: Vec::new(),
     };
     match active.setup() {
         Ok(()) => {
@@ -629,6 +631,7 @@ impl<'c> Active<'c> {
             let renewed = client.renew();
             let released = client.take_released();
             if !released.is_empty() {
+                self.released_early.clone_from(&released);
                 return Some(format!(
                     "input grab released by the daemon: {}",
                     released.join(",")
@@ -657,7 +660,8 @@ impl<'c> Active<'c> {
         };
 
         if let Some(mut client) = self.grab.take() {
-            report.released_early = client.take_released();
+            self.released_early.extend(client.take_released());
+            report.released_early.clone_from(&self.released_early);
             report.grab_released = Some(client.restore().is_ok());
         }
 
