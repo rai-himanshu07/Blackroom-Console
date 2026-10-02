@@ -58,6 +58,7 @@ struct Args {
 #[derive(Debug, Clone, Type, Deserialize)]
 struct ConnectorInfo {
     connector: String,
+    #[allow(dead_code)]
     vendor: String,
     #[allow(dead_code)]
     product: String,
@@ -436,9 +437,9 @@ fn unexpected_connectors(backup: &DisplayBackup, monitors: &[MonitorEntry]) -> V
         .collect()
 }
 
-/// Mutter names ScreenCast virtual outputs `Meta-N` with vendor `MetaVendor`.
+/// Mutter names ScreenCast virtual outputs `Meta-N`; no physical connector does.
 fn is_virtual_monitor(info: &ConnectorInfo) -> bool {
-    info.vendor == "MetaVendor" && info.connector.starts_with("Meta-")
+    info.connector.starts_with("Meta-")
 }
 
 /// Restore config for `--keep-live-virtual`: the backup's topology plus every live virtual
@@ -464,10 +465,17 @@ fn restore_config(
                     .any(|o| o.connector == m.connector_info.connector)
         })
         .filter_map(|m| {
-            let mode = m
+            let Some(mode) = m
                 .modes
                 .iter()
-                .find(|mode| is_current_mode(&mode.properties))?;
+                .find(|mode| is_current_mode(&mode.properties))
+            else {
+                eprintln!(
+                    "Not keeping {}: no current mode",
+                    m.connector_info.connector
+                );
+                return None;
+            };
             Some((
                 m.connector_info.connector.clone(),
                 mode.id.clone(),
@@ -579,27 +587,45 @@ fn main() -> anyhow::Result<()> {
     let unexpected_connectors_before_restore = unexpected_connectors(&backup, &monitors0);
 
     // Doc 05 §62: retry safely once; never claim success if physical state
-    // remains unknown.
+    // remains unknown. The retry never keeps the virtual monitor: recovering the
+    // physical display matters more than avoiding a Mutter crash with a live consumer.
     let mut kept_virtual_connectors = Vec::new();
-    let mut attempt = || match attempt_restore(&conn, &backup, args.keep_live_virtual) {
-        Ok(kept) => {
-            kept_virtual_connectors = kept;
-            None
-        }
-        Err(error) => Some(error.to_string()),
-    };
-    let mut apply_error = attempt();
+    let mut attempt =
+        |keep_live_virtual: bool| match attempt_restore(&conn, &backup, keep_live_virtual) {
+            Ok(kept) => {
+                kept_virtual_connectors = kept;
+                None
+            }
+            Err(error) => Some(error.to_string()),
+        };
+    let mut apply_error = attempt(args.keep_live_virtual);
     let mut retried = false;
     if apply_error.is_some() {
         retried = true;
-        apply_error = attempt();
+        apply_error = attempt(false);
     }
 
     let deadline = Instant::now() + POLL_WAIT;
     let (restored, topology_ok, configuration_hash_matches, monitors_final) = loop {
         let (_serial, monitors, logical) = read_state(&conn)?;
+        // Virtual monitors are not physical outputs; with the flag they may hold logical monitors.
+        let ignored_virtual: Vec<String> = if args.keep_live_virtual {
+            monitors
+                .iter()
+                .filter(|m| {
+                    is_virtual_monitor(&m.connector_info)
+                        && !backup
+                            .outputs
+                            .iter()
+                            .any(|o| o.connector == m.connector_info.connector)
+                })
+                .map(|m| m.connector_info.connector.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
         let topology_ok =
-            apply_error.is_none() && topology_matches(&backup, &logical, &kept_virtual_connectors);
+            apply_error.is_none() && topology_matches(&backup, &logical, &ignored_virtual);
         let configuration_hash_matches = expected_hash
             .map(|hash| restored_output_hash(&backup, &monitors, &logical) == Some(hash));
         let restored = topology_ok && configuration_hash_matches.unwrap_or(true);
@@ -982,7 +1008,7 @@ mod tests {
         assert_eq!((config.len(), config[1].x, config[1].y), (2, 1920, 0));
         assert!(!config[1].primary);
         assert_eq!(config[1].monitors[0].mode_id, "v-mode");
-        let lookalike = vec![virtual_monitor("Meta-0", "Other")];
+        let lookalike = vec![virtual_monitor("HDMI-1", "MetaVendor")];
         assert!(
             restore_config(&backup, &lookalike, true)
                 .unwrap()
@@ -994,6 +1020,43 @@ mod tests {
         scaled.topology[0].scale = 1.25;
         let (fallback, kept) = restore_config(&scaled, &monitors, true).unwrap();
         assert_eq!((fallback.len(), kept.len()), (1, 0));
+        let mut rotated = backup.clone();
+        rotated.topology[0].transform = 1;
+        assert!(
+            restore_config(&rotated, &monitors, true)
+                .unwrap()
+                .1
+                .is_empty()
+        );
+
+        let two = vec![
+            virtual_monitor("Meta-0", "MetaVendor"),
+            virtual_monitor("Meta-1", "MetaVendor"),
+        ];
+        let (config, kept) = restore_config(&backup, &two, true).unwrap();
+        assert_eq!(kept, ["Meta-0", "Meta-1"]);
+        assert_eq!((config[1].x, config[2].x), (1920, 3200));
+        let mut known = backup.clone();
+        known.outputs.push(OutputBackup {
+            connector: "Meta-0".into(),
+            vendor: "MetaVendor".into(),
+            product: "Virtual remote monitor".into(),
+            serial: "0x1".into(),
+            mode_id: "v-mode".into(),
+            width: 1280,
+            height: 720,
+            refresh_rate: 60.0,
+            enabled: Some(false),
+        });
+        assert!(
+            restore_config(&known, &monitors, true)
+                .unwrap()
+                .1
+                .is_empty()
+        );
+        let mut idle = virtual_monitor("Meta-0", "MetaVendor");
+        idle.modes[0].properties.clear();
+        assert!(restore_config(&backup, &[idle], true).unwrap().1.is_empty());
 
         let logical = |identity: ConnectorInfo, x: i32| LogicalMonitorEntry {
             x,
@@ -1010,6 +1073,11 @@ mod tests {
         ];
         assert!(!topology_matches(&backup, &live, &[]));
         assert!(topology_matches(&backup, &live, &["Meta-0".to_string()]));
+        assert!(!topology_matches(
+            &backup,
+            &live[1..],
+            &["Meta-0".to_string()]
+        ));
     }
 
     #[test]

@@ -92,11 +92,15 @@ monitor; `exp13_virtual_restore` and the runner. Review-driven limit: the kept v
 restored monitor has scale 1.0 and no transform (Mutter's layout width uses `round(width / scale)` in logical layout mode
 and the plain mode width in physical mode, and `layout-mode` is not read); otherwise the integrated probe refuses before it
 changes anything. The recorded eDP-only backup qualifies; HiDPI scaling would need `layout-mode` handling.
-`exp07_restore --keep-live-virtual` (both watchdogs of the integrated probe pass it; earlier flows do not) applies the same
-rule to the watchdog restore: it keeps live `MetaVendor`/`Meta-N` virtual monitors (identity read from the headless Shell:
-vendor `MetaVendor`, connector `Meta-1`), falls back to the plain restore when a restored monitor is not scale 1.0, and its
-topology check ignores the kept monitors; it is unit-tested only (its apply path needs the real login1 identity), and
-windows may stay on the kept virtual monitor until the session is stopped. Open hazards: the fix is not yet exercised on
+`exp07_restore --keep-live-virtual` (both watchdogs of the integrated probe pass it; plain `exp07_restore`, including a
+manual recovery run without the flag, does not) applies the same rule to the watchdog restore: it keeps live `Meta-N`
+virtual monitors (the headless Shell shows vendor `MetaVendor`, connector `Meta-1`), falls back to the plain restore when a
+restored monitor is not scale 1.0 or has a transform, never keeps them on its single retry (recovering the physical
+display wins over avoiding a crash), and its topology check ignores virtual monitors. It is unit-tested only (its apply
+path needs the real login1 identity); earlier flows behave the same and the evidence gains one field; windows may stay on
+the kept virtual monitor until the session is stopped. Open hazards: a manual `exp07_restore` without the flag, run
+while the owner is alive with a streaming consumer, still crashes the Shell the same way (the integrated run script's
+recovery text now includes the flag); the fix is not yet exercised on
 the real session; an upstream report (missing NULL check in the virtual stream
 `monitors-changed-internal` handler, also on upstream main) is not filed. Side effect: coreutils `timeout` re-raises the
 child's SIGSEGV, so apport wrote a crash report for `timeout` in /var/crash.

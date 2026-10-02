@@ -54,7 +54,7 @@ kept the lid open, and opened the tablet SSH session?
 Sequence: this terminal prints a URL; open it in Firefox, press F11, then hands off keyboard, touchpad,
 lid and power button. The panel goes black for about a minute, the lock screen shows for a few
 seconds, then everything returns by itself.
-Recovery from the tablet: pkill -KILL -x remote-emergenc ; exp07_restore --backup <path in the evidence dir> ;
+Recovery from the tablet: pkill -KILL -x remote-emergenc ; exp07_restore --keep-live-virtual --backup <path in the evidence dir> ;
 loginctl unlock-session 2. The restore watchdog fires 120 s after it is armed.
 EOF
 read -r -p "Type START to begin: " answer

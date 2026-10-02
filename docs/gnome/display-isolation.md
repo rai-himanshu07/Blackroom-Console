@@ -92,5 +92,6 @@ restore config produces (same on upstream main). Earlier clean runs had no strea
 virtual-monitor stream may be enabled, every applied config must keep the virtual monitor (extra logical monitor), and
 the session is stopped afterwards; verified safe 8/8 on the headless Shell (scale 1.0 only), not yet on the real session;
 `exp07_restore --keep-live-virtual` (passed by both watchdogs of `exp06 --integrated-probe`) applies the same rule to the
-watchdog restore, unit-tested only. See the
+watchdog restore (unit-tested only; plain `exp07_restore` without the flag does not, so manual recovery with a live owner
+and a streaming consumer needs the flag). See the
 observation's Headless reproduction section.
