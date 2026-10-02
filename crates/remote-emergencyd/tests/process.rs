@@ -101,3 +101,67 @@ fn a_relative_socket_path_or_a_foreign_file_is_refused() {
     assert!(!refused.status.success());
     assert_eq!(std::fs::read(&file).expect("still there"), b"keep me");
 }
+
+#[test]
+fn the_binary_links_no_network_media_or_codec_library() {
+    let out = Command::new("readelf")
+        .args(["-d", env!("CARGO_BIN_EXE_remote-emergencyd")])
+        .output()
+        .expect("readelf (binutils) is needed for this check");
+    let text = String::from_utf8_lossy(&out.stdout);
+    let needed: Vec<&str> = text
+        .lines()
+        .filter(|line| line.contains("(NEEDED)"))
+        .filter_map(|line| line.split('[').nth(1)?.split(']').next())
+        .collect();
+    assert!(!needed.is_empty(), "no NEEDED entries found:\n{text}");
+    let allowed = [
+        "libc.so.6",
+        "libgcc_s.so.1",
+        "libm.so.6",
+        "ld-linux-x86-64.so.2",
+    ];
+    let extra: Vec<_> = needed.iter().filter(|lib| !allowed.contains(lib)).collect();
+    assert!(extra.is_empty(), "unexpected shared libraries: {extra:?}");
+}
+
+#[test]
+fn the_daemon_and_its_client_use_unix_sockets_only() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let forbidden = [
+        "std::net",
+        "TcpStream",
+        "TcpListener",
+        "UdpSocket",
+        "tokio",
+        "hyper",
+        "reqwest",
+        "rustls",
+        "gstreamer",
+        "jpeg",
+    ];
+    for dir in ["remote-emergencyd", "remote-emergency-client"] {
+        let mut files = vec![root.join(dir).join("Cargo.toml")];
+        let mut stack = vec![root.join(dir).join("src")];
+        while let Some(path) = stack.pop() {
+            for entry in std::fs::read_dir(&path).expect("read src") {
+                let entry = entry.expect("entry").path();
+                if entry.is_dir() {
+                    stack.push(entry);
+                } else {
+                    files.push(entry);
+                }
+            }
+        }
+        for file in files {
+            let text = std::fs::read_to_string(&file).expect("read file");
+            // The test names the forbidden words itself, so skip this file's own list.
+            if file.ends_with("tests/process.rs") {
+                continue;
+            }
+            for word in forbidden {
+                assert!(!text.contains(word), "{} mentions {word}", file.display());
+            }
+        }
+    }
+}
