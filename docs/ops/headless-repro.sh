@@ -33,7 +33,7 @@ if [ "$ready" != 1 ]; then
   echo "headless shell not ready; log: $log"; tail -n 5 "$log"
   kill "$shell" 2>/dev/null; wait "$shell" 2>/dev/null; exit 3
 fi
-timeout -k 3 90 "$BIN" "$@"
+timeout -k 3 "${BR_TIMEOUT:-90}" "$BIN" "$@"
 rc=$?
 sleep 1
 if kill -0 "$shell" 2>/dev/null; then

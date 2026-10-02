@@ -6,15 +6,14 @@ use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
 
-use blackroom_console::{ConsoleConfig, InputEvent, Phase, RemoteConsole};
-use blackroom_gnome::mutter::video::VideoOptions;
+use blackroom_console::{ConsoleConfig, InputEvent, Phase, Quality, RemoteConsole};
 
 fn config(heartbeat_timeout: Duration) -> ConsoleConfig {
     ConsoleConfig {
         grab_socket: None,
         state_dir: std::env::temp_dir().join(format!("br-console-headless-{}", std::process::id())),
         headless: true,
-        video: VideoOptions::default(),
+        quality: Quality::Medium,
         heartbeat_timeout,
         restore_bin: PathBuf::new(),
     }

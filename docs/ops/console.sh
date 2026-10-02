@@ -3,7 +3,8 @@
 # TERMINAL (the tablet needs SSH to this laptop open as well):
 #   docs/ops/console.sh --check     read-only preflight, changes nothing
 #   docs/ops/console.sh             start; prints the URL to open on the tablet; Ctrl-C stops everything
-# Env: BR_TARGET=target/release (default) or target/debug; BR_PORT=8080; BR_KILL_SECS=7200 (daemon kill timer).
+# Env: BR_TARGET=target/release (default) or target/debug; BR_PORT=8080 (http); BR_TLS_PORT=8443 (https, self-signed);
+# BR_KILL_SECS=7200 (daemon kill timer). Use the https URL on a Chromium laptop for full keyboard capture.
 #
 # Needs temporary ACLs on the built-in input nodes (you run sudo, never this script):
 #   sudo setfacl -m u:user:rw /dev/input/event2 /dev/input/event3 /dev/input/event4 /dev/input/event5
@@ -16,6 +17,7 @@ set -u
 cd "$(dirname "$0")/../.." || exit 2
 T=${BR_TARGET:-target/release}
 PORT=${BR_PORT:-8080}
+TLS_PORT=${BR_TLS_PORT:-8443}
 KILL_SECS=${BR_KILL_SECS:-7200}
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 LIVE=$XDG_RUNTIME_DIR/blackroom-live
@@ -79,7 +81,7 @@ setsid nohup "$T/remote-emergencyd" --client-uid "$(id -u)" --enable-grabs --soc
 sleep 1
 "$T/blackroom" emergency-status --socket "$SOCK" || { echo "daemon not answering"; exit 2; }
 
-"$T/blackroom-console" --grab-socket "$SOCK" --listen "0.0.0.0:$PORT" &
+"$T/blackroom-console" --grab-socket "$SOCK" --listen "0.0.0.0:$PORT" --tls-listen "0.0.0.0:$TLS_PORT" &
 app=$!
 wait "$app"
 echo "console exited with $?"

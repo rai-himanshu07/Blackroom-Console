@@ -19,13 +19,14 @@ use blackroom_gnome::mutter::display_config::{self, DisplayBackup};
 use blackroom_gnome::mutter::lock;
 use blackroom_gnome::mutter::screencast::ScreenCastSession;
 use blackroom_gnome::mutter::session::discover_session;
-use blackroom_gnome::mutter::video::{JpegSlot, VideoOptions, stream_jpeg};
+use blackroom_gnome::mutter::video::{JpegSlot, VideoOptions, VideoTuning, stream_jpeg_tuned};
 use remote_emergency_client::client::{Client, Outcome};
 use serde::{Deserialize, Serialize};
 use zbus::blocking::Connection;
 
 use crate::display::{self, Watchdog};
 use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote};
+use crate::webrtc::{WebRtcSession, pick_h264};
 
 const TICK: Duration = Duration::from_millis(25);
 const MAINTENANCE_EVERY: Duration = Duration::from_millis(100);
@@ -48,11 +49,46 @@ pub struct ConsoleConfig {
     pub state_dir: PathBuf,
     /// Throwaway `--headless` Shell on a private bus: no grab, watchdog or lock, any single output.
     pub headless: bool,
-    pub video: VideoOptions,
+    /// Starting quality level; the browser can change it while the session runs.
+    pub quality: Quality,
     /// No browser heartbeat for this long runs Stop (the panel is blank, so a lost client must restore it).
     pub heartbeat_timeout: Duration,
     /// `exp07_restore`, armed as the dead-man restore.
     pub restore_bin: PathBuf,
+}
+
+/// One knob for both transports: JPEG quality and frame cap for MJPEG, bitrate for WebRTC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Quality {
+    Low,
+    Medium,
+    High,
+}
+
+impl Quality {
+    pub fn jpeg_quality(self) -> u8 {
+        match self {
+            Self::Low => 40,
+            Self::Medium => 70,
+            Self::High => 85,
+        }
+    }
+
+    pub fn max_fps(self) -> u32 {
+        match self {
+            Self::Low => 15,
+            Self::Medium | Self::High => 30,
+        }
+    }
+
+    pub fn bitrate_kbps(self) -> u32 {
+        match self {
+            Self::Low => 2_500,
+            Self::Medium => 6_000,
+            Self::High => 12_000,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -84,6 +120,10 @@ pub struct Status {
     pub notes: Vec<String>,
     pub input_accepted: u64,
     pub input_refused: u64,
+    pub quality: Quality,
+    pub webrtc_encoder: Option<&'static str>,
+    pub webrtc_error: Option<String>,
+    pub webrtc_frames: Option<u64>,
     pub last_stop: Option<StopReport>,
 }
 
@@ -133,6 +173,9 @@ struct Shared {
     beat: Mutex<Instant>,
     notes: Mutex<Vec<String>>,
     size: Mutex<(u32, u32)>,
+    quality: Mutex<Quality>,
+    tuning: Mutex<Option<Arc<VideoTuning>>>,
+    webrtc: Mutex<Option<WebRtcSession>>,
     input_accepted: AtomicU64,
     input_refused: AtomicU64,
 }
@@ -163,6 +206,9 @@ impl RemoteConsole {
             beat: Mutex::new(Instant::now()),
             notes: Mutex::new(Vec::new()),
             size: Mutex::new((0, 0)),
+            quality: Mutex::new(config.quality),
+            tuning: Mutex::new(None),
+            webrtc: Mutex::new(None),
             input_accepted: AtomicU64::new(0),
             input_refused: AtomicU64::new(0),
         });
@@ -235,8 +281,54 @@ impl RemoteConsole {
         lock_ok(&self.shared.slot).clone()
     }
 
+    /// Applies at once to a running session and becomes the level of the next one.
+    pub fn set_quality(&self, quality: Quality) {
+        *lock_ok(&self.shared.quality) = quality;
+        if let Some(tuning) = lock_ok(&self.shared.tuning).as_ref() {
+            tuning.set(quality.jpeg_quality(), quality.max_fps());
+        }
+        if let Some(session) = lock_ok(&self.shared.webrtc).as_ref() {
+            session.set_bitrate(quality.bitrate_kbps());
+        }
+    }
+
+    /// Answers a browser's WebRTC offer with the live desktop as H.264; replaces any earlier peer.
+    /// Blocks while ICE gathers, so call it from a blocking context.
+    pub fn webrtc_answer(&self, offer_sdp: &str) -> Result<String, String> {
+        if *lock_ok(&self.shared.phase) != Phase::Running {
+            return Err("not running".into());
+        }
+        let tuning = lock_ok(&self.shared.tuning)
+            .clone()
+            .ok_or("no video stream yet")?;
+        if let Some(old) = lock_ok(&self.shared.webrtc).take() {
+            old.close();
+        }
+        let quality = *lock_ok(&self.shared.quality);
+        let h264 = pick_h264(offer_sdp).ok_or("the browser offers no usable H.264")?;
+        let session = WebRtcSession::start(&tuning, quality.bitrate_kbps(), &h264)?;
+        let answer = session.answer(offer_sdp);
+        let mut slot = lock_ok(&self.shared.webrtc);
+        // Stop may have run while negotiating: its teardown has already passed.
+        if answer.is_err() || *lock_ok(&self.shared.phase) != Phase::Running {
+            session.close();
+            return answer.and(Err("stopped while negotiating".into()));
+        }
+        *slot = Some(session);
+        answer
+    }
+
     pub fn status(&self) -> Status {
         let (width, height) = *lock_ok(&self.shared.size);
+        let (webrtc_encoder, webrtc_error, webrtc_frames) =
+            match lock_ok(&self.shared.webrtc).as_ref() {
+                Some(session) => (
+                    Some(session.encoder().label()),
+                    session.failure(),
+                    Some(session.frames()),
+                ),
+                None => (None, None, None),
+            };
         Status {
             phase: *lock_ok(&self.shared.phase),
             width,
@@ -244,6 +336,10 @@ impl RemoteConsole {
             notes: lock_ok(&self.shared.notes).clone(),
             input_accepted: self.shared.input_accepted.load(Ordering::Relaxed),
             input_refused: self.shared.input_refused.load(Ordering::Relaxed),
+            quality: *lock_ok(&self.shared.quality),
+            webrtc_encoder,
+            webrtc_error,
+            webrtc_frames,
             last_stop: lock_ok(&self.shared.last_stop).clone(),
         }
     }
@@ -343,6 +439,7 @@ fn finish(active: Active<'_>, reason: &str) -> StopReport {
     let report = active.teardown(reason);
     tracing::info!(?report, "remote console stopped");
     *lock_ok(&shared.slot) = None;
+    *lock_ok(&shared.tuning) = None;
     *lock_ok(&shared.last_stop) = Some(report.clone());
     *lock_ok(&shared.phase) = Phase::Idle;
     report
@@ -446,16 +543,20 @@ impl<'c> Active<'c> {
         self.sc = Some(sc);
         let slot = JpegSlot::new();
         let stop = Arc::new(AtomicBool::new(false));
+        let quality = *lock_ok(&self.shared.quality);
         let options = VideoOptions {
             preferred_width: i32::try_from(width)?,
             preferred_height: i32::try_from(height)?,
-            ..config.video
+            quality: quality.jpeg_quality(),
+            max_fps: quality.max_fps(),
         };
+        let tuning = VideoTuning::new(&options);
+        *lock_ok(&self.shared.tuning) = Some(Arc::clone(&tuning));
         let handle = {
             let (slot, stop) = (Arc::clone(&slot), Arc::clone(&stop));
             thread::Builder::new()
                 .name("console-video".into())
-                .spawn(move || stream_jpeg(node, options, &stop, &slot))?
+                .spawn(move || stream_jpeg_tuned(node, options, &tuning, &stop, &slot))?
         };
         self.video = Some(VideoHandle { stop, handle });
         *lock_ok(&self.shared.slot) = Some(slot);
@@ -691,6 +792,10 @@ impl<'c> Active<'c> {
                     .errors
                     .push(format!("restore keeping the virtual monitor: {error}"));
             }
+        }
+
+        if let Some(session) = lock_ok(&self.shared.webrtc).take() {
+            session.close();
         }
 
         if let Some(video) = self.video.take() {

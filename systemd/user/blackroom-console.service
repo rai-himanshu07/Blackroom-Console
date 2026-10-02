@@ -18,7 +18,7 @@ After=blackroom-console-emergencyd.service graphical-session.target
 
 [Service]
 Type=simple
-ExecStart="/media/user/Playground/Playground_Sys/Blackroom Console/target/release/blackroom-console" --grab-socket %t/blackroom-live/emergency.sock --listen 0.0.0.0:8080
+ExecStart="/media/user/Playground/Playground_Sys/Blackroom Console/target/release/blackroom-console" --grab-socket %t/blackroom-live/emergency.sock --listen 0.0.0.0:8080 --tls-listen 0.0.0.0:8443
 WorkingDirectory=/media/user/Playground/Playground_Sys/Blackroom Console
 # SIGTERM runs Stop (restore, lock) before exit; leave it time.
 TimeoutStopSec=90

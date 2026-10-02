@@ -123,7 +123,7 @@ async function post(path, body) {
 }
 
 // ---- video: WebRTC H.264 first, MJPEG as the fallback ----
-let pc = null, usingRtc = false, videoStarted = false, statsTimer = null, lastStats = null, statsText = "", transportNote = "";
+let pc = null, usingRtc = false, videoStarted = false, statsTimer = null, lastStats = null, statsText = "";
 
 function surface() { return usingRtc ? rtcVideo : mjpeg; }
 
@@ -190,17 +190,16 @@ async function startWebRtc() {
   rtcVideo.play().catch(() => {});
   peer.onconnectionstatechange = () => {
     if (pc === peer && (peer.connectionState === "failed" || peer.connectionState === "closed") && running) {
-      transportNote = "WebRTC dropped; using MJPEG."; startMjpeg();
+      say("WebRTC dropped; switched to MJPEG.", true); startMjpeg();
     }
   };
   placeDot();
 }
 
 async function connectVideo() {
-  transportNote = "";
   if (window.RTCPeerConnection && $("transport").value !== "mjpeg") {
     try { await startWebRtc(); return; }
-    catch (error) { closeRtc(); transportNote = "WebRTC unavailable (" + error.message + "); using MJPEG."; }
+    catch (error) { closeRtc(); say("WebRTC unavailable (" + error.message + "); using MJPEG.", true); }
   }
   startMjpeg();
 }
@@ -451,7 +450,7 @@ $("full").addEventListener("click", async () => {
   if (document.fullscreenElement) { await document.exitFullscreen(); return; }
   await document.documentElement.requestFullscreen().catch(() => {});
   if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock().catch(() => {});
-  else transportNote = "Keyboard capture (Ctrl+W, Alt+Tab) needs https in Chrome or Edge.";
+  else say("Keyboard capture (Ctrl+W, Alt+Tab) needs https in Chrome or Edge.", true);
 });
 document.addEventListener("fullscreenchange", () => {
   if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
@@ -484,9 +483,8 @@ function show(state) {
       statsTimer = setInterval(async () => { try { await sampleStats(); } catch (_) { /* next tick */ } chip.textContent = `running ${statsText}`; }, 1000);
     }
     const notes = [...(state.notes || [])];
-    if (transportNote) notes.push(transportNote);
     if (state.webrtc_error) notes.push("WebRTC: " + state.webrtc_error);
-    say(notes.join("\n"), true);
+    if (!msg.className || !notes.length) say(notes.join("\n"), true);
     chip.textContent = `running ${statsText}`;
     placeDot();
   } else {

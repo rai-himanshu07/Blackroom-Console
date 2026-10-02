@@ -15,7 +15,7 @@ use axum::{Json, Router};
 use futures_util::StreamExt;
 use serde::Deserialize;
 
-use crate::console::{InputEvent, RemoteConsole};
+use crate::console::{InputEvent, Quality, RemoteConsole};
 
 const PAGE: &str = include_str!("page.html");
 const COOKIE_NAME: &str = "br_token";
@@ -101,7 +101,27 @@ pub fn router(console: RemoteConsole, token: &str) -> Router {
         )
         .route("/start", post(start))
         .route("/stop", post(stop))
+        .route(
+            "/webrtc",
+            post(webrtc).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
+        )
+        .route(
+            "/quality",
+            post(quality).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
+        )
         .with_state(state)
+        .layer(axum::middleware::map_request(host_from_authority))
+}
+
+/// HTTP/2 carries the host as `:authority` and no `Host` header; the same-origin check reads the header.
+async fn host_from_authority(mut request: axum::extract::Request) -> axum::extract::Request {
+    if !request.headers().contains_key(HOST)
+        && let Some(authority) = request.uri().authority().cloned()
+        && let Ok(value) = authority.as_str().parse()
+    {
+        request.headers_mut().insert(HOST, value);
+    }
+    request
 }
 
 #[derive(Deserialize)]
@@ -138,14 +158,22 @@ async fn status(State(state): State<AppState>, headers: HeaderMap) -> Response {
     Json(state.console.status()).into_response()
 }
 
-async fn input(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(events): Json<Vec<InputEvent>>,
-) -> Response {
+/// Parsed after the auth check so an unauthenticated caller learns nothing from validation errors.
+fn parse_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> Option<T> {
+    serde_json::from_slice(body).ok()
+}
+
+fn malformed() -> Response {
+    (StatusCode::BAD_REQUEST, "malformed body\n").into_response()
+}
+
+async fn input(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
     if let Some(refusal) = guard(&state, &headers) {
         return refusal;
     }
+    let Some(events): Option<Vec<InputEvent>> = parse_body(&body) else {
+        return malformed();
+    };
     match state.console.input(events) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(message) if message == "not running" => (StatusCode::CONFLICT, message).into_response(),
@@ -178,6 +206,46 @@ async fn stop(State(state): State<AppState>, headers: HeaderMap) -> Response {
         Ok(report) => Json(report).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+#[derive(Deserialize)]
+struct OfferBody {
+    sdp: String,
+}
+
+async fn webrtc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    let Some(offer): Option<OfferBody> = parse_body(&body) else {
+        return malformed();
+    };
+    let console = state.console.clone();
+    match tokio::task::spawn_blocking(move || console.webrtc_answer(&offer.sdp)).await {
+        Ok(Ok(sdp)) => Json(serde_json::json!({ "sdp": sdp })).into_response(),
+        Ok(Err(message)) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": message })),
+        )
+            .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct QualityBody {
+    level: Quality,
+}
+
+async fn quality(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    let Some(body): Option<QualityBody> = parse_body(&body) else {
+        return malformed();
+    };
+    state.console.set_quality(body.level);
+    Json(state.console.status()).into_response()
 }
 
 fn mjpeg_part(jpeg: &[u8]) -> Bytes {
@@ -245,7 +313,7 @@ mod tests {
             grab_socket: None,
             state_dir: std::env::temp_dir().join("br-console-server-test"),
             headless: true,
-            video: blackroom_gnome::mutter::video::VideoOptions::default(),
+            quality: crate::console::Quality::Medium,
             heartbeat_timeout: Duration::from_secs(15),
             restore_bin: std::path::PathBuf::new(),
         });
@@ -309,6 +377,8 @@ mod tests {
             ("POST", "/input"),
             ("POST", "/start"),
             ("POST", "/stop"),
+            ("POST", "/webrtc"),
+            ("POST", "/quality"),
         ] {
             let request = Request::builder()
                 .method(method)
@@ -342,6 +412,47 @@ mod tests {
         same.headers_mut()
             .insert(ORIGIN, "http://laptop:8080".parse().unwrap());
         assert_eq!(call(&app, same).await.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn http2_style_requests_without_a_host_header_pass_the_origin_check() {
+        let app = app();
+        let request = Request::builder()
+            .method("POST")
+            .uri("https://laptop:8443/stop")
+            .header(COOKIE, format!("{COOKIE_NAME}={TOKEN}"))
+            .header(ORIGIN, "https://laptop:8443")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(call(&app, request).await.status(), StatusCode::OK);
+        let foreign = Request::builder()
+            .method("POST")
+            .uri("https://laptop:8443/stop")
+            .header(COOKIE, format!("{COOKIE_NAME}={TOKEN}"))
+            .header(ORIGIN, "https://evil.example")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(call(&app, foreign).await.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn quality_levels_are_validated_and_webrtc_needs_a_running_session() {
+        let app = app();
+        let bad = call(
+            &app,
+            with_cookie("POST", "/quality", r#"{"level":"ultra"}"#),
+        )
+        .await;
+        assert!(bad.status().is_client_error());
+        let good = call(&app, with_cookie("POST", "/quality", r#"{"level":"high"}"#)).await;
+        assert_eq!(good.status(), StatusCode::OK);
+        let status = call(&app, with_cookie("GET", "/status", "")).await;
+        let body = axum::body::to_bytes(status.into_body(), 1 << 16)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&body).contains(r#""quality":"high""#));
+        let idle = call(&app, with_cookie("POST", "/webrtc", r#"{"sdp":"v=0"}"#)).await;
+        assert_eq!(idle.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]

@@ -2,7 +2,7 @@
 //! for an MJPEG stream (MVP milestone 1, `docs/plans/plan-20261002-mvp-fast-path.md`).
 
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -147,11 +147,116 @@ fn encode_jpeg(
     Some(jpeg)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawFormat {
+    Bgrx,
+    Rgbx,
+}
+
+impl RawFormat {
+    /// The GStreamer `format` field.
+    pub fn gst_name(self) -> &'static str {
+        match self {
+            Self::Bgrx => "BGRx",
+            Self::Rgbx => "RGBx",
+        }
+    }
+}
+
+/// One desktop frame, rows without padding.
+pub struct RawFrame {
+    pub width: u32,
+    pub height: u32,
+    pub format: RawFormat,
+    pub pixels: Vec<u8>,
+}
+
+/// The newest raw frame, for a second consumer (the WebRTC encoder) of the one PipeWire stream.
+#[derive(Default)]
+pub struct FrameTap {
+    state: Mutex<(u64, Option<Arc<RawFrame>>)>,
+    changed: Condvar,
+}
+
+impl FrameTap {
+    fn lock(&self) -> std::sync::MutexGuard<'_, (u64, Option<Arc<RawFrame>>)> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn publish(&self, frame: RawFrame) {
+        let mut state = self.lock();
+        state.0 += 1;
+        state.1 = Some(Arc::new(frame));
+        self.changed.notify_all();
+    }
+
+    /// The newest frame if it is newer than `after`, else waits up to `timeout` for one.
+    pub fn next_after(&self, after: u64, timeout: Duration) -> Option<(u64, Arc<RawFrame>)> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.lock();
+        loop {
+            if state.0 > after
+                && let Some(frame) = &state.1
+            {
+                return Some((state.0, Arc::clone(frame)));
+            }
+            let left = deadline.checked_duration_since(Instant::now())?;
+            state = self
+                .changed
+                .wait_timeout(state, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
+    pub fn latest(&self) -> Option<Arc<RawFrame>> {
+        self.lock().1.clone()
+    }
+}
+
+/// JPEG quality and frame-rate cap, adjustable while the stream runs, and the raw-frame tap.
+pub struct VideoTuning {
+    quality: AtomicU8,
+    max_fps: AtomicU32,
+    tap: FrameTap,
+}
+
+impl VideoTuning {
+    pub fn new(options: &VideoOptions) -> Arc<Self> {
+        let tuning = Self {
+            quality: AtomicU8::new(1),
+            max_fps: AtomicU32::new(0),
+            tap: FrameTap::default(),
+        };
+        tuning.set(options.quality, options.max_fps);
+        Arc::new(tuning)
+    }
+
+    pub fn set(&self, quality: u8, max_fps: u32) {
+        self.quality.store(quality.clamp(1, 100), Ordering::Relaxed);
+        self.max_fps.store(max_fps, Ordering::Relaxed);
+    }
+
+    pub fn tap(&self) -> &FrameTap {
+        &self.tap
+    }
+
+    fn quality(&self) -> u8 {
+        self.quality.load(Ordering::Relaxed)
+    }
+
+    fn min_interval(&self) -> Duration {
+        match self.max_fps.load(Ordering::Relaxed) {
+            0 => Duration::ZERO,
+            fps => Duration::from_secs(1) / fps,
+        }
+    }
+}
+
 struct StreamState {
     format: spa::param::video::VideoInfoRaw,
     slot: Arc<JpegSlot>,
-    quality: u8,
-    min_interval: Duration,
+    tuning: Arc<VideoTuning>,
     last_encoded: Option<Instant>,
 }
 
@@ -163,7 +268,18 @@ pub fn stream_jpeg(
     stop: &Arc<AtomicBool>,
     slot: &Arc<JpegSlot>,
 ) -> Result<(), BlackroomError> {
-    let result = run_stream(node_id, options, stop, slot);
+    stream_jpeg_tuned(node_id, options, &VideoTuning::new(&options), stop, slot)
+}
+
+/// [`stream_jpeg`] with quality and frame rate taken from `tuning` on every frame.
+pub fn stream_jpeg_tuned(
+    node_id: u32,
+    options: VideoOptions,
+    tuning: &Arc<VideoTuning>,
+    stop: &Arc<AtomicBool>,
+    slot: &Arc<JpegSlot>,
+) -> Result<(), BlackroomError> {
+    let result = run_stream(node_id, options, tuning, stop, slot);
     slot.close();
     result
 }
@@ -171,6 +287,7 @@ pub fn stream_jpeg(
 fn run_stream(
     node_id: u32,
     options: VideoOptions,
+    tuning: &Arc<VideoTuning>,
     stop: &Arc<AtomicBool>,
     slot: &Arc<JpegSlot>,
 ) -> Result<(), BlackroomError> {
@@ -191,12 +308,7 @@ fn run_stream(
     let state = StreamState {
         format: spa::param::video::VideoInfoRaw::default(),
         slot: Arc::clone(slot),
-        quality: options.quality.clamp(1, 100),
-        min_interval: if options.max_fps == 0 {
-            Duration::ZERO
-        } else {
-            Duration::from_secs(1) / options.max_fps
-        },
+        tuning: Arc::clone(tuning),
         last_encoded: None,
     };
     let _listener = stream
@@ -222,15 +334,15 @@ fn run_stream(
             };
             if state
                 .last_encoded
-                .is_some_and(|at| at.elapsed() < state.min_interval)
+                .is_some_and(|at| at.elapsed() < state.tuning.min_interval())
             {
                 return;
             }
             let size = state.format.size();
             let (width, height) = (size.width as usize, size.height as usize);
-            let color = match state.format.format() {
-                spa::param::video::VideoFormat::BGRx => ColorType::Bgra,
-                spa::param::video::VideoFormat::RGBx => ColorType::Rgba,
+            let (color, raw_format) = match state.format.format() {
+                spa::param::video::VideoFormat::BGRx => (ColorType::Bgra, RawFormat::Bgrx),
+                spa::param::video::VideoFormat::RGBx => (ColorType::Rgba, RawFormat::Rgbx),
                 _ => return,
             };
             let Some(data) = buffer.datas_mut().first_mut() else {
@@ -242,7 +354,13 @@ fn run_stream(
             let Some(pixels) = visible_pixels(bytes, offset, stride, width, height) else {
                 return;
             };
-            if let Some(jpeg) = encode_jpeg(&pixels, width, height, color, state.quality) {
+            state.tuning.tap.publish(RawFrame {
+                width: size.width,
+                height: size.height,
+                format: raw_format,
+                pixels: pixels.to_vec(),
+            });
+            if let Some(jpeg) = encode_jpeg(&pixels, width, height, color, state.tuning.quality()) {
                 state.slot.publish(jpeg);
                 state.last_encoded = Some(Instant::now());
             }
