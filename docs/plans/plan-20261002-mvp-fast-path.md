@@ -9,21 +9,31 @@ FEAS-C eDP-only restore, FEAS-D remote input, FEAS-E built-in grab, FEAS-A repla
 (`exp06 --integrated-probe`, 2026-10-02 runs), the Mutter NULL-view fix (keep the virtual monitor until Stop).
 Limits stay recorded in `docs/gnome/display-isolation.md`; none is a work item unless it breaks the MVP.
 
+## Decisions (2026-10-02, from the plan docs and this machine)
+- Doc 04 s41-s44 recommends WebRTC for video (codec chosen by capability, hardware encode preferred, software fallback
+  acceptable) and a WebRTC data channel for input. That is also the smoothest option: about 3-8 Mbit/s at 1080p30 against
+  25-50 for MJPEG, congestion control, hardware decode on tablets, every browser including Safari.
+- This machine has what it needs without any apt install: GStreamer 1.28 with `pipewiresrc`, `nvh264enc` (RTX 3050 Ti NVENC),
+  `openh264enc`, `rtph264pay`, `webrtcbin`, libnice, DTLS and SRTP, plus gstreamer-rs 0.25 (LGPL runtime, allowed).
+- Clients: any browser on any machine or tablet. MJPEG works everywhere with no client code; WebRTC receive-only works on
+  plain http on the LAN. Full keyboard capture (Ctrl+W, Alt+Tab, F11) needs Chromium in fullscreen over HTTPS (Keyboard Lock
+  API), so HTTPS with a self-signed certificate comes with the polish milestone; touch devices get an on-screen modifier bar.
+- Order: MJPEG first as the guaranteed baseline for the first real tablet demo (milestone 1 is done), then WebRTC H.264
+  behind the same video interface. The session library hands out the PipeWire node id, so the consumer is pluggable.
+
 ## Milestones (each ends with a working demo, not a document)
-1. **Video**: PipeWire frames to JPEG, served as MJPEG (`multipart/x-mixed-replace`, shown by a plain `<img>`; no new
-   client code, works through cookies). Latest-frame slot, old frames dropped. Developed against the throwaway headless
-   Shell (`docs/ops/headless-repro.sh` pattern) so the real screen is not touched. Dependency: one pure-Rust JPEG
-   encoder (cargo deny must pass).
-2. **Session library**: lift the `exp06 --integrated-probe` flow into a library `RemoteConsole { start, stop, input }`:
-   RemoteDesktop/EIS session, virtual monitor and capture, isolate, emergencyd grab, restore keeping the virtual monitor,
-   Stop, lock. Arms the `exp07 --keep-live-virtual` watchdog and releases the grab on socket EOF, as today.
-3. **Server**: one binary `blackroom-console` (axum, already a workspace dependency): `/` page (embedded HTML+JS), `/video`,
-   `POST /input` (keys, pointer, buttons, wheel), `POST /start`, `POST /stop`. Auth: one random token printed at start, set as
-   an HttpOnly cookie, constant-time compare. Fail closed: no heartbeat from the browser for 15 s runs Stop (the panel is
-   blank, so a lost client must restore it).
-4. **Tablet run**: the demo above on the real session, using the standing approval.
-5. **Make it usable**: scaling for the tablet screen, frame rate and quality knobs, on-screen modifier keys, clean error
-   page, systemd user unit. Then HTTPS (self-signed) before using it away from the home LAN.
+1. **Video, MJPEG**: PipeWire frames to JPEG for an `<img>`. **Done** (see log).
+2. **Session library** (`RemoteConsole { start, stop, input }`): lift the `exp06 --integrated-probe` flow out of the
+   experiment crate: RemoteDesktop/EIS session, virtual monitor and capture, isolate, emergencyd grab, restore keeping the
+   virtual monitor, Stop, lock on stop. Arms the `exp07 --keep-live-virtual` watchdog and releases the grab on socket EOF.
+   Needs input primitives the EIS layer lacks: key down/up, button down/up, absolute pointer.
+3. **Server and page**: one `blackroom-console` binary (axum): `/` page (embedded HTML+JS), `/video` (MJPEG with keepalive),
+   `POST /input`, `POST /start`, `POST /stop`. One random token, HttpOnly cookie, constant-time compare. Fail closed: no
+   heartbeat for 15 s runs Stop (the panel is blank, so a lost client must restore it).
+4. **Tablet run** on the real session under the standing approval: see the desktop, type, move, click, Stop.
+5. **WebRTC H.264**: `pipewiresrc` -> `nvh264enc` (fallback `openh264enc`) -> `webrtcbin`, signalling over the existing HTTP
+   endpoints, MJPEG kept as the fallback; input over a data channel afterwards. Then polish: scaling, quality knobs,
+   systemd user unit, HTTPS.
 
 ## Deferred until the MVP works
 TOTP login and the separate hostd/gateway/agent process split (kept in the tree, off the MVP path), WebRTC, adversarial and
