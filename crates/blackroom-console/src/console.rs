@@ -40,9 +40,6 @@ const WATCHDOG_EVERY: Duration = Duration::from_secs(20);
 const SETTLE: Duration = Duration::from_secs(10);
 const SESSION_TTL: Duration = Duration::from_secs(24 * 3600);
 const HEADLESS_SESSION: &str = "headless";
-const UNLOCK_WAIT: Duration = Duration::from_secs(15);
-/// The Start refusal while the screen is locked; the server turns it into an unlock offer.
-pub const LOCKED_MESSAGE: &str = "the session is locked";
 
 #[derive(Debug, Clone)]
 pub struct ConsoleConfig {
@@ -58,9 +55,6 @@ pub struct ConsoleConfig {
     pub heartbeat_timeout: Duration,
     /// `exp07_restore`, armed as the dead-man restore.
     pub restore_bin: PathBuf,
-    /// Lets Start unlock a locked session through logind (the lock Stop leaves behind). Whoever holds the
-    /// token can then open the laptop without its password.
-    pub remote_unlock: bool,
 }
 
 /// One knob for both transports: JPEG quality and frame cap for MJPEG, bitrate for WebRTC.
@@ -191,14 +185,13 @@ fn lock_ok<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 enum Command {
-    Start(bool, Sender<Result<(), String>>),
+    Start(Sender<Result<(), String>>),
     Stop(Sender<StopReport>),
     Input(Vec<InputEvent>),
 }
 
 #[derive(Clone)]
 pub struct RemoteConsole {
-    remote_unlock: bool,
     commands: Sender<Command>,
     shared: Arc<Shared>,
 }
@@ -206,7 +199,6 @@ pub struct RemoteConsole {
 impl RemoteConsole {
     pub fn spawn(config: ConsoleConfig) -> Self {
         let (commands, receiver) = mpsc::channel();
-        let remote_unlock = config.remote_unlock;
         let shared = Arc::new(Shared {
             phase: Mutex::new(Phase::Idle),
             slot: Mutex::new(None),
@@ -225,20 +217,11 @@ impl RemoteConsole {
             .name("console-actor".into())
             .spawn(move || run_actor(&receiver, &actor_shared, &Arc::new(config)))
             .expect("spawn the console actor thread");
-        Self {
-            remote_unlock,
-            commands,
-            shared,
-        }
+        Self { commands, shared }
     }
 
     /// Blocks until the session runs or setup failed (everything already undone).
-    pub fn remote_unlock_enabled(&self) -> bool {
-        self.remote_unlock
-    }
-
-    /// `unlock` asks to unlock a locked session first; it needs `remote_unlock` in the config.
-    pub fn start(&self, unlock: bool) -> Result<Status, String> {
+    pub fn start(&self) -> Result<Status, String> {
         {
             let mut phase = lock_ok(&self.shared.phase);
             if *phase != Phase::Idle {
@@ -248,7 +231,7 @@ impl RemoteConsole {
         }
         let (reply, answer) = mpsc::channel();
         self.commands
-            .send(Command::Start(unlock, reply))
+            .send(Command::Start(reply))
             .map_err(|_| "console actor is gone".to_string())?;
         answer
             .recv()
@@ -400,11 +383,11 @@ fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<Co
     let mut active: Option<Active<'_>> = None;
     loop {
         match receiver.recv_timeout(TICK) {
-            Ok(Command::Start(unlock, reply)) => {
+            Ok(Command::Start(reply)) => {
                 let result = match (&conn, active.is_some()) {
                     (_, true) => Err("already running".to_string()),
                     (Err(error), _) => Err(format!("session bus: {error}")),
-                    (Ok(conn), false) => match begin(conn, config, shared, unlock) {
+                    (Ok(conn), false) => match begin(conn, config, shared) {
                         Ok(started) => {
                             active = Some(started);
                             Ok(())
@@ -466,7 +449,6 @@ fn begin<'c>(
     conn: &'c Connection,
     config: &Arc<ConsoleConfig>,
     shared: &Arc<Shared>,
-    unlock: bool,
 ) -> Result<Active<'c>, String> {
     lock_ok(&shared.notes).clear();
     shared.input_accepted.store(0, Ordering::Relaxed);
@@ -500,7 +482,7 @@ fn begin<'c>(
         last_watchdog: Instant::now(),
         released_early: Vec::new(),
     };
-    match active.setup(unlock) {
+    match active.setup() {
         Ok(()) => {
             *lock_ok(&shared.beat) = Instant::now();
             *lock_ok(&shared.size) = active.size;
@@ -528,13 +510,13 @@ impl<'c> Active<'c> {
         lock_ok(&self.shared.notes).push(text);
     }
 
-    fn setup(&mut self, unlock: bool) -> anyhow::Result<()> {
+    fn setup(&mut self) -> anyhow::Result<()> {
         let config = Arc::clone(&self.config);
         if config.headless {
             display::require_headless_shell(self.conn)?;
             self.session.session_id = HEADLESS_SESSION.into();
         } else {
-            self.preflight_live(&config, unlock)?;
+            self.preflight_live(&config)?;
         }
 
         let backup = display_config::snapshot(self.conn, &self.session.session_id)
@@ -620,7 +602,7 @@ impl<'c> Active<'c> {
         Ok(())
     }
 
-    fn preflight_live(&mut self, config: &ConsoleConfig, unlock: bool) -> anyhow::Result<()> {
+    fn preflight_live(&mut self, config: &ConsoleConfig) -> anyhow::Result<()> {
         let socket = config
             .grab_socket
             .as_ref()
@@ -635,35 +617,14 @@ impl<'c> Active<'c> {
         self.session = discover_session().map_err(|e| anyhow::anyhow!("session discovery: {e}"))?;
         let observed = lock::observe(&self.session)
             .map_err(|e| anyhow::anyhow!("lock state unreadable: {e}"))?;
-        let locked = observed.screen_saver_active || observed.logind_locked_hint;
-        if locked && !unlock {
-            anyhow::bail!("{LOCKED_MESSAGE}");
-        }
+        anyhow::ensure!(
+            !observed.screen_saver_active && !observed.logind_locked_hint,
+            "the session is locked"
+        );
         anyhow::ensure!(
             !display::watchdog_pending(),
             "a console restore timer is still pending (wait for it to fire or stop it)"
         );
-        if locked {
-            anyhow::ensure!(config.remote_unlock, "remote unlock is not enabled");
-            anyhow::ensure!(
-                display::unlock_session(&self.session.session_id),
-                "loginctl unlock-session failed"
-            );
-            let deadline = Instant::now() + UNLOCK_WAIT;
-            loop {
-                let now = lock::observe(&self.session)
-                    .map_err(|e| anyhow::anyhow!("lock state unreadable: {e}"))?;
-                if !now.screen_saver_active && !now.logind_locked_hint {
-                    break;
-                }
-                anyhow::ensure!(
-                    Instant::now() < deadline,
-                    "the session did not unlock in time"
-                );
-                thread::sleep(Duration::from_millis(200));
-            }
-            tracing::info!("session unlocked remotely");
-        }
         Ok(())
     }
 

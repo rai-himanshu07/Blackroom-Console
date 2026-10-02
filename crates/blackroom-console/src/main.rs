@@ -35,10 +35,6 @@ struct Args {
     /// Starting quality; the page can change it while a session runs.
     #[arg(long, default_value = "medium", value_parser = ["low", "medium", "high"])]
     quality: String,
-    /// Let Start unlock a locked screen (only over https). Whoever holds the token can then open the laptop
-    /// without its password; leave it off to unlock locally.
-    #[arg(long)]
-    remote_unlock: bool,
     /// Development only: serve a throwaway `--headless` Shell on a private bus (no grab, watchdog or lock).
     #[arg(long)]
     headless: bool,
@@ -125,11 +121,10 @@ async fn main() -> anyhow::Result<()> {
         quality,
         heartbeat_timeout: Duration::from_secs(args.heartbeat_secs),
         restore_bin,
-        remote_unlock: args.remote_unlock,
     });
 
     let token = random_token()?;
-    let app = router(console.clone(), &token, false);
+    let app = router(console.clone(), &token);
     let handle = axum_server::Handle::new();
 
     let http = tokio::net::TcpListener::bind(args.listen).await?;
@@ -150,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
         let config = axum_server::tls_rustls::RustlsConfig::from_pem(cert, key).await?;
         let server = axum_server::bind_rustls(addr, config)
             .handle(handle.clone())
-            .serve(router(console.clone(), &token, true).into_make_service());
+            .serve(app.clone().into_make_service());
         tls_task = Some(tokio::spawn(server));
         all_urls.extend(urls("https", addr, &token));
     }

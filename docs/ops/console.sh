@@ -18,9 +18,6 @@ cd "$(dirname "$0")/../.." || exit 2
 T=${BR_TARGET:-target/release}
 PORT=${BR_PORT:-8080}
 TLS_PORT=${BR_TLS_PORT:-8443}
-# After Stop (or a lost tablet) the laptop is locked; the https page can then unlock it. BR_REMOTE_UNLOCK=0 turns that off.
-REMOTE_UNLOCK_FLAG=--remote-unlock
-[ "${BR_REMOTE_UNLOCK:-1}" = "0" ] && REMOTE_UNLOCK_FLAG=""
 KILL_SECS=${BR_KILL_SECS:-7200}
 export XDG_RUNTIME_DIR=/run/user/$(id -u)
 LIVE=$XDG_RUNTIME_DIR/blackroom-live
@@ -56,8 +53,7 @@ if [ "${1:-}" = "--check" ]; then echo "Preflight OK (nothing changed)."; exit 0
 cat <<EOF
 About to start the remote console. Have you: saved work, plugged in AC, kept the lid open, opened the tablet SSH session?
 Pressing Start on the page blanks this panel and grabs the built-in keyboard and touchpad until you press Stop (or the
-tablet goes silent for 15 s). Stop locks the screen: unlock it with your password, or (unless BR_REMOTE_UNLOCK=0)
-from the https page with "Unlock and start" - which lets anyone holding the URL token open this laptop.
+tablet goes silent for 15 s). Stop locks the screen: unlock it with your password.
 EOF
 read -r -p "Type START to begin: " answer
 [ "$answer" = "START" ] || { echo "Aborted."; exit 1; }
@@ -85,7 +81,7 @@ setsid nohup "$T/remote-emergencyd" --client-uid "$(id -u)" --enable-grabs --soc
 sleep 1
 "$T/blackroom" emergency-status --socket "$SOCK" || { echo "daemon not answering"; exit 2; }
 
-"$T/blackroom-console" --grab-socket "$SOCK" --listen "0.0.0.0:$PORT" --tls-listen "0.0.0.0:$TLS_PORT" $REMOTE_UNLOCK_FLAG &
+"$T/blackroom-console" --grab-socket "$SOCK" --listen "0.0.0.0:$PORT" --tls-listen "0.0.0.0:$TLS_PORT" &
 app=$!
 wait "$app"
 echo "console exited with $?"
