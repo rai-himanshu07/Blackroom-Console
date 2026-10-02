@@ -29,7 +29,7 @@ PHYSICAL_NOTE=""
 if [ "${BLACKROOM_PHYSICAL_CHECK:-}" = "1" ]; then
   HOLD=35
   PHYSICAL="--physical-check"
-  PHYSICAL_NOTE="PHYSICAL INPUT CHECK: when the page says TYPE AND SWIPE NOW, type letters and digits and swipe the touchpad until it says STOP. No Ctrl, Alt, Super, Fn, lid or power button; leave the wireless dongle keyboard and mouse alone."
+  PHYSICAL_NOTE="PHYSICAL INPUT CHECK (the panel is black while isolated: go by SOUND). Hands off until you hear ONE CHIME (about 4 s after the panel goes black); then type letters and digits and swipe the touchpad until you hear TWO BELLS. No chime? wait 6 s after black, type 20 s, stop. No Ctrl, Alt, Super, Fn, lid or power button; leave the wireless dongle keyboard and mouse alone."
 fi
 fail=0
 bad() { echo "PREFLIGHT FAIL: $*"; fail=1; }

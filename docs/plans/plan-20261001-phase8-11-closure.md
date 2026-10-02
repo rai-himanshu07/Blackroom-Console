@@ -184,3 +184,10 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   Still unproven: physical-input blocking during the integrated hold (nobody touched the machine; the dongle is not grabbed),
   the focus-click path, other topologies, repeats and soak. Phase 9 real-backend wiring, lifecycle experiments and Phase
   10-11 remain open.
+- 2026-10-02 13:25 (third integrated run, evidence exp06/2026-10-02-3, `--physical-check`): **inconclusive, nothing wrong**.
+  The operator could not see the page prompts because the physical panel is black while isolated (my design flaw: the
+  prompt lives on the page, which is on the virtual monitor), so nobody typed and the daemon read 0 events (< 20). The
+  rest matched run 2: 3 remote taps accepted and seen exactly, no other page event, 4 nodes grabbed and released, 2130
+  frames in the 35 s hold, no Shell crash, topology and hash restored, lock 680 ms and logind unlock. The page never lost
+  focus in this run (runs 1-3: lost for good, lost 1 s, never lost). Fix: audible cues (one chime to start, two bells to
+  stop) plus a countdown in the script text; the page prompt stays as a secondary cue.

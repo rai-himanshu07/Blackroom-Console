@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
@@ -1951,6 +1951,22 @@ const BTN_LEFT: u32 = 272;
 const PHYSICAL_MIN_HOLD_SECS: u64 = 30;
 /// Fewer grabbed-node events than this means nobody really typed or swiped: inconclusive, not a pass.
 const PHYSICAL_MIN_READS: u64 = 20;
+const CUE_DIR: &str = "/usr/share/sounds/freedesktop/stereo";
+
+/// The panel is blank while isolated, so the operator is cued by sound; a failed cue is not fatal.
+fn play_cue(sounds: &[&str]) {
+    let paths: Vec<String> = sounds.iter().map(|s| format!("{CUE_DIR}/{s}")).collect();
+    thread::spawn(move || {
+        for path in paths {
+            let _ = Command::new("pw-play")
+                .arg(path)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+    });
+}
 /// How long the page gets to regain focus by itself before the single focus click.
 const FOCUS_WAIT_BEFORE_CLICK: Duration = Duration::from_secs(3);
 const PAGE_WAIT: Duration = Duration::from_secs(300);
@@ -2156,6 +2172,7 @@ fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) 
     let mut stop_prompted = false;
     if args.physical_check {
         if injected {
+            play_cue(&["message.oga"]);
             ctx.observer.set_prompt(&format!(
                 "TYPE AND SWIPE NOW for about {} s: letters, digits and the touchpad only. No Ctrl, Alt, Super, Fn, lid or power button.",
                 args.hold_secs.saturating_sub(8)
@@ -2172,6 +2189,7 @@ fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) 
             && hold_started.elapsed() + Duration::from_secs(4) >= hold
         {
             stop_prompted = true;
+            play_cue(&["bell.oga", "bell.oga"]);
             ctx.observer
                 .set_prompt("STOP typing now. Hands off everything.");
         }
