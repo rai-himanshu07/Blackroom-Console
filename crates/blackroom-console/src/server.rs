@@ -15,7 +15,7 @@ use axum::{Json, Router};
 use futures_util::StreamExt;
 use serde::Deserialize;
 
-use crate::console::{InputEvent, Quality, RemoteConsole};
+use crate::console::{InputEvent, LOCKED_MESSAGE, Quality, RemoteConsole};
 
 const PAGE: &str = include_str!("page.html");
 const COOKIE_NAME: &str = "br_token";
@@ -27,6 +27,8 @@ const MAX_INPUT_BODY: usize = 64 * 1024;
 #[derive(Clone)]
 struct AppState {
     console: RemoteConsole,
+    /// True on the https listener: unlocking is only offered where the cookie cannot be sniffed.
+    secure: bool,
     token: Arc<str>,
 }
 
@@ -86,9 +88,10 @@ fn guard(state: &AppState, headers: &HeaderMap) -> Option<Response> {
     None
 }
 
-pub fn router(console: RemoteConsole, token: &str) -> Router {
+pub fn router(console: RemoteConsole, token: &str, secure: bool) -> Router {
     let state = AppState {
         console,
+        secure,
         token: Arc::from(token),
     };
     Router::new()
@@ -181,18 +184,58 @@ async fn input(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -
     }
 }
 
-async fn start(State(state): State<AppState>, headers: HeaderMap) -> Response {
+#[derive(Deserialize)]
+struct StartBody {
+    #[serde(default)]
+    unlock: bool,
+}
+
+/// Why a locked screen cannot be unlocked from this connection; empty when it can.
+fn unlock_hint(state: &AppState) -> &'static str {
+    if !state.console.remote_unlock_enabled() {
+        "Unlock the laptop locally, or restart the console with --remote-unlock."
+    } else if !state.secure {
+        "Open the https URL to unlock remotely."
+    } else {
+        ""
+    }
+}
+
+async fn start(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
     if let Some(refusal) = guard(&state, &headers) {
         return refusal;
     }
-    let console = state.console.clone();
-    match tokio::task::spawn_blocking(move || console.start()).await {
-        Ok(Ok(status)) => Json(status).into_response(),
-        Ok(Err(message)) => (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": message })),
+    let unlock = if body.is_empty() {
+        false
+    } else {
+        match parse_body::<StartBody>(&body) {
+            Some(parsed) => parsed.unlock,
+            None => return malformed(),
+        }
+    };
+    if unlock && !unlock_hint(&state).is_empty() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": unlock_hint(&state) })),
         )
-            .into_response(),
+            .into_response();
+    }
+    let console = state.console.clone();
+    match tokio::task::spawn_blocking(move || console.start(unlock)).await {
+        Ok(Ok(status)) => Json(status).into_response(),
+        Ok(Err(message)) => {
+            let hint = unlock_hint(&state);
+            (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": message,
+                    "locked": message == LOCKED_MESSAGE,
+                    "unlock_available": hint.is_empty(),
+                    "hint": hint,
+                })),
+            )
+                .into_response()
+        }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -316,8 +359,9 @@ mod tests {
             quality: crate::console::Quality::Medium,
             heartbeat_timeout: Duration::from_secs(15),
             restore_bin: std::path::PathBuf::new(),
+            remote_unlock: false,
         });
-        router(console, TOKEN)
+        router(console, TOKEN, false)
     }
 
     async fn call(app: &Router, request: Request<Body>) -> Response {
@@ -433,6 +477,15 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(call(&app, foreign).await.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn unlocking_needs_the_opt_in_and_an_https_listener() {
+        let app = app();
+        let refused = call(&app, with_cookie("POST", "/start", r#"{"unlock":true}"#)).await;
+        assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+        let malformed = call(&app, with_cookie("POST", "/start", r#"{"unlock":"yes"}"#)).await;
+        assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

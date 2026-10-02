@@ -16,6 +16,7 @@ fn config(heartbeat_timeout: Duration) -> ConsoleConfig {
         quality: Quality::Medium,
         heartbeat_timeout,
         restore_bin: PathBuf::new(),
+        remote_unlock: false,
     }
 }
 
@@ -25,7 +26,7 @@ fn two_sessions_stream_take_input_and_restore() {
     let console = RemoteConsole::spawn(config(Duration::from_secs(60)));
     for round in 1..=2 {
         let status = console
-            .start()
+            .start(false)
             .unwrap_or_else(|e| panic!("round {round} start: {e}"));
         assert_eq!(status.phase, Phase::Running);
         println!(
@@ -96,7 +97,7 @@ fn two_sessions_stream_take_input_and_restore() {
 #[ignore = "needs a headless Shell: docs/ops/headless-repro.sh"]
 fn a_silent_browser_runs_stop() {
     let console = RemoteConsole::spawn(config(Duration::from_secs(2)));
-    console.start().expect("start");
+    console.start(false).expect("start");
     sleep(Duration::from_secs(5));
     let status = console.status();
     assert_eq!(status.phase, Phase::Idle);

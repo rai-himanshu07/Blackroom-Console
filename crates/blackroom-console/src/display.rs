@@ -312,10 +312,18 @@ pub fn watchdog_pending() -> bool {
         .is_ok_and(|output| !output.stdout.iter().all(u8::is_ascii_whitespace))
 }
 
-/// Locks the session through logind; the console never unlocks it again.
+/// Locks the session through logind. Stop always does; only an opted-in Start unlocks it again.
 pub fn lock_session(session_id: &str) -> bool {
+    loginctl_session("lock-session", session_id)
+}
+
+pub fn unlock_session(session_id: &str) -> bool {
+    loginctl_session("unlock-session", session_id)
+}
+
+fn loginctl_session(verb: &str, session_id: &str) -> bool {
     let mut child = match Command::new("loginctl")
-        .args(["lock-session", session_id])
+        .args([verb, session_id])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

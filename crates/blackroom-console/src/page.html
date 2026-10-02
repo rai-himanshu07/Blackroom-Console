@@ -33,6 +33,7 @@
   <div class="row">
     <button id="start">Start</button>
     <button id="stop">Stop</button>
+    <button id="unlock" style="display:none">Unlock and start</button>
     <select id="quality" title="Quality">
       <option value="low">Low</option>
       <option value="medium">Medium</option>
@@ -507,18 +508,23 @@ async function refresh() {
   } catch (_) { chip.textContent = "no connection"; }
 }
 
-$("start").addEventListener("click", async () => {
-  say("Starting...");
-  $("start").disabled = true;
+async function startSession(unlock) {
+  say(unlock ? "Unlocking and starting..." : "Starting...");
+  $("start").disabled = true; $("unlock").disabled = true;
   try {
     await post("/quality", { level: $("quality").value });
-    const response = await post("/start");
+    const response = await post("/start", unlock ? { unlock: true } : undefined);
     const body = await response.json();
-    if (!response.ok) say("Could not start: " + (body.error || response.status));
-    else show(body);
+    if (response.ok) { $("unlock").style.display = "none"; show(body); }
+    else if (body.locked) {
+      $("unlock").style.display = body.unlock_available ? "" : "none";
+      say("The laptop is locked." + (body.hint ? "\n" + body.hint : "\nUnlock it and start the session."));
+    } else say("Could not start: " + (body.error || response.status));
   } catch (error) { say("Could not start: " + error); }
-  $("start").disabled = false;
-});
+  $("start").disabled = false; $("unlock").disabled = false;
+}
+$("start").addEventListener("click", () => startSession(false));
+$("unlock").addEventListener("click", () => startSession(true));
 
 $("stop").addEventListener("click", async () => {
   releaseAll();
