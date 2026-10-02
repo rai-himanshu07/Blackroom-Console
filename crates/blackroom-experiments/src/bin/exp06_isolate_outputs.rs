@@ -1884,6 +1884,9 @@ const OBSERVER_PAGE: &str = include_str!("../../assets/exp08_observer.html");
 const KEY_A: u32 = 30;
 const KEY_LEFTSHIFT: u32 = 42;
 const KEY_LEFT: u32 = 105;
+const BTN_LEFT: u32 = 272;
+/// How long the page gets to regain focus by itself before the single focus click.
+const FOCUS_WAIT_BEFORE_CLICK: Duration = Duration::from_secs(3);
 const PAGE_WAIT: Duration = Duration::from_secs(300);
 const ISOLATE_REPLY_TIMEOUT: Duration = Duration::from_secs(25);
 const PAGE_READY_AFTER_ISOLATION: Duration = Duration::from_secs(15);
@@ -1909,6 +1912,8 @@ struct Integrated {
     remote_session_before_isolation: bool,
     devices_seen_before_isolation: usize,
     page_ready_after_isolation: Option<bool>,
+    /// Outcome of the single focus click sent when isolation left the page fullscreen but unfocused.
+    focus_click: Option<String>,
     grab_nodes: Option<usize>,
     grab_refused: Option<String>,
     daemon_phase_during: Option<String>,
@@ -2018,10 +2023,25 @@ fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) 
         return out;
     }
 
-    let ready = ctx
+    let mut ready = ctx
         .observer
-        .wait_ready(PAGE_READY_AFTER_ISOLATION, Duration::from_secs(1));
+        .wait_ready(FOCUS_WAIT_BEFORE_CLICK, Duration::from_secs(1));
+    if !ready && ctx.observer.visible_fullscreen_unfocused(GATE_FRESHNESS) {
+        // Isolating the panel drops the page's focus (2026-10-02 run); one click focuses it again.
+        let outcome = match ctx.remote.as_mut() {
+            Some(remote) => match remote.click(&ctx.authority, BTN_LEFT) {
+                Ok(()) => "accepted".to_string(),
+                Err(error) => format!("refused:{:?}", error.code),
+            },
+            None => "no remote session".to_string(),
+        };
+        out.focus_click = Some(outcome);
+        ready = ctx
+            .observer
+            .wait_ready(PAGE_READY_AFTER_ISOLATION, Duration::from_secs(1));
+    }
     out.page_ready_after_isolation = Some(ready);
+    let mut injected = false;
     if !ready {
         out.notes.push(
             "the observer page was not focused and fullscreen after isolation: no input injected"
@@ -2031,6 +2051,7 @@ fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) 
         out.notes
             .push("the observer did not acknowledge the tally reset: no input injected".into());
     } else if let Some(remote) = ctx.remote.as_mut() {
+        injected = true;
         for (name, key) in [
             ("remote_key_tap_shift", KEY_LEFTSHIFT),
             ("remote_key_tap_a", KEY_A),
@@ -2068,7 +2089,8 @@ fn run_integrated(args: &Args, ctx: &mut IntegratedCtx<'_>, frames: &AtomicU32) 
     // Judged at the end of the hold, so anything the grab let through would be in it.
     ctx.observer.wait_beats(2, Duration::from_secs(3));
     out.tally = ctx.observer.snapshot(|state| state.tally.clone());
-    if let Some(tally) = &out.tally {
+    // Without a tally reset the tally still holds the operator's pre-isolation F11, so it is not judged.
+    if injected && let Some(tally) = &out.tally {
         out.tally_notes = judge_unlocked(tally)
             .into_iter()
             .map(|note| note.replace("after the unlock", "during the hold"))

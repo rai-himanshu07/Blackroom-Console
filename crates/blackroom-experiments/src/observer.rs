@@ -33,6 +33,19 @@ pub struct ObserverState {
     pub page_loads: u64,
 }
 
+fn is_visible_fullscreen_unfocused(state: &ObserverState, max_age: Duration) -> bool {
+    !state.focus
+        && state.fullscreen
+        && state.beat_at.is_some_and(|at| at.elapsed() <= max_age)
+        && state.tally.as_ref().and_then(|tally| {
+            tally["transitions"]
+                .as_array()?
+                .last()?
+                .get("visibility")?
+                .as_str()
+        }) == Some("visible")
+}
+
 #[derive(Deserialize)]
 struct Beat {
     focus: bool,
@@ -100,6 +113,12 @@ impl Observer {
                 && state.fullscreen
                 && state.beat_at.is_some_and(|at| at.elapsed() <= max_age)
         })
+    }
+
+    /// Fullscreen and visible with a fresh beat but not focused: what isolating the panel does to
+    /// the page, and what one click on it can undo.
+    pub fn visible_fullscreen_unfocused(&self, max_age: Duration) -> bool {
+        self.snapshot(|state| is_visible_fullscreen_unfocused(state, max_age))
     }
 
     /// True once the page has been focused and fullscreen continuously for `settle`.
@@ -315,6 +334,33 @@ mod tests {
     use super::*;
 
     const TEST_PAGE: &str = "<html>observer-test-page</html>";
+
+    #[test]
+    fn unfocused_page_is_clickable_only_when_fullscreen_visible_and_fresh() {
+        let mut state = ObserverState {
+            fullscreen: true,
+            beat_at: Some(Instant::now()),
+            tally: Some(json!({"transitions": [{"visibility": "visible"}]})),
+            ..ObserverState::default()
+        };
+        let fresh = Duration::from_millis(600);
+        assert!(is_visible_fullscreen_unfocused(&state, fresh));
+        state.focus = true;
+        assert!(!is_visible_fullscreen_unfocused(&state, fresh));
+        state.focus = false;
+        state.fullscreen = false;
+        assert!(!is_visible_fullscreen_unfocused(&state, fresh));
+        state.fullscreen = true;
+        state.tally = Some(json!({"transitions": [{"visibility": "hidden"}]}));
+        assert!(!is_visible_fullscreen_unfocused(&state, fresh));
+        state.tally = Some(json!({"transitions": []}));
+        assert!(!is_visible_fullscreen_unfocused(&state, fresh));
+        state.tally = Some(json!({"transitions": [{"visibility": "visible"}]}));
+        state.beat_at = Instant::now().checked_sub(Duration::from_secs(5));
+        assert!(!is_visible_fullscreen_unfocused(&state, fresh));
+        state.beat_at = None;
+        assert!(!is_visible_fullscreen_unfocused(&state, fresh));
+    }
 
     fn http(port: u16, request: &str) -> String {
         let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");

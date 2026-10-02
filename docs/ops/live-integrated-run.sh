@@ -91,7 +91,7 @@ import json, sys
 j = json.load(open(sys.argv[1]))
 print("PASS" if j.get("pass") else "NOT PASS", sys.argv[1])
 for k in ("grab_nodes", "grab_refused", "daemon_phase_during", "released_early", "grab_restored",
-          "daemon_phase_after", "page_ready_after_isolation", "injections", "tally_notes",
+          "daemon_phase_after", "page_ready_after_isolation", "focus_click", "injections", "tally_notes",
           "non_key_events", "capture_frames_in_hold", "capture_error", "notes"):
     print(f"  {k}: {j.get(k)}")
 lock = j.get("lock_teardown") or {}

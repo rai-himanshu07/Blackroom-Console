@@ -251,7 +251,8 @@ pub fn open_remote<'a>(
 }
 
 impl Remote<'_> {
-    pub fn tap(&mut self, authority: &Authority, key: u32) -> Result<(), BlackroomError> {
+    /// Applies queued EIS events so the latest resumed devices are current.
+    fn drain(&mut self) {
         let _ = pump(
             &mut self.eis,
             &mut self.devices,
@@ -259,6 +260,24 @@ impl Remote<'_> {
             Duration::from_millis(30),
             |_| {},
         );
+    }
+
+    pub fn click(&mut self, authority: &Authority, button: u32) -> Result<(), BlackroomError> {
+        self.drain();
+        match self.devices.button.clone() {
+            Some(device) => {
+                self.eis
+                    .send_button_click(&authority.authorization(false), &device, button)
+            }
+            None => Err(BlackroomError::new(
+                ErrorCode::MutterUnavailable,
+                "no active button device",
+            )),
+        }
+    }
+
+    pub fn tap(&mut self, authority: &Authority, key: u32) -> Result<(), BlackroomError> {
+        self.drain();
         match self.devices.keyboard.clone() {
             Some(device) => self
                 .eis
