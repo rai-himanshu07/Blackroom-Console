@@ -169,3 +169,9 @@ Architecture Review #1, FEAS-F and FEAS-H (Phase 9), FEAS-G, Go/No-Go and Archit
   text includes it. Unit-tested only: exp07's apply path needs the real login1 session identity and was not run headless.
   A manual `exp07_restore` without the flag with a live owner and a streaming consumer is still unsafe. Side effect to
   expect: windows may stay on the kept virtual monitor until the session is stopped.
+- 2026-10-02 12:50 (operator-approved real-session integrated run, evidence exp06/2026-10-02): **no Shell crash**; the
+  restore with the kept virtual monitor passed with the consumer streaming (1369 frames in the hold), original topology
+  and hash restored, lock 674 ms and logind unlock fine, daemon/timers/ACLs cleaned up. Probe NOT PASS: the observer page
+  lost focus when the panel was isolated and never regained it, so no input was injected; remote input under isolation and
+  physical-input blocking during the integrated hold (nobody touched the machine) remain unproven (FEAS-F/H integrated part).
+  Harness defects: pre-isolation F11 left in the end-of-hold tally; `devices_seen_before_isolation` 0. One observation only.

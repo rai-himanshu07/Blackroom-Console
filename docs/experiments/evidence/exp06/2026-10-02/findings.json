@@ -1,0 +1,42 @@
+{
+  "host": {
+    "kernel": "7.0.0-34-generic",
+    "gpu_modules": [
+      "xe",
+      "nvidia",
+      "i915"
+    ]
+  },
+  "physical_connectors_before": [
+    "eDP-1"
+  ],
+  "virtual_connector": "Meta-0",
+  "apply_monitors_config_allowed": true,
+  "watchdog_armed": true,
+  "watchdog_unit": "blackroom-exp06-watchdog-1790925593",
+  "cleanup_watchdog_unit": "blackroom-exp06-watchdog-1790925593-cleanup",
+  "cycles": [],
+  "stop_error": null,
+  "virtual_connector_fully_gone": true,
+  "post_stop_restore_attempted": false,
+  "post_stop_restore_error": null,
+  "paused_for_manual_kill_test": true,
+  "final_state": {
+    "raw_connectors": [
+      "eDP-1"
+    ],
+    "logical_connectors": [
+      "eDP-1"
+    ],
+    "power_save_mode": 0,
+    "shell_pid": 3828099,
+    "session_id": "182",
+    "watchdog_timer_active": true,
+    "watchdog_timer_state": "active",
+    "watchdog_service_state": "inactive",
+    "topology_matches_original": true,
+    "configuration_hash_matches": true,
+    "read_error": null,
+    "probe_errors": []
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "remote_session_before_isolation": true,
+  "devices_seen_before_isolation": 0,
+  "page_ready_after_isolation": false,
+  "grab_nodes": 4,
+  "grab_refused": null,
+  "daemon_phase_during": "isolated",
+  "daemon_reads_during": 0,
+  "injections": [],
+  "tally": {
+    "buttons": [],
+    "epoch": 0,
+    "keys": [
+      {
+        "code": "F11",
+        "repeat": false,
+        "shift": false,
+        "t": 1102,
+        "type": "down"
+      },
+      {
+        "code": "F11",
+        "repeat": false,
+        "shift": false,
+        "t": 1206,
+        "type": "up"
+      }
+    ],
+    "pointer": {
+      "moves": 0,
+      "positions": []
+    },
+    "transitions": [
+      {
+        "focus": true,
+        "fullscreen": false,
+        "t": 251,
+        "visibility": "visible"
+      },
+      {
+        "focus": true,
+        "fullscreen": true,
+        "t": 2010,
+        "visibility": "visible"
+      },
+      {
+        "focus": false,
+        "fullscreen": true,
+        "t": 8037,
+        "visibility": "visible"
+      }
+    ],
+    "untrusted": 0,
+    "viewport": {
+      "h": 1080,
+      "w": 1920
+    },
+    "wheel": {
+      "deltaY": 0,
+      "events": 0,
+      "scrollY": 0
+    }
+  },
+  "tally_notes": [
+    "ShiftLeft not exactly one down/up during the hold",
+    "KeyA not exactly one down/up during the hold",
+    "ArrowLeft not exactly one down/up during the hold",
+    "2 unexpected key events during the hold"
+  ],
+  "capture_frames_at_isolation": 1,
+  "capture_frames_in_hold": 1369,
+  "capture_error": null,
+  "grab_restored": true,
+  "released_early": [],
+  "daemon_phase_after": "idle",
+  "non_key_events": 0,
+  "lock_teardown": {
+    "engaged_after_ms": 674,
+    "unlock": {
+      "method": "loginctl",
+      "logind_exit": 0,
+      "logind_stderr": null,
+      "observed_after_ms": 936
+    }
+  },
+  "notes": [
+    "the observer page was not focused and fullscreen after isolation: no input injected"
+  ],
+  "pass": false
+}
