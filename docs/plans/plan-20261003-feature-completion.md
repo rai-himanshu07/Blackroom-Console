@@ -40,7 +40,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   simulation (`apt-get install --simulate`, `dpkg-deb -c`). Check: package builds and lints clean; **you** install it on a clean user.
 - [x] **E. First-run and repair.** (done 2026-10-03; `blackroom setup|reset|repair`, `docs/ops/runbook.md`) `blackroom setup` (enrol with terminal QR code, key, recovery codes, PAM check, start, URLs, public
   checklist), `blackroom reset {soft,security,full}`, `blackroom repair`, runbook. Check: wizard against a temp state directory.
-- [ ] **F. Page quality.** Safari/iOS fallbacks (no Keyboard Lock, no fullscreen on iPhone), accessible labels, a paste-text box (uses
+- [x] **F. Page quality.** (done 2026-10-03; headless Chrome incl. a Safari-like stub passes; real Safari/iOS remains **your** test) Safari/iOS fallbacks (no Keyboard Lock, no fullscreen on iPhone), accessible labels, a paste-text box (uses
   clipboard), diagnostics chip. Check: headless Chrome; Safari/iOS are **your** test.
 - [ ] **G. Reliability and metrics.** `/status` gains RSS, fd, thread, session counts; `docs/ops/cycle-test.sh` (N headless
   start/stop cycles with flat-resource assertion) and a soak script. Check: 100 headless cycles pass; **you** run the 1 h live soak.

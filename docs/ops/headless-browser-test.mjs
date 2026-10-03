@@ -21,7 +21,12 @@ const ws = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((r) => { ws.onopen = r; });
 let nextId = 1;
 const pending = new Map();
-ws.onmessage = (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } };
+const pageErrors = [];
+ws.onmessage = (m) => {
+  const d = JSON.parse(m.data);
+  if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
+  else if (d.method === "Runtime.exceptionThrown") pageErrors.push(d.params.exceptionDetails.text + " " + (d.params.exceptionDetails.exception?.description || "").slice(0, 120));
+};
 const cdp = (method, params = {}) => new Promise((r) => { const id = nextId++; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
 const js = async (expression) => {
   const r = await cdp("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
@@ -33,6 +38,7 @@ let failed = false;
 const check = (name, ok, detail = "") => { console.log(`${ok ? "ok  " : "FAIL"} ${name} ${detail}`); if (!ok) failed = true; };
 
 await cdp("Page.enable");
+await cdp("Runtime.enable");
 await cdp("Page.navigate", { url });
 await sleep(2500);
 check("page loaded", (await js("document.getElementById('start') !== null")) === true);
@@ -73,6 +79,28 @@ await js("document.getElementById('quality').value = 'low'; document.getElementB
 await sleep(1500);
 check("quality changed live", (await js("fetch('/status',{credentials:'same-origin'}).then(r=>r.json()).then(s=>s.quality)")) === "low");
 
+// Accessibility and diagnostics: every control has a name; the status chip opens a diagnostics panel.
+const unnamed = await js(`[...document.querySelectorAll("button, select, textarea, input, [role=button]")].filter((el) => el.getClientRects().length && !(el.getAttribute("aria-label") || el.textContent.trim() || el.getAttribute("title") || el.getAttribute("placeholder"))).map((el) => el.id || el.tagName)`);
+check("every visible control has an accessible name", unnamed.length === 0, JSON.stringify(unnamed));
+await js("document.getElementById('chip').click()");
+const diag = await js("document.getElementById('diag').textContent");
+check("diagnostics panel shows link, video and browser", /link: ok/.test(diag) && /video: WebRTC H\.264/.test(diag) && /keyboard capture/.test(diag), JSON.stringify(diag));
+await js("document.getElementById('chip').click()");
+check("diagnostics panel closes", (await js("getComputedStyle(document.getElementById('diag')).display")) === "none");
+// A browser without Keyboard Lock or any Fullscreen API (Safari on iPhone): capabilities say so and the Fullscreen button is hidden.
+const safari = await js(`(() => {
+  const saved = [Object.getOwnPropertyDescriptor(Navigator.prototype, "keyboard"), Object.getOwnPropertyDescriptor(Document.prototype, "fullscreenEnabled"), Object.getOwnPropertyDescriptor(Document.prototype, "webkitFullscreenEnabled")];
+  Object.defineProperty(Navigator.prototype, "keyboard", { configurable: true, get() { return undefined; } });
+  Object.defineProperty(Document.prototype, "fullscreenEnabled", { configurable: true, get() { return false; } });
+  Object.defineProperty(Document.prototype, "webkitFullscreenEnabled", { configurable: true, get() { return false; } });
+  const result = { caps: capabilities(), note: keyboardNote() };
+  Object.defineProperty(Navigator.prototype, "keyboard", saved[0]);
+  Object.defineProperty(Document.prototype, "fullscreenEnabled", saved[1]);
+  if (saved[2]) Object.defineProperty(Document.prototype, "webkitFullscreenEnabled", saved[2]);
+  return result;
+})()`);
+check("Safari-like browser: no keyboard lock, no fullscreen, a clear note", !safari.caps.keyboardLock && !safari.caps.fullscreen && /cannot capture/.test(safari.note), JSON.stringify(safari));
+
 // Clipboard buttons: shown while running, send the box text, fetch it back (this headless Shell has no other
 // clipboard owner, so the text set from the page is what comes back).
 check("clipboard row is shown", (await js("getComputedStyle(document.getElementById('clip')).display")) === "flex");
@@ -105,5 +133,6 @@ await sleep(4000);
 const end = await js("({chip: document.getElementById('chip').textContent, msg: document.getElementById('msg').textContent})");
 check("stopped", end.chip === "idle", JSON.stringify(end));
 check("display restored", /Display restored: true/.test(end.msg));
+check("no uncaught page errors", pageErrors.length === 0, JSON.stringify(pageErrors));
 console.log(failed ? "BROWSER TEST FAILED" : "BROWSER TEST OK");
 done(failed ? 1 : 0);

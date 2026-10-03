@@ -2,16 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#181818">
 <title>Blackroom Console</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #000; color: #ddd; font: 14px system-ui, sans-serif; overflow: hidden; }
+  html, body { margin: 0; height: 100%; height: 100dvh; background: #000; color: #ddd; font: 14px system-ui, sans-serif; overflow: hidden; }
   body { display: flex; flex-direction: column; }
-  #bar { background: #181818; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+  #bar { background: #181818; padding: 6px; padding-top: max(6px, env(safe-area-inset-top)); padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(6px, env(safe-area-inset-right)); display: flex; flex-direction: column; gap: 6px; }
   .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   button, select { background: #2a2a2a; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; font: inherit; touch-action: manipulation; }
+  button:focus-visible, select:focus-visible, textarea:focus-visible, #chip:focus-visible { outline: 2px solid #5aa0ff; outline-offset: 2px; }
+  #chip { cursor: pointer; }
+  #diag { display: none; margin: 0; padding: 6px 8px; background: #0e0e0e; border: 1px solid #333; border-radius: 6px; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
   button.on { background: #1d5fb4; border-color: #5aa0ff; }
   #start { background: #1a6b2a; border-color: #3c3; }
   #stop { background: #8b1a1a; border-color: #d33; display: none; }
@@ -35,17 +42,17 @@
   <div class="row">
     <button id="start">Start</button>
     <button id="stop">Stop</button>
-    <select id="quality" title="Quality">
+    <select id="quality" title="Quality" aria-label="Video quality">
       <option value="low">Low</option>
       <option value="medium">Medium</option>
       <option value="high">High</option>
     </select>
-    <select id="transport" title="Video transport">
+    <select id="transport" title="Video transport" aria-label="Video transport">
       <option value="auto">Video: auto</option>
       <option value="mjpeg">Video: MJPEG</option>
     </select>
-    <button id="full">Fullscreen</button><!--LOGOUT-->
-    <span id="chip">idle</span>
+    <button id="full" aria-label="Toggle fullscreen">Fullscreen</button><!--LOGOUT-->
+    <span id="chip" role="button" tabindex="0" aria-live="polite" aria-label="Connection status; press for diagnostics" title="Status: press for diagnostics">idle</span>
   </div>
   <div class="row" id="mods">
     <button data-mod="ControlLeft">Ctrl</button>
@@ -58,9 +65,9 @@
     <button data-tap="ArrowUp">&uarr;</button>
     <button data-tap="ArrowDown">&darr;</button>
     <button data-tap="ArrowRight">&rarr;</button>
-    <button id="mode">Trackpad</button>
-    <button id="rclick">Right-click</button>
-    <button id="kbbtn">Keyboard</button>
+    <button id="mode" aria-label="Pointer mode: trackpad or direct touch">Trackpad</button>
+    <button id="rclick" aria-label="Right-click the next tap" aria-pressed="false">Right-click</button>
+    <button id="kbbtn" aria-label="Open the on-screen keyboard">Keyboard</button>
   </div>
   <div class="row" id="clip">
     <textarea id="cliptext" placeholder="Clipboard text" aria-label="Clipboard text" spellcheck="false" autocomplete="off"></textarea>
@@ -69,14 +76,15 @@
     <span id="clipmsg" role="status"></span>
   </div>
 </div>
-<button id="barToggle" title="Hide or show the controls">&#9650;</button>
+<button id="barToggle" title="Hide or show the controls" aria-label="Hide or show the controls" aria-expanded="true">&#9650;</button>
+<pre id="diag" aria-live="off"></pre>
 <div id="stage">
   <img id="mjpeg" class="media" alt="remote desktop" draggable="false">
-  <video id="rtc" class="media" autoplay muted playsinline></video>
-  <div id="msg">Press Start. The laptop screen goes blank and its keyboard and touchpad stop working until you press Stop.</div>
+  <video id="rtc" class="media" autoplay muted playsinline webkit-playsinline aria-label="Remote desktop video" disablepictureinpicture></video>
+  <div id="msg" role="status" aria-live="polite">Press Start. The laptop screen goes blank and its keyboard and touchpad stop working until you press Stop.</div>
 </div>
 <div id="dot"></div>
-<input id="kb" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+<input id="kb" aria-label="Keyboard input for the laptop" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
 <script>
 "use strict";
 // Linux evdev codes by KeyboardEvent.code (US layout positions).
@@ -110,6 +118,11 @@ const BTN = { 0: 0x110, 1: 0x112, 2: 0x111 };
 const IDLE_TEXT = "Press Start. The laptop screen goes blank and its keyboard and touchpad stop working until you press Stop.";
 
 const $ = (id) => document.getElementById(id);
+// Safari with blocked site data throws on localStorage; settings are then simply not remembered.
+const store = {
+  get(key) { try { return localStorage.getItem(key); } catch (_) { return null; } },
+  set(key, value) { try { localStorage.setItem(key, value); } catch (_) { /* not remembered */ } },
+};
 const mjpeg = $("mjpeg"), rtcVideo = $("rtc"), chip = $("chip"), msg = $("msg"), mods = $("mods");
 let running = false;
 let remote = { w: 1920, h: 1080 };
@@ -300,7 +313,7 @@ function releaseAll() {
   for (const code of [...heldKeys]) send({ t: "key", code, down: false });
   for (const code of [...heldButtons]) send({ t: "button", code, down: false });
   heldKeys.clear(); heldButtons.clear(); stickyMods.clear();
-  mods.querySelectorAll("[data-mod]").forEach((b) => b.classList.remove("on"));
+  mods.querySelectorAll("[data-mod]").forEach((b) => { b.classList.remove("on"); b.setAttribute("aria-pressed", "false"); });
 }
 
 function position(event) {
@@ -310,7 +323,7 @@ function position(event) {
 
 // Mouse maps directly. Touch has two modes: "trackpad" (drag moves the cursor like a laptop touchpad) and "touch"
 // (direct). Both: tap = click, two-finger tap = right click, two-finger drag = scroll, tap then drag = drag.
-let touchMode = localStorage.getItem("touchMode") === "touch" ? "touch" : "trackpad";
+let touchMode = store.get("touchMode") === "touch" ? "touch" : "trackpad";
 const cursor = { x: 0.5, y: 0.5 };
 const touches = new Map();
 let gesture = null;
@@ -336,7 +349,7 @@ function click(code) { send({ t: "button", code, down: true }); send({ t: "butto
 function press(code) { heldButtons.add(code); send({ t: "button", code, down: true }); }
 function release(code) { if (heldButtons.delete(code)) send({ t: "button", code, down: false }); }
 function setMode(mode) {
-  touchMode = mode; localStorage.setItem("touchMode", mode);
+  touchMode = mode; store.set("touchMode", mode);
   $("mode").textContent = mode === "trackpad" ? "Trackpad" : "Touch";
   placeDot();
 }
@@ -418,7 +431,7 @@ function pointerEnd(event) {
     if (!g.twoMoved && now - g.twoStart < TAP_MS) click(0x111);
   } else if (!g.moved && now - g.start < TAP_MS) {
     if (g.pressed) return;
-    if (rightClickNext) { rightClickNext = false; $("rclick").classList.remove("on"); click(0x111); }
+    if (rightClickNext) { rightClickNext = false; $("rclick").classList.remove("on"); $("rclick").setAttribute("aria-pressed", "false"); click(0x111); }
     else { click(0x110); lastTapEnd = now; }
   }
 }
@@ -503,14 +516,16 @@ mods.querySelectorAll("[data-mod]").forEach((button) => {
     const on = !stickyMods.has(code);
     if (on) stickyMods.add(code); else stickyMods.delete(code);
     button.classList.toggle("on", on);
+    button.setAttribute("aria-pressed", String(on));
     keyEvent(code, on);
   });
 });
+mods.querySelectorAll("[data-mod]").forEach((b) => b.setAttribute("aria-pressed", "false"));
 mods.querySelectorAll("[data-tap]").forEach((button) => button.addEventListener("click", () => tap(button.dataset.tap)));
 $("mode").addEventListener("click", () => setMode(touchMode === "trackpad" ? "touch" : "trackpad"));
 setMode(touchMode);
 window.addEventListener("resize", placeDot);
-$("rclick").addEventListener("click", () => { rightClickNext = !rightClickNext; $("rclick").classList.toggle("on", rightClickNext); });
+$("rclick").addEventListener("click", () => { rightClickNext = !rightClickNext; $("rclick").classList.toggle("on", rightClickNext); $("rclick").setAttribute("aria-pressed", String(rightClickNext)); });
 window.addEventListener("blur", releaseAll);
 document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
 
@@ -518,33 +533,85 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) relea
 $("barToggle").addEventListener("click", () => {
   const hidden = document.body.classList.toggle("nobar");
   $("barToggle").innerHTML = hidden ? "&#9660;" : "&#9650;";
+  $("barToggle").setAttribute("aria-expanded", String(!hidden));
   setTimeout(placeDot, 50);
 });
 
-if (!document.fullscreenEnabled) $("full").style.display = "none";
+// Fullscreen: the standard API, then Safari's prefixed one. iPhone Safari has neither for pages (it is hidden there).
+const fsRoot = document.documentElement;
+const fsEnabled = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+function capabilities() {
+  return {
+    secure: window.isSecureContext === true,
+    webrtc: typeof RTCPeerConnection === "function",
+    keyboardLock: !!(navigator.keyboard && navigator.keyboard.lock),
+    fullscreen: fsEnabled(),
+    clipboardRead: !!(navigator.clipboard && navigator.clipboard.readText),
+    touch: navigator.maxTouchPoints > 0,
+    ios: /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1),
+  };
+}
+function keyboardNote() {
+  const caps = capabilities();
+  if (caps.keyboardLock) return "";
+  return caps.secure
+    ? "This browser cannot capture shortcuts such as Ctrl+W or Alt+Tab (Safari and Firefox lack Keyboard Lock); use the on-screen Ctrl/Alt/Super keys."
+    : "Keyboard capture (Ctrl+W, Alt+Tab) needs https in Chrome or Edge.";
+}
+if (!fsEnabled()) $("full").style.display = "none";
 $("full").addEventListener("click", async () => {
-  if (document.fullscreenElement) { await document.exitFullscreen(); return; }
-  await document.documentElement.requestFullscreen().catch(() => {});
+  if (fsElement()) { await (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+  try { await (fsRoot.requestFullscreen || fsRoot.webkitRequestFullscreen).call(fsRoot); } catch (_) { /* refused */ }
   if (navigator.keyboard && navigator.keyboard.lock) navigator.keyboard.lock().catch(() => {});
-  else transportNote = "Keyboard capture (Ctrl+W, Alt+Tab) needs https in Chrome or Edge.";
+  else transportNote = keyboardNote();
 });
-document.addEventListener("fullscreenchange", () => {
-  if (!document.fullscreenElement && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
+function onFullscreenChange() {
+  if (!fsElement() && navigator.keyboard && navigator.keyboard.unlock) navigator.keyboard.unlock();
   setTimeout(placeDot, 100);
-});
+}
+document.addEventListener("fullscreenchange", onFullscreenChange);
+document.addEventListener("webkitfullscreenchange", onFullscreenChange);
 
-$("quality").value = localStorage.getItem("quality") || "medium";
+// ---- diagnostics: press the status chip ----
+let lastState = null;
+function renderDiag() {
+  const caps = capabilities();
+  const yes = (value) => (value ? "yes" : "no");
+  const state = lastState || {};
+  const lines = [
+    `link: ${linkLost ? "LOST" : "ok"}${pollFailures ? ` (${pollFailures} failed polls)` : ""}`,
+    `video: ${usingRtc ? `WebRTC H.264${state.webrtc_encoder ? " via " + state.webrtc_encoder : ""}` : videoStarted ? "MJPEG" : "not started"}${statsText ? " | " + statsText : ""}`,
+    `session: ${state.phase || "?"} ${state.width || 0}x${state.height || 0}, quality ${state.quality || "?"}`,
+    `input: ${state.input_accepted ?? 0} accepted, ${state.input_refused ?? 0} refused, ${inputChannel && inputChannel.readyState === "open" ? "data channel" : "HTTP"}`,
+    `this browser: https ${yes(caps.secure)}, WebRTC ${yes(caps.webrtc)}, keyboard capture ${yes(caps.keyboardLock)}, fullscreen ${yes(caps.fullscreen)}, clipboard read ${yes(caps.clipboardRead)}, touch ${yes(caps.touch)}`,
+  ];
+  if (caps.ios && !caps.fullscreen) lines.push("iPhone/iPad: Share > Add to Home Screen opens this page full screen.");
+  if (state.webrtc_error) lines.push("WebRTC error: " + state.webrtc_error);
+  $("diag").textContent = lines.join("\n");
+}
+function toggleDiag() {
+  const open = $("diag").style.display !== "block";
+  $("diag").style.display = open ? "block" : "none";
+  if (open) renderDiag();
+}
+$("chip").addEventListener("click", toggleDiag);
+$("chip").addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleDiag(); } });
+setInterval(() => { if ($("diag").style.display === "block") renderDiag(); }, 1000);
+
+$("quality").value = store.get("quality") || "medium";
 $("quality").addEventListener("change", async () => {
-  localStorage.setItem("quality", $("quality").value);
+  store.set("quality", $("quality").value);
   await post("/quality", { level: $("quality").value }).catch(() => {});
 });
-$("transport").value = localStorage.getItem("transport") || "auto";
+$("transport").value = store.get("transport") || "auto";
 $("transport").addEventListener("change", () => {
-  localStorage.setItem("transport", $("transport").value);
+  store.set("transport", $("transport").value);
   if (running) { stopVideo(); connectVideo(); }
 });
 
 function show(state) {
+  lastState = state;
   running = state.phase === "running";
   remote = { w: state.width || remote.w, h: state.height || remote.h };
   $("start").style.display = running ? "none" : "";

@@ -112,6 +112,8 @@
 const $ = (id) => document.getElementById(id);
 const DEVICE = "br_device", ACCOUNT = "br_account";
 function device() { try { return JSON.parse(localStorage.getItem(DEVICE)); } catch (_) { return null; } }
+function remember(key, value) { try { localStorage.setItem(key, value); } catch (_) { /* site data blocked: not remembered */ } }
+function recall(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
 function refresh() {
   const saved = device();
   $("saved").hidden = !saved;
@@ -128,10 +130,10 @@ function toggle(button, input) {
 }
 toggle($("eye"), $("password"));
 toggle($("eyek"), $("key"));
-$("account").value = localStorage.getItem(ACCOUNT) || "";
+$("account").value = recall(ACCOUNT) || "";
 refresh();
 (($("account").value ? $("password") : $("account"))).focus();
-$("forget").addEventListener("click", () => { localStorage.removeItem(DEVICE); refresh(); show(""); });
+$("forget").addEventListener("click", () => { try { localStorage.removeItem(DEVICE); } catch (_) { /* nothing stored */ } refresh(); show(""); });
 $("code").addEventListener("input", () => {
   const value = $("code").value.replace(/\s+/g, "");
   $("code").value = value;
@@ -154,9 +156,9 @@ $("f").addEventListener("submit", async (event) => {
     const response = await fetch("/login", { method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (response.ok) {
-      localStorage.setItem(ACCOUNT, body.account);
+      remember(ACCOUNT, body.account);
       const reply = await response.json().catch(() => ({}));
-      if (reply.device_id && reply.device_secret) localStorage.setItem(DEVICE, JSON.stringify({ id: reply.device_id, secret: reply.device_secret }));
+      if (reply.device_id && reply.device_secret) remember(DEVICE, JSON.stringify({ id: reply.device_id, secret: reply.device_secret }));
       location.reload();
       return;
     }
