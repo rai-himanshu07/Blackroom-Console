@@ -53,6 +53,13 @@ A diagnostics bundle without secrets: `blackroom --state-dir <that> diagnostics`
 | `blackroom reset security` | New authenticator, key and recovery codes; trusted browsers and sessions dropped. Prints the new secrets once |
 | `blackroom reset full` | Forgets every credential and the host identity (asks you to type RESET, or pass `--yes`). Refuses while a safety latch is set. Files that are not Blackroom's are left alone |
 
+## Check that it holds up
+
+`docs/ops/soak.sh 60` (in a second terminal, while a session is running from the tablet) samples the console for an
+hour and prints SOAK OK or what drifted (memory, file descriptors, threads, a dropped session). The page's status chip
+(tap it) shows the same figures live. `docs/ops/headless-cycles-test.sh` repeats Start/Stop 100 times against a throwaway
+Shell without touching your screen.
+
 ## Update and remove
 
 ```

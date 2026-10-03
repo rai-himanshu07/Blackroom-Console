@@ -119,6 +119,25 @@ pub struct StopReport {
     pub errors: Vec<String>,
 }
 
+/// What the console process itself uses, from `/proc/self`; a rising line over many sessions is a leak.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Resources {
+    pub rss_kb: u64,
+    pub open_fds: u64,
+    pub threads: u64,
+    pub uptime_secs: u64,
+    pub sessions_started: u64,
+    pub sessions_stopped: u64,
+}
+
+fn proc_status_value(text: &str, key: &str) -> u64 {
+    text.lines()
+        .find_map(|line| line.strip_prefix(key))
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|number| number.parse().ok())
+        .unwrap_or(0)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Status {
     pub phase: Phase,
@@ -134,6 +153,7 @@ pub struct Status {
     pub last_stop: Option<StopReport>,
     /// Whether the page may offer the clipboard buttons.
     pub clipboard: bool,
+    pub resources: Resources,
 }
 
 /// One input event from the browser. Pointer positions are fractions of the screen.
@@ -194,6 +214,9 @@ struct Shared {
     clipboard_enabled: AtomicBool,
     /// Mutter accepted the clipboard for the running session.
     clipboard_live: AtomicBool,
+    started_at: Instant,
+    sessions_started: AtomicU64,
+    sessions_stopped: AtomicU64,
     last_clipboard: Mutex<Option<Instant>>,
 }
 
@@ -234,6 +257,9 @@ impl RemoteConsole {
             input_refused: AtomicU64::new(0),
             clipboard_enabled: AtomicBool::new(false),
             clipboard_live: AtomicBool::new(false),
+            started_at: Instant::now(),
+            sessions_started: AtomicU64::new(0),
+            sessions_stopped: AtomicU64::new(0),
             last_clipboard: Mutex::new(None),
         });
         let actor_shared = Arc::clone(&shared);
@@ -424,6 +450,19 @@ impl RemoteConsole {
         answer
     }
 
+    fn resources(&self) -> Resources {
+        let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+        Resources {
+            rss_kb: proc_status_value(&status, "VmRSS:"),
+            open_fds: std::fs::read_dir("/proc/self/fd")
+                .map_or(0, |entries| entries.count() as u64),
+            threads: proc_status_value(&status, "Threads:"),
+            uptime_secs: self.shared.started_at.elapsed().as_secs(),
+            sessions_started: self.shared.sessions_started.load(Ordering::Relaxed),
+            sessions_stopped: self.shared.sessions_stopped.load(Ordering::Relaxed),
+        }
+    }
+
     pub fn status(&self) -> Status {
         let phase = *lock_ok(&self.shared.phase);
         let (width, height) = *lock_ok(&self.shared.size);
@@ -453,6 +492,7 @@ impl RemoteConsole {
             } else {
                 self.shared.clipboard_enabled.load(Ordering::Relaxed)
             },
+            resources: self.resources(),
         }
     }
 }
@@ -640,6 +680,7 @@ fn finish(active: Active<'_>, reason: &str) -> StopReport {
     *lock_ok(&shared.slot) = None;
     *lock_ok(&shared.tuning) = None;
     shared.clipboard_live.store(false, Ordering::Relaxed);
+    shared.sessions_stopped.fetch_add(1, Ordering::Relaxed);
     *lock_ok(&shared.last_stop) = Some(report.clone());
     *lock_ok(&shared.phase) = Phase::Idle;
     report
@@ -653,6 +694,8 @@ fn begin<'c>(
     if let Some(pending) = lock_ok(&shared.recovery_pending).clone() {
         return Err(format!("recovery pending: {pending}"));
     }
+    // Counts every attempt: a failed start also runs `finish`, so started and stopped meet again when idle.
+    shared.sessions_started.fetch_add(1, Ordering::Relaxed);
     lock_ok(&shared.notes).clear();
     shared.input_accepted.store(0, Ordering::Relaxed);
     shared.input_refused.store(0, Ordering::Relaxed);

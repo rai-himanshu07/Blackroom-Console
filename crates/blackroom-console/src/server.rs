@@ -1444,6 +1444,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn status_reports_the_process_resources() {
+        let app = app();
+        let status = call(&app, with_cookie("GET", "/status", "")).await;
+        let body = axum::body::to_bytes(status.into_body(), 1 << 16)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let resources = &json["resources"];
+        assert!(resources["rss_kb"].as_u64().unwrap() > 0);
+        assert!(resources["open_fds"].as_u64().unwrap() >= 3);
+        assert!(resources["threads"].as_u64().unwrap() >= 1);
+        assert_eq!(resources["sessions_started"], 0);
+        assert_eq!(resources["sessions_stopped"], 0);
+        // Only counts and sizes: nothing that names a path, user or secret.
+        assert_eq!(resources.as_object().unwrap().len(), 6);
+    }
+
+    #[tokio::test]
     async fn input_and_video_need_a_running_session_and_valid_events() {
         let app = app();
         let idle = call(&app, with_cookie("POST", "/input", "[]")).await;

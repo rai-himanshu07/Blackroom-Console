@@ -586,6 +586,10 @@ function renderDiag() {
     `input: ${state.input_accepted ?? 0} accepted, ${state.input_refused ?? 0} refused, ${inputChannel && inputChannel.readyState === "open" ? "data channel" : "HTTP"}`,
     `this browser: https ${yes(caps.secure)}, WebRTC ${yes(caps.webrtc)}, keyboard capture ${yes(caps.keyboardLock)}, fullscreen ${yes(caps.fullscreen)}, clipboard read ${yes(caps.clipboardRead)}, touch ${yes(caps.touch)}`,
   ];
+  if (state.resources) {
+    const r = state.resources;
+    lines.push(`laptop process: ${(r.rss_kb / 1024).toFixed(0)} MB, ${r.open_fds} fds, ${r.threads} threads, up ${Math.round(r.uptime_secs / 60)} min, ${r.sessions_started} session(s) started`);
+  }
   if (caps.ios && !caps.fullscreen) lines.push("iPhone/iPad: Share > Add to Home Screen opens this page full screen.");
   if (state.webrtc_error) lines.push("WebRTC error: " + state.webrtc_error);
   $("diag").textContent = lines.join("\n");

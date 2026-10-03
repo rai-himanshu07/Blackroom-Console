@@ -11,7 +11,7 @@ CYCLES=${BR_CYCLES:-20}
 PORT=18082
 log=$(mktemp /tmp/br-cycles.XXXXXX)
 state=$(mktemp -d /tmp/br-cycles-state.XXXXXX)
-"$BIN" --headless --listen "127.0.0.1:$PORT" --heartbeat-secs 5 --state-dir "$state" > "$log" 2>&1 &
+"$BIN" --headless --clipboard --listen "127.0.0.1:$PORT" --heartbeat-secs 5 --state-dir "$state" > "$log" 2>&1 &
 srv=$!
 trap 'kill "$srv" 2>/dev/null' EXIT
 url=""
@@ -34,6 +34,9 @@ cycle() {
   [ "$start" = 200 ] || { note_fail "cycle $1 start http $start: $(cat /tmp/br-cyc-start.json)"; return; }
   curl -s -b "$jar" "${json[@]}" -X POST -d '[{"t":"move","x":0.4,"y":0.4},{"t":"key","code":42,"down":true},{"t":"key","code":42,"down":false}]' -o /dev/null "$base/input"
   sleep 0.3
+  # The clipboard path (its signal handling and pipes) is part of every cycle.
+  [ "$(curl -s -b "$jar" -H 'Content-Type: text/plain' -X POST -d "cycle $1" -o /dev/null -w '%{http_code}' "$base/clipboard")" = 204 ] \
+    || note_fail "cycle $1 clipboard set"
   stop=$(code stop /tmp/br-cyc-stop.json)
   [ "$stop" = 200 ] || note_fail "cycle $1 stop http $stop"
   [ "$(jq -r .topology_restored /tmp/br-cyc-stop.json)" = true ] || note_fail "cycle $1 topology: $(cat /tmp/br-cyc-stop.json)"
@@ -77,5 +80,10 @@ echo "end: fds=$end_fds threads=$end_threads rss_kb=$end_rss virtuals=$(virtuals
 [ $((end_rss - base_rss)) -le 40000 ] || note_fail "rss growth: $base_rss -> $end_rss kB"
 [ "$(virtuals)" = "$v0" ] || note_fail "virtual monitor left behind"
 [ "$(phase)" = idle ] || note_fail "not idle at the end"
+res=$(curl -s -b "$jar" "$base/status" | jq -c .resources)
+echo "status resources: $res"
+[ "$(echo "$res" | jq '.sessions_started == .sessions_stopped and .sessions_started >= '"$CYCLES")" = true ] \
+  || note_fail "session counters do not agree: $res"
+[ "$(echo "$res" | jq '.open_fds - '"$end_fds"' | fabs <= 2')" = true ] || note_fail "status fds disagree with /proc: $res vs $end_fds"
 if [ "$fail" = 0 ]; then echo "ALL OK"; else echo "$fail FAILURE(S); server log: $log"; fi
 exit "$fail"

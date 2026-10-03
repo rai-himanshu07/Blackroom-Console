@@ -42,7 +42,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   checklist), `blackroom reset {soft,security,full}`, `blackroom repair`, runbook. Check: wizard against a temp state directory.
 - [x] **F. Page quality.** (done 2026-10-03; headless Chrome incl. a Safari-like stub passes; real Safari/iOS remains **your** test) Safari/iOS fallbacks (no Keyboard Lock, no fullscreen on iPhone), accessible labels, a paste-text box (uses
   clipboard), diagnostics chip. Check: headless Chrome; Safari/iOS are **your** test.
-- [ ] **G. Reliability and metrics.** `/status` gains RSS, fd, thread, session counts; `docs/ops/cycle-test.sh` (N headless
+- [x] **G. Reliability and metrics.** (done 2026-10-03; 100 headless cycles with clipboard: flat fds/threads/rss, counters agree; **you** run the live 1 h soak: `docs/ops/soak.sh 60`) `/status` gains RSS, fd, thread, session counts; `docs/ops/cycle-test.sh` (N headless
   start/stop cycles with flat-resource assertion) and a soak script. Check: 100 headless cycles pass; **you** run the 1 h live soak.
 - [ ] **H. Adversarial tests that need no hardware.** Browser/network/privilege cases (cookie flags, CSRF, origin, headers, TLS config,
   no setuid/no root), property tests on the JSON inputs, `docs/security/red-team-report.md`.
