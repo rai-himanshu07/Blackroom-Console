@@ -3,33 +3,110 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Blackroom Console login</title>
+<meta name="theme-color" content="#0b0b0c">
+<title>Blackroom Console</title>
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #000; color: #ddd; font: 16px system-ui, sans-serif; }
-  form { display: flex; flex-direction: column; gap: 10px; width: min(340px, 92vw); }
-  label { font-size: 13px; color: #aaa; }
-  input, button { font: inherit; padding: 11px; border-radius: 6px; border: 1px solid #444; background: #1c1c1c; color: #eee; }
-  button { background: #1a6b2a; border-color: #3c3; }
-  .row { display: flex; align-items: center; gap: 8px; }
-  .row input[type=checkbox] { width: auto; }
-  a { color: #8ab; font-size: 13px; cursor: pointer; }
-  #msg { min-height: 1.4em; text-align: center; color: #f99; }
-  #saved { font-size: 13px; color: #9c9; }
+  :root { color-scheme: dark; --green: #1f8a35; --green-hi: #2bb148; --line: #2c2c30; --muted: #9a9aa2; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;
+    background: radial-gradient(ellipse at 50% 0%, #1a1d22 0%, #0b0b0c 60%) #0b0b0c; color: #e6e6ea;
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .card {
+    width: min(420px, 100%); background: #131315; border: 1px solid var(--line); border-radius: 18px;
+    padding: 28px 24px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.55);
+  }
+  .brand { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 22px; text-align: center; }
+  .brand svg { width: 44px; height: 44px; color: var(--green-hi); }
+  .brand h1 { margin: 4px 0 0; font-size: 22px; font-weight: 650; letter-spacing: .2px; }
+  .brand p { margin: 0; color: var(--muted); font-size: 14px; }
+  .field { margin-bottom: 14px; }
+  label.t { display: block; margin: 0 0 6px 2px; font-size: 13px; color: var(--muted); }
+  .box { position: relative; }
+  input[type=text], input[type=password], input[type=search] {
+    width: 100%; height: 50px; padding: 0 14px; font: inherit; font-size: 17px; color: #f2f2f5;
+    background: #0d0d0f; border: 1px solid var(--line); border-radius: 12px; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus { border-color: var(--green-hi); box-shadow: 0 0 0 3px rgba(43,177,72,.18); }
+  input.code { text-align: center; letter-spacing: 6px; font-variant-numeric: tabular-nums; font-size: 22px; }
+  .eye {
+    position: absolute; right: 6px; top: 6px; height: 38px; padding: 0 10px; border: 0; border-radius: 8px;
+    background: transparent; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .hint { margin: 6px 2px 0; font-size: 12.5px; color: var(--muted); }
+  .check { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 2px; cursor: pointer; color: #cfcfd6; font-size: 14.5px; }
+  .check input { width: 20px; height: 20px; accent-color: var(--green-hi); margin: 0; }
+  .trusted {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; padding: 11px 14px;
+    border: 1px solid #1f4d2a; background: #0f2314; border-radius: 12px; color: #9fe0ae; font-size: 14px;
+  }
+  .trusted a { color: #cfeed6; text-decoration: underline; cursor: pointer; white-space: nowrap; }
+  .error {
+    display: none; margin: 4px 0 14px; padding: 11px 14px; border-radius: 12px; font-size: 14.5px;
+    background: #2a1212; border: 1px solid #5c1f1f; color: #ffb4b4;
+  }
+  .error.show { display: block; }
+  button.go {
+    width: 100%; height: 52px; border: 0; border-radius: 12px; font: inherit; font-size: 17px; font-weight: 600;
+    color: #fff; background: linear-gradient(180deg, var(--green-hi), var(--green)); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 10px; touch-action: manipulation;
+  }
+  button.go:disabled { opacity: .65; cursor: default; }
+  .spin { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: r .7s linear infinite; display: none; }
+  .busy .spin { display: inline-block; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .foot { margin: 16px 4px 0; text-align: center; font-size: 12.5px; color: #6f6f78; }
+  @media (max-height: 560px) { body { align-items: flex-start; } .brand { margin-bottom: 14px; } }
 </style>
 </head>
 <body>
-<form id="f" autocomplete="off">
-  <label>Account <input id="account" autocomplete="username" required></label>
-  <label>Linux password <input id="password" type="password" autocomplete="current-password" required></label>
-  <label>Authenticator code (or recovery code) <input id="code" inputmode="numeric" autocomplete="off" required></label>
-  <div id="keybox">
-    <label>Remote Access Key <input id="key" type="password" autocomplete="off"></label>
-    <div class="row"><input id="trust" type="checkbox"><label for="trust">Trust this browser</label></div>
+<form id="f" class="card" autocomplete="off" novalidate>
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="4" y="10.5" width="16" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.3" fill="currentColor"/>
+    </svg>
+    <h1>Blackroom Console</h1>
+    <p>Sign in to control this computer</p>
   </div>
-  <div id="saved" hidden>This browser is trusted: no key needed. <a id="forget">Forget it</a></div>
-  <button type="submit">Log in</button>
-  <div id="msg"></div>
+
+  <div class="field">
+    <label class="t" for="account">Account</label>
+    <input id="account" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="text">
+  </div>
+
+  <div class="field">
+    <label class="t" for="password">Linux password</label>
+    <div class="box">
+      <input id="password" type="password" autocomplete="current-password">
+      <button type="button" class="eye" id="eye" aria-label="Show password">Show</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="t" for="code">Authenticator code</label>
+    <input id="code" class="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="16" placeholder="000000">
+    <div class="hint">6 digits from your authenticator app, or one recovery code.</div>
+  </div>
+
+  <div id="saved" class="trusted" hidden>
+    <span>This browser is trusted. No key needed.</span><a id="forget">Forget</a>
+  </div>
+  <div id="keybox" class="field">
+    <label class="t" for="key">Remote Access Key</label>
+    <div class="box">
+      <input id="key" type="password" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">
+      <button type="button" class="eye" id="eyek" aria-label="Show key">Show</button>
+    </div>
+    <label class="check"><input id="trust" type="checkbox"> Trust this browser (skip the key next time)</label>
+  </div>
+
+  <div id="msg" class="error" role="alert"></div>
+  <button id="go" class="go" type="submit"><span class="spin"></span><span id="gotext">Sign in</span></button>
+  <p class="foot">Password, code and key are checked by the host. Only the trusted-browser credential is kept in this browser.</p>
 </form>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -40,19 +117,39 @@ function refresh() {
   $("saved").hidden = !saved;
   $("keybox").hidden = !!saved;
 }
+function show(text) { const box = $("msg"); box.textContent = text || ""; box.classList.toggle("show", !!text); }
+function busy(on) { $("f").classList.toggle("busy", on); $("go").disabled = on; $("gotext").textContent = on ? "Signing in" : "Sign in"; }
+function toggle(button, input) {
+  button.addEventListener("click", () => {
+    const hidden = input.type === "password";
+    input.type = hidden ? "text" : "password";
+    button.textContent = hidden ? "Hide" : "Show";
+  });
+}
+toggle($("eye"), $("password"));
+toggle($("eyek"), $("key"));
 $("account").value = localStorage.getItem(ACCOUNT) || "";
 refresh();
-$("forget").addEventListener("click", () => { localStorage.removeItem(DEVICE); refresh(); });
+(($("account").value ? $("password") : $("account"))).focus();
+$("forget").addEventListener("click", () => { localStorage.removeItem(DEVICE); refresh(); show(""); });
+$("code").addEventListener("input", () => {
+  const value = $("code").value.replace(/\s+/g, "");
+  $("code").value = value;
+  $("code").style.letterSpacing = /^\d*$/.test(value) ? "6px" : "1px";
+});
 $("f").addEventListener("submit", async (event) => {
   event.preventDefault();
-  $("msg").textContent = "";
+  show("");
   const body = { account: $("account").value.trim(), password: $("password").value, code: $("code").value.trim() };
+  if (!body.account || !body.password || !body.code) { show("Enter the account, password and code."); return; }
   const saved = device();
   if (saved) { body.device_id = saved.id; body.device_secret = saved.secret; }
   else {
+    if (!$("key").value) { show("Enter the Remote Access Key."); $("key").focus(); return; }
     body.access_key = $("key").value;
     if ($("trust").checked) body.trust_label = (navigator.platform || "browser").slice(0, 30).replace(/[^A-Za-z0-9 _.-]/g, "") || "browser";
   }
+  busy(true);
   try {
     const response = await fetch("/login", { method: "POST", credentials: "same-origin",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -64,14 +161,18 @@ $("f").addEventListener("submit", async (event) => {
       return;
     }
     const reply = await response.json().catch(() => ({}));
-    $("msg").textContent =
-      response.status === 429 ? "Too many attempts. Wait and try again."
-      : response.status === 503 ? "Remote access is disabled or the login service is not running."
+    show(
+      response.status === 429 ? "Too many attempts. Wait a few minutes and try again."
+      : response.status === 503 ? "Remote access is switched off, or the login service is not running."
       : reply.code === "AUTH_TOTP_REQUIRED" ? "Enter the authenticator code."
       : reply.code === "AUTH_ACCESS_KEY_REQUIRED" ? "Enter the Remote Access Key."
-      : "Login refused.";
-  } catch (_) { $("msg").textContent = "No connection."; }
+      : saved ? "Login refused. If this browser is no longer trusted, tap Forget and use the Remote Access Key."
+      : "Login refused. Check the password, the current code and the key."
+    );
+  } catch (_) { show("No connection to the host."); }
+  busy(false);
   $("password").value = ""; $("code").value = ""; $("key").value = "";
+  $("password").focus();
 });
 </script>
 </body>
