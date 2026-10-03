@@ -24,7 +24,9 @@ use crate::login::{Login, LoginError};
 use crate::options::SessionOptions;
 use crate::profile::Profile;
 
-const PAGE: &str = include_str!("page.html");
+const PAGE: &str = include_str!("web/index.html");
+const APP_JS: &str = include_str!("web/app.js");
+const APP_CSS: &str = include_str!("web/app.css");
 const LOGIN_PAGE: &str = include_str!("login.html");
 const LOGIN_FULL_PAGE: &str = include_str!("login_full.html");
 const LOGOUT_BUTTON: &str = r#"<button id="logout" onclick="fetch('/logout',{method:'POST',credentials:'same-origin'}).then(()=>location.reload())">Log out</button>"#;
@@ -205,6 +207,8 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
         .route("/login", post(login).layer(DefaultBodyLimit::max(4096)))
         .route("/logout", post(logout))
         .route("/", get(index))
+        .route("/app.js", get(app_js))
+        .route("/app.css", get(app_css))
         .route("/video", get(video))
         .route("/status", get(status))
         .route(
@@ -510,7 +514,7 @@ fn content_security_policy() -> &'static str {
         format!(
             "default-src 'self'; script-src 'self' {}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; \
 media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
-            script_hash_sources(&[PAGE, LOGIN_PAGE, LOGIN_FULL_PAGE])
+            script_hash_sources(&[LOGIN_PAGE, LOGIN_FULL_PAGE])
         )
     })
 }
@@ -826,6 +830,20 @@ fn mjpeg_part(jpeg: &[u8]) -> Bytes {
     part.extend_from_slice(jpeg);
     part.extend_from_slice(b"\r\n");
     Bytes::from(part)
+}
+
+async fn app_js(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    ([(CONTENT_TYPE, "text/javascript; charset=utf-8")], APP_JS).into_response()
+}
+
+async fn app_css(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    ([(CONTENT_TYPE, "text/css; charset=utf-8")], APP_CSS).into_response()
 }
 
 async fn video(State(state): State<AppState>, headers: HeaderMap) -> Response {

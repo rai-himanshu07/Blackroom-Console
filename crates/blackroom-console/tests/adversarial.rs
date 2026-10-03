@@ -26,7 +26,16 @@ const POSTS: [&str; 11] = [
     "/tuning",
     "/audio",
 ];
-const GETS: [&str; 6] = ["/", "/video", "/status", "/ice", "/clipboard", "/settings"];
+const GETS: [&str; 8] = [
+    "/",
+    "/video",
+    "/status",
+    "/ice",
+    "/clipboard",
+    "/settings",
+    "/app.js",
+    "/app.css",
+];
 
 fn app(hardening: Hardening) -> Router {
     let console = RemoteConsole::spawn(ConsoleConfig {

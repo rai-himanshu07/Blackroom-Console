@@ -50,7 +50,7 @@ check "the wrong token sets no cookie" "$(curl -s -D - -o /dev/null "http://127.
 
 echo "== CSP script hashes match the page scripts (computed independently)"
 csp=$(curl -s -D - -o /dev/null "http://127.0.0.1:$HTTP/status" | grep -i '^content-security-policy' | tr -d '\r')
-for page in page login login_full; do
+for page in login login_full; do
   hash=$(python3 - "crates/blackroom-console/src/$page.html" <<'PY'
 import base64, hashlib, re, sys
 text = open(sys.argv[1], encoding="utf-8").read()

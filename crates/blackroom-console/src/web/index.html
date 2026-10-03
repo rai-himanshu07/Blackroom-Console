@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#181818">
+<title>Blackroom Console</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div id="bar">
+  <div class="row">
+    <button id="start">Start</button>
+    <button id="stop">Stop</button>
+    <select id="quality" title="Quality" aria-label="Video quality">
+      <option value="low">Low</option>
+      <option value="medium">Medium</option>
+      <option value="high">High</option>
+    </select>
+    <select id="transport" title="Video transport" aria-label="Video transport">
+      <option value="auto">Video: auto</option>
+      <option value="mjpeg">Video: MJPEG</option>
+    </select>
+    <button id="full" aria-label="Toggle fullscreen">Fullscreen</button><!--LOGOUT-->
+    <span id="chip" role="button" tabindex="0" aria-live="polite" aria-label="Connection status; press for diagnostics" title="Status: press for diagnostics">idle</span>
+  </div>
+  <div class="row" id="mods">
+    <button data-mod="ControlLeft">Ctrl</button>
+    <button data-mod="AltLeft">Alt</button>
+    <button data-mod="ShiftLeft">Shift</button>
+    <button data-mod="MetaLeft">Super</button>
+    <button data-tap="Escape">Esc</button>
+    <button data-tap="Tab">Tab</button>
+    <button data-tap="ArrowLeft">&larr;</button>
+    <button data-tap="ArrowUp">&uarr;</button>
+    <button data-tap="ArrowDown">&darr;</button>
+    <button data-tap="ArrowRight">&rarr;</button>
+    <button id="mode" aria-label="Pointer mode: trackpad or direct touch">Trackpad</button>
+    <button id="rclick" aria-label="Right-click the next tap" aria-pressed="false">Right-click</button>
+    <button id="kbbtn" aria-label="Open the on-screen keyboard">Keyboard</button>
+  </div>
+  <div class="row" id="clip">
+    <textarea id="cliptext" placeholder="Clipboard text" aria-label="Clipboard text" spellcheck="false" autocomplete="off"></textarea>
+    <button id="clipsend" title="Put this text on the laptop clipboard">Send to laptop</button>
+    <button id="clipget" title="Show the laptop clipboard text here and copy it on this device">Get from laptop</button>
+    <span id="clipmsg" role="status"></span>
+  </div>
+</div>
+<button id="barToggle" title="Hide or show the controls" aria-label="Hide or show the controls" aria-expanded="true">&#9650;</button>
+<pre id="diag" aria-live="off"></pre>
+<div id="stage">
+  <img id="mjpeg" class="media" alt="remote desktop" draggable="false">
+  <video id="rtc" class="media" autoplay muted playsinline webkit-playsinline aria-label="Remote desktop video" disablepictureinpicture></video>
+  <div id="msg" role="status" aria-live="polite">Press Start. The laptop screen goes blank and its keyboard and touchpad stop working until you press Stop.</div>
+</div>
+<div id="dot"></div>
+<input id="kb" aria-label="Keyboard input for the laptop" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+<script src="/app.js"></script>
+</body>
+</html>
