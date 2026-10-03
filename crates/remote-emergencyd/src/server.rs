@@ -170,6 +170,7 @@ fn handle_request<N: Nodes>(
                 grabs_enabled: policy.grabs_enabled,
                 reads,
                 active_nodes,
+                latched: daemon.is_latched(),
             }]
         }
         Request::Isolate { lease_ms } => {

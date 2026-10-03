@@ -44,6 +44,9 @@ pub enum Reply {
         /// Observations since the last grab landed (counts only) and how many nodes saw any.
         reads: u64,
         active_nodes: usize,
+        /// An emergency chord ended isolation and the daemon refuses new ones until restarted.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        latched: bool,
     },
     Error {
         reason: &'static str,
@@ -66,6 +69,7 @@ pub struct Message {
     pub grabs_enabled: Option<bool>,
     pub reads: Option<u64>,
     pub active_nodes: Option<usize>,
+    pub latched: Option<bool>,
 }
 
 /// Reads one request line, bounded. `Ok(None)` is a clean end of stream.
@@ -131,6 +135,27 @@ mod tests {
     }
 
     #[test]
+    fn a_latched_status_names_the_latch_and_an_unlatched_one_stays_unchanged() {
+        let status = |latched| {
+            let mut out = Vec::new();
+            let reply = Reply::Status {
+                phase: "idle",
+                held: 0,
+                grabs_enabled: true,
+                reads: 0,
+                active_nodes: 0,
+                latched,
+            };
+            write_reply(&mut out, &reply).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        assert!(status(true).contains("\"latched\":true"));
+        assert!(!status(false).contains("latched"));
+        let parsed: Message = serde_json::from_str(status(true).trim()).unwrap();
+        assert_eq!(parsed.latched, Some(true));
+    }
+
+    #[test]
     fn replies_carry_only_reasons_and_counts() {
         let mut out = Vec::new();
         write_reply(&mut out, &Reply::Isolated { nodes: 3 }).unwrap();
@@ -143,6 +168,7 @@ mod tests {
                 grabs_enabled: true,
                 reads: 12,
                 active_nodes: 2,
+                latched: false,
             },
         )
         .unwrap();

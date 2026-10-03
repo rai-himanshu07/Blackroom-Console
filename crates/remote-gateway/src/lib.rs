@@ -1428,6 +1428,7 @@ mod tests {
                                 grabs_enabled: true,
                                 reads: 0,
                                 active_nodes: 0,
+                                latched: false,
                             },
                         ),
                     };

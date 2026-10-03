@@ -200,6 +200,11 @@ impl<N: Nodes> Daemon<N> {
         (self.reads.values().sum(), self.reads.len())
     }
 
+    /// True after an emergency chord: every further isolate is refused until the daemon restarts.
+    pub fn is_latched(&self) -> bool {
+        self.latched
+    }
+
     pub fn nodes_mut(&mut self) -> &mut N {
         self.isolation.grabber_mut()
     }

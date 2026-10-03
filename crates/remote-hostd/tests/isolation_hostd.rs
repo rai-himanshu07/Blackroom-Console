@@ -80,6 +80,7 @@ fn serve_one(stream: UnixStream, mode: Daemon, seen: &Seen) {
                             grabs_enabled: true,
                             reads: 0,
                             active_nodes: 0,
+                            latched: false,
                         },
                     ]
                 } else {
@@ -89,6 +90,7 @@ fn serve_one(stream: UnixStream, mode: Daemon, seen: &Seen) {
                         grabs_enabled: true,
                         reads: 0,
                         active_nodes: 0,
+                        latched: false,
                     }]
                 }
             }

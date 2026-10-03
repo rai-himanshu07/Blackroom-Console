@@ -711,6 +711,10 @@ impl<'c> Active<'c> {
         let mut client = Client::connect(socket, Duration::from_secs(10))?;
         let status = client.status()?;
         anyhow::ensure!(
+            status.latched != Some(true),
+            "an emergency stop is latched: stop console.sh and start it again (the daemon restarts), then Start"
+        );
+        anyhow::ensure!(
             status.phase.as_deref() == Some("idle") && status.grabs_enabled == Some(true),
             "the emergency daemon is not idle with grabs enabled: {status:?}"
         );
