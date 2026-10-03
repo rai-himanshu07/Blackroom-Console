@@ -2,6 +2,9 @@
 # Starts the remote console: the input-grab daemon, then the web app. Run it from the repo root IN YOUR OWN
 # TERMINAL (the tablet needs SSH to this laptop open as well):
 #   docs/ops/console.sh --check     read-only preflight, changes nothing
+#   docs/ops/console.sh --cleanup   after a crash or logout that skipped the cleanup: stops the kill timer, restore
+#                                   timers and guard, the orphaned daemon, and unmasks gnome-remote-desktop; refuses
+#                                   while a console is running; keeps recovery.json (the next start acts on it)
 #   docs/ops/console.sh             start; prints the URL to open on the tablet; Ctrl-C stops everything
 # Env: BR_TARGET=target/release (default) or target/debug; BR_PORT=8080 (http); BR_TLS_PORT=8443 (https, self-signed);
 # BR_KILL_SECS=7200 (daemon kill timer); BR_TOKEN_FILE=<abs path> keeps the URL token across restarts (tests only). Use the https URL on a Chromium laptop for full keyboard capture.
@@ -25,6 +28,32 @@ SOCK=$LIVE/emergency.sock
 SESS=$(loginctl show-user "$(id -un)" -p Display --value)
 fail=0
 bad() { echo "PREFLIGHT FAIL: $*"; fail=1; }
+
+cleanup_leftovers() {
+  if pgrep -x blackroom-conso > /dev/null; then
+    echo "A console is running: stop it first (Stop in the page, or pkill -TERM -x blackroom-conso)."
+    exit 1
+  fi
+  systemctl --user stop blackroom-live-kill.timer > /dev/null 2>&1
+  systemctl --user stop 'blackroom-console-wd-*' > /dev/null 2>&1
+  systemctl --user reset-failed 'blackroom-console-wd-*' 'blackroom-live-kill*' > /dev/null 2>&1
+  pkill -x remote-emergenc > /dev/null 2>&1
+  rm -f -- "$SOCK" "$LIVE/emergencyd.log"
+  rmdir "$LIVE" 2> /dev/null
+  systemctl --user unmask gnome-remote-desktop.service > /dev/null 2>&1
+  systemctl --user disable --now gnome-remote-desktop.service > /dev/null 2>&1
+  echo "timers left: $(systemctl --user list-timers --all --no-legend 'blackroom-*' 2> /dev/null | wc -l)"
+  echo "daemon running: $(pgrep -x remote-emergenc > /dev/null && echo yes || echo no)"
+  echo "gnome-remote-desktop: $(systemctl --user is-enabled gnome-remote-desktop.service 2>&1)"
+  [ -e "$XDG_RUNTIME_DIR/blackroom-console/recovery.json" ] \
+    && echo "recovery.json is kept: the next console start restores from it if it still applies."
+  exit 0
+}
+case "${1:-}" in
+  --cleanup) cleanup_leftovers ;;
+  "" | --check) ;;
+  *) echo "unknown argument: $1 (use --check or --cleanup)"; exit 2 ;;
+esac
 
 preflight() {
   for n in 2 3 4 5; do

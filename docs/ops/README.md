@@ -24,7 +24,7 @@ Not observed: Safari or Android decode, iOS fullscreen, enabling the extension o
 screen blanking during a session, input over the
 WebRTC data channel on the tablet, suspend, logout, long runs, other displays or layouts.
 
-Known failure: restarting PipeWire (or a PipeWire crash) while a session streams aborts the GNOME Shell (run 21): you land on the login screen, the session is lost, and `console.sh` leaves the daemon, its kill timer and a masked `gnome-remote-desktop` behind (stop the timer, `pkill -x remote-emergenc`, unmask the service). Do not restart PipeWire during a session.
+Known failure: restarting PipeWire (or a PipeWire crash) while a session streams aborts the GNOME Shell (run 21): you land on the login screen, the session is lost, and `console.sh` leaves the daemon, its kill timer and a masked `gnome-remote-desktop` behind (run `docs/ops/console.sh --cleanup`: it stops the timers, guard and orphaned daemon and unmasks the service; it refuses while a console runs). Do not restart PipeWire during a session.
 
 Kill switches while a session is live: the chord (Left Ctrl + Left Shift + Left Alt + Esc, held 2 s), the Stop
 button, 15 s without a browser heartbeat, and over SSH `systemctl --user stop blackroom-console.service` or
