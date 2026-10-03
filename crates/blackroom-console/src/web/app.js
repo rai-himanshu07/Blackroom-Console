@@ -43,6 +43,11 @@ const heldKeys = new Set();
 const heldButtons = new Set();
 const stickyMods = new Set();
 let rightClickNext = false;
+function clearRightClick() {
+  rightClickNext = false;
+  $("rclick").classList.remove("on");
+  $("rclick").setAttribute("aria-pressed", "false");
+}
 
 function say(text, overlay) { msg.textContent = text; msg.className = overlay ? "over" : ""; msg.style.display = text ? "flex" : "none"; }
 
@@ -255,7 +260,9 @@ const TAP_MS = 350, MOVE_PX = 6, SCROLL_GAIN = 3, TRACKPAD_GAIN = 1.6;
 function clamp01(v) { return Math.min(1, Math.max(0, v)); }
 function placeDot() {
   const dot = $("dot");
-  if (!running || touchMode !== "trackpad") { dot.style.display = "none"; return; }
+  // The laptop's own pointer is drawn into the picture when cursor_in_video is on: a second marker would double it.
+  const embedded = () => !!(lastState && lastState.session && lastState.session.cursor_in_video);
+  if (!running || touchMode !== "trackpad" || embedded()) { dot.style.display = "none"; return; }
   const r = contentRect();
   dot.style.left = (r.left + cursor.x * r.width) + "px";
   dot.style.top = (r.top + cursor.y * r.height) + "px";
@@ -336,6 +343,8 @@ onSurface("pointermove", (event) => {
     }
   } else if (touches.size === 2) {
     const pts = [...touches.values()];
+    // Two fingers that travelled are a scroll, even when this is the first move event (it only sets the anchor).
+    if (pts.some((p) => Math.hypot(p.x - p.startX, p.y - p.startY) >= MOVE_PX)) gesture.twoMoved = true;
     const ax = (pts[0].x + pts[1].x) / 2, ay = (pts[0].y + pts[1].y) / 2;
     if (scrollLast !== null) {
       const sx = (scrollLast.x - ax) * SCROLL_GAIN, sy = (scrollLast.y - ay) * SCROLL_GAIN;
@@ -361,7 +370,7 @@ function pointerEnd(event) {
     if (!g.twoMoved && now - g.twoStart < TAP_MS) click(0x111);
   } else if (!g.moved && now - g.start < TAP_MS) {
     if (g.pressed) return;
-    if (rightClickNext) { rightClickNext = false; $("rclick").classList.remove("on"); $("rclick").setAttribute("aria-pressed", "false"); click(0x111); }
+    if (rightClickNext) { clearRightClick(); click(0x111); }
     else { click(0x110); lastTapEnd = now; }
   }
 }
@@ -569,7 +578,7 @@ function show(state) {
     if (!videoStarted) {
       videoStarted = true;
       connectVideo();
-      statsTimer = setInterval(async () => { try { await sampleStats(); } catch (_) { /* next tick */ } chip.textContent = `running ${statsText}`; }, 1000);
+      statsTimer = setInterval(async () => { try { await sampleStats(); } catch (_) { /* next tick */ } chip.textContent = linkLost ? "no connection" : `running ${statsText}`; }, 1000);
     }
     const notes = [...(state.notes || [])];
     if (transportNote) notes.push(transportNote);
@@ -580,6 +589,9 @@ function show(state) {
   } else {
     if (videoStarted) { videoStarted = false; stopVideo(); }
     chip.textContent = state.phase;
+    // Nothing armed or typed in one session may carry into the next (a right-click tap, clipboard text).
+    if (rightClickNext) clearRightClick();
+    if ($("cliptext").value) { $("cliptext").value = ""; clipSay(""); }
     placeDot();
   }
   if (typeof onState === "function") onState(state);
@@ -588,25 +600,29 @@ function show(state) {
 // Link supervision: two failed status polls in a row mean the link is down; when a poll succeeds again the video is
 // rebuilt at once (the session itself survives until the laptop's heartbeat timeout, so there is no new login).
 let pollFailures = 0, linkLost = false;
+function pollFailed() {
+  pollFailures += 1;
+  chip.textContent = "no connection";
+  if (pollFailures >= 2 && !linkLost) {
+    linkLost = true; transportNote = "Connection lost. Reconnecting...";
+    if (running) say(transportNote, true);
+  }
+}
 async function refresh() {
+  let response;
+  try { response = await fetch("/status", { credentials: "same-origin" }); } catch (_) { pollFailed(); return; }
+  if (response.status === 401) { say("Signed out. Log in again."); location.reload(); return; }
+  // An error reply is as much a lost link as no reply: stale status must not look current.
+  if (!response.ok) { pollFailed(); return; }
+  pollFailures = 0;
   try {
-    const response = await fetch("/status", { credentials: "same-origin" });
-    pollFailures = 0;
-    if (response.status === 401) { say("Signed out. Log in again."); location.reload(); return; }
-    if (!response.ok) return;
+    const state = await response.json();
     if (linkLost) {
       linkLost = false; transportNote = "";
       if (videoStarted) { videoStarted = false; stopVideo(); }
     }
-    show(await response.json());
-  } catch (_) {
-    pollFailures += 1;
-    chip.textContent = "no connection";
-    if (pollFailures >= 2 && !linkLost) {
-      linkLost = true; transportNote = "Connection lost. Reconnecting...";
-      if (running) say(transportNote, true);
-    }
-  }
+    show(state);
+  } catch (_) { pollFailed(); }
 }
 window.addEventListener("online", () => { refresh(); });
 mjpeg.addEventListener("error", () => { if (running && videoStarted && !usingRtc) { videoStarted = false; stopVideo(); } });
@@ -616,8 +632,14 @@ $("stop").addEventListener("click", async () => {
   await flush();
   running = false;
   say("Stopping...");
-  try { await post("/stop"); } catch (_) { /* status below shows the outcome */ }
+  let confirmed = false;
+  try { confirmed = (await post("/stop")).ok; } catch (_) { /* reported below */ }
   await refresh();
+  if (!confirmed) {
+    // Not confirmed: the laptop may still be controlled until it notices this device is gone.
+    running = !!(lastState && lastState.phase === "running");
+    toast("Disconnect was not confirmed. The laptop may still be controlled until it notices this device is gone. Try Disconnect again.", "bad");
+  }
 });
 
 // The laptop stops the session if this heartbeat is silent for 30 s (--heartbeat-secs).

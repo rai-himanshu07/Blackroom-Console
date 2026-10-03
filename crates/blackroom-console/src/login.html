@@ -16,10 +16,10 @@
 </head>
 <body>
 <form id="f" autocomplete="off">
-  <div>Enter the 6-digit code from your authenticator app.</div>
-  <input id="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autofocus required>
+  <label for="code">Enter the 6-digit code from your authenticator app.</label>
+  <input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" autofocus required>
   <button type="submit">Log in</button>
-  <div id="msg"></div>
+  <div id="msg" role="alert"></div>
 </form>
 <script>
 document.getElementById("f").addEventListener("submit", async (event) => {

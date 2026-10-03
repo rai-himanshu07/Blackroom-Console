@@ -156,7 +156,10 @@ document.querySelectorAll("[data-key]").forEach((el) => {
     const key = el.dataset.key;
     if (key === "ui.resolution") setResolution(el.value); else put(key, readControl(el));
     applyAll();
-    saveSoon(key.startsWith("session.") ? "Saved. Connection options apply the next time you connect." : undefined);
+    const liveKey = key === "session.audio" || key === "session.fps_cap" || key === "session.bitrate_kbps";
+    saveSoon(key.startsWith("session.") || key === "ui.resolution"
+      ? (liveKey && running ? "Saved and sent to the running session." : "Saved. Applies the next time you connect.")
+      : undefined);
     if (key === "client.quality") post("/quality", { level: settings.client.quality }).catch(() => {});
     if (key === "session.audio" && running) liveAudio(settings.session.audio).catch((e) => toast("Sound: " + e, "bad"));
     if (key === "session.fps_cap" || key === "session.bitrate_kbps") liveTuning();
@@ -167,7 +170,9 @@ document.querySelectorAll("[data-key]").forEach((el) => {
 // ---- connect screen ----
 document.querySelectorAll(".mode").forEach((button) => button.addEventListener("click", () => {
   Object.assign(settings.session, PRESETS[button.dataset.preset]);
-  applyAll(); saveSoon();
+  // A preset must not undo what the owner forces (the lock choice, the allowed modes, sound): apply the policy again.
+  if (policy) { policyKey = ""; applyPolicy(policy); } else applyAll();
+  saveSoon();
 }));
 $("homeAudio").addEventListener("change", () => { settings.session.audio = $("homeAudio").checked; applyAll(); saveSoon(); });
 $("homeLock").addEventListener("change", () => { settings.session.lock_on_stop = $("homeLock").checked; applyAll(); saveSoon(); });
@@ -212,8 +217,14 @@ function reasonText(stop) {
   let text = `Last session ended: ${reason}.`;
   if (stop.topology_restored === true) text += " The screen was restored.";
   if (stop.locked === true) text += " The laptop was locked.";
+  // An explicit false is a failed step (null: not asked for); never read it as success.
+  const problems = [];
+  if (stop.topology_restored === false) problems.push("the screen could not be confirmed restored");
+  if (stop.locked === false) problems.push("the laptop could not be locked");
+  if (stop.grab_released === false) problems.push("release of the laptop's keyboard and touchpad was not confirmed");
+  if (problems.length) text += " WARNING: " + problems.join("; ") + ". Check the laptop; if its screen is blank or its keyboard is blocked, see the runbook.";
   if (stop.errors && stop.errors.length) text += " Problems: " + stop.errors.join("; ") + ".";
-  return text;
+  return { text, warn: problems.length > 0 || !!(stop.errors && stop.errors.length) };
 }
 
 function fmtTime(total) {
@@ -257,7 +268,11 @@ function onState(state) {
   else setHostState("Ready", "live");
   const stop = state.last_stop;
   $("hostnote").hidden = !stop;
-  if (stop) $("hostnote").textContent = reasonText(stop);
+  if (stop) {
+    const { text, warn } = reasonText(stop);
+    $("hostnote").textContent = text;
+    $("hostnote").classList.toggle("warn", warn);
+  }
 }
 
 // ---- in-session menu ----

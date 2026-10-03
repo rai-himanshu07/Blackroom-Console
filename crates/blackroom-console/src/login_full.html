@@ -44,7 +44,7 @@
     display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; padding: 11px 14px;
     border: 1px solid #1f4d2a; background: #0f2314; border-radius: 12px; color: #9fe0ae; font-size: 14px;
   }
-  .trusted a { color: #cfeed6; text-decoration: underline; cursor: pointer; white-space: nowrap; }
+  .trusted button { color: #cfeed6; text-decoration: underline; cursor: pointer; white-space: nowrap; background: none; border: 0; font: inherit; min-height: 44px; padding: 0 6px; }
   .error {
     display: none; margin: 4px 0 14px; padding: 11px 14px; border-radius: 12px; font-size: 14.5px;
     background: #2a1212; border: 1px solid #5c1f1f; color: #ffb4b4;
@@ -93,7 +93,7 @@
   </div>
 
   <div id="saved" class="trusted" hidden>
-    <span>This browser is trusted. No key needed.</span><a id="forget">Forget</a>
+    <span>This browser is trusted. No key needed.</span><button type="button" id="forget">Forget</button>
   </div>
   <div id="keybox" class="field">
     <label class="t" for="key">Remote Access Key</label>

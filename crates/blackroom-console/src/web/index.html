@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -31,7 +31,7 @@
 
     <div class="modes" role="radiogroup" aria-label="Connection mode">
       <button type="button" class="mode" role="radio" data-preset="private" aria-checked="true">
-        <b>Private</b><span>Blank this laptop's screen and lock its keyboard and touchpad while you are connected.</span>
+        <b>Private</b><span>Blank this laptop's screen and block its keyboard and touchpad while you are connected.</span>
       </button>
       <button type="button" class="mode" role="radio" data-preset="shared" aria-checked="false">
         <b>Shared</b><span>Leave the laptop as it is. Watch and control together with whoever is sitting at it.</span>
@@ -186,6 +186,7 @@
       <label class="field">Touch screen
         <select data-key="client.touch_mode"><option value="trackpad">Trackpad (drag moves the pointer)</option><option value="touch">Direct touch</option></select>
       </label>
+      <p class="note">Tap to click. Two fingers scroll; tap with two fingers to right-click. In Trackpad mode tap then drag to drag; in Direct touch you touch the spot you mean and press and hold to right-click.</p>
       <label class="field">On-screen keyboard typing
         <select data-key="client.text_mode"><option value="keys">Key presses (US layout)</option><option value="text">Characters (any laptop layout)</option></select>
       </label>

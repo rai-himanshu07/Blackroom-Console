@@ -10,6 +10,7 @@ button, select, textarea, input { font: inherit; color: inherit; }
 button { background: #232834; border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; touch-action: manipulation; cursor: pointer; }
 button:hover { border-color: #3a4152; }
 button:disabled { opacity: .5; cursor: default; }
+button, select { min-height: 44px; }
 button.on, button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent-hi); }
 button.primary { background: var(--accent); border-color: var(--accent-hi); font-weight: 600; padding: 12px 22px; }
 button.danger { background: #7d1f1f; border-color: #d33; }
@@ -17,6 +18,7 @@ button.ghost { background: transparent; }
 select, textarea, input[type="range"] { background: #1f232c; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible, #chip:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
 .note { color: var(--dim); font-size: 13px; margin: 6px 0; }
+.note.warn { color: #f5c26b; }
 .pill { display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 999px; background: #262b36; font-size: 12px; color: var(--dim); }
 .pill.live { background: #123d1b; color: #8ee6a8; }
 .pill.warn { background: #4a3410; color: #f5c26b; }
@@ -63,13 +65,13 @@ body.localcursor .media { cursor: default; }
 #dot { position: fixed; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid #fff; border-radius: 50%; background: rgba(255,80,80,.6); pointer-events: none; display: none; z-index: 5; }
 #kb { position: fixed; left: -100px; top: 0; width: 1px; height: 1px; opacity: 0; }
 
-#menuBtn { position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); z-index: 20; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: rgba(24,27,34,.82); backdrop-filter: blur(8px); opacity: .55; transition: opacity .2s; }
+#menuBtn { position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); z-index: 20; display: flex; align-items: center; gap: 8px; padding: 8px 12px; min-height: 44px; border-radius: 999px; background: rgba(24,27,34,.82); backdrop-filter: blur(8px); opacity: .55; transition: opacity .2s; }
 #menuBtn:hover, #menuBtn:focus-visible, #menuBtn[aria-expanded="true"] { opacity: 1; }
 #menuBtn svg { width: 20px; height: 20px; }
 #timer { font: 12px ui-monospace, monospace; color: var(--dim); }
 #menu { position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); z-index: 19; width: min(440px, calc(100vw - 16px)); max-height: calc(100dvh - 24px); overflow-y: auto; background: rgba(24,27,34,.96); backdrop-filter: blur(10px); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; padding-top: 52px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
 .menuhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-#chip { margin-right: auto; padding: 4px 10px; border-radius: 999px; background: #262b36; font-size: 12px; cursor: pointer; white-space: nowrap; }
+#chip { margin-right: auto; padding: 4px 10px; min-height: 44px; display: inline-flex; align-items: center; border-radius: 999px; background: #262b36; font-size: 12px; cursor: pointer; white-space: nowrap; }
 #chip.live { background: #123d1b; color: #8ee6a8; }
 #diag { display: none; margin: 0; padding: 8px; background: #0c0e12; border: 1px solid var(--line); border-radius: 8px; font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
