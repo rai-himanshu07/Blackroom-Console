@@ -49,6 +49,15 @@ check "auto stop phase" "$(echo "$st" | jq -r .phase)" idle
 check "auto stop reason" "$(echo "$st" | jq -r .last_stop.reason)" "browser heartbeat lost"
 check "auto stop restored" "$(echo "$st" | jq -r .last_stop.topology_restored)" true
 
+# A client that is silent for less than the timeout is not stopped, and one heartbeat renews the window.
+check "start for the gap test" "$(curl -s -b "$jar" -X POST -o /dev/null -w '%{http_code}' "$base/start")" 200
+sleep 3
+check "short gap keeps the session" "$(curl -s -b "$jar" "$base/status" | jq -r .phase)" running
+check "heartbeat" "$(curl -s -b "$jar" "${json[@]}" -X POST -d '[]' -o /dev/null -w '%{http_code}' "$base/input")" 204
+sleep 3
+check "heartbeat renewed the window" "$(curl -s -b "$jar" "$base/status" | jq -r .phase)" running
+check "stop after the gap test" "$(curl -s -b "$jar" -X POST -o /dev/null -w '%{http_code}' "$base/stop")" 200
+
 check "start again" "$(curl -s -b "$jar" -X POST -o /dev/null -w '%{http_code}' "$base/start")" 200
 check "manual stop" "$(curl -s -b "$jar" -X POST -o /tmp/br-stop.json -w '%{http_code}' "$base/stop")" 200
 echo "stop reply: $(cat /tmp/br-stop.json)"

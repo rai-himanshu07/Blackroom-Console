@@ -201,19 +201,32 @@ async function startWebRtc() {
   mjpeg.removeAttribute("src"); mjpeg.style.display = "none";
   rtcVideo.style.display = "block";
   rtcVideo.play().catch(() => {});
+  rtcBackoff = 10000;
   peer.onconnectionstatechange = () => {
     if (pc === peer && (peer.connectionState === "failed" || peer.connectionState === "closed") && running) {
       transportNote = "WebRTC dropped; using MJPEG."; startMjpeg();
+      scheduleRtcRetry();
     }
   };
   placeDot();
+}
+
+// After a WebRTC failure the picture continues over MJPEG and WebRTC is tried again later, with growing pauses.
+let rtcBackoff = 10000, rtcRetry = null;
+function scheduleRtcRetry() {
+  clearTimeout(rtcRetry);
+  if ($("transport").value === "mjpeg") return;
+  rtcRetry = setTimeout(() => {
+    if (running && !usingRtc && videoStarted) { videoStarted = false; stopVideo(); }
+  }, rtcBackoff);
+  rtcBackoff = Math.min(rtcBackoff * 2, 60000);
 }
 
 async function connectVideo() {
   transportNote = "";
   if (window.RTCPeerConnection && $("transport").value !== "mjpeg") {
     try { await startWebRtc(); return; }
-    catch (error) { closeRtc(); transportNote = "WebRTC unavailable (" + error.message + "); using MJPEG."; }
+    catch (error) { closeRtc(); transportNote = "WebRTC unavailable (" + error.message + "); using MJPEG."; scheduleRtcRetry(); }
   }
   startMjpeg();
 }
@@ -522,13 +535,31 @@ function show(state) {
   }
 }
 
+// Link supervision: two failed status polls in a row mean the link is down; when a poll succeeds again the video is
+// rebuilt at once (the session itself survives until the laptop's heartbeat timeout, so there is no new login).
+let pollFailures = 0, linkLost = false;
 async function refresh() {
   try {
     const response = await fetch("/status", { credentials: "same-origin" });
-    if (response.ok) show(await response.json());
-    else if (response.status === 401) { say("Not authorised: open the URL printed at start."); location.reload(); }
-  } catch (_) { chip.textContent = "no connection"; }
+    pollFailures = 0;
+    if (response.status === 401) { say("Signed out. Log in again."); location.reload(); return; }
+    if (!response.ok) return;
+    if (linkLost) {
+      linkLost = false; transportNote = "";
+      if (videoStarted) { videoStarted = false; stopVideo(); }
+    }
+    show(await response.json());
+  } catch (_) {
+    pollFailures += 1;
+    chip.textContent = "no connection";
+    if (pollFailures >= 2 && !linkLost) {
+      linkLost = true; transportNote = "Connection lost. Reconnecting...";
+      if (running) say(transportNote, true);
+    }
+  }
 }
+window.addEventListener("online", () => { refresh(); });
+mjpeg.addEventListener("error", () => { if (running && videoStarted && !usingRtc) { videoStarted = false; stopVideo(); } });
 
 $("start").addEventListener("click", async () => {
   say("Starting...");
@@ -552,7 +583,7 @@ $("stop").addEventListener("click", async () => {
   await refresh();
 });
 
-// The laptop stops the session if this heartbeat is silent for 15 s.
+// The laptop stops the session if this heartbeat is silent for 30 s (--heartbeat-secs).
 setInterval(() => { if (running) sendInput([]).catch(() => {}); }, 2000);
 setInterval(refresh, 2000);
 refresh();

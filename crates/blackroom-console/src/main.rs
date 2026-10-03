@@ -75,7 +75,7 @@ struct Args {
     #[arg(long)]
     restore_bin: Option<PathBuf>,
     /// Seconds without a browser heartbeat before Stop runs.
-    #[arg(long, default_value_t = 15, value_parser = clap::value_parser!(u64).range(5..=120))]
+    #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(5..=120))]
     heartbeat_secs: u64,
     /// Starting quality; the page can change it while a session runs.
     #[arg(long, default_value = "medium", value_parser = ["low", "medium", "high"])]

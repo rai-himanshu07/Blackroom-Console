@@ -73,6 +73,18 @@ await js("document.getElementById('quality').value = 'low'; document.getElementB
 await sleep(1500);
 check("quality changed live", (await js("fetch('/status',{credentials:'same-origin'}).then(r=>r.json()).then(s=>s.quality)")) === "low");
 
+// A dropped link: the page notices after two failed status polls and rebuilds the video when the link returns,
+// without a new login and without the session ending.
+await js("window.__pc0 = pc; true");
+await cdp("Network.enable");
+await cdp("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+await sleep(6500);
+check("link loss is noticed", (await js("linkLost")) === true);
+await cdp("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+await sleep(7000);
+check("link recovery rebuilt the video", (await js("linkLost === false && usingRtc === true && pc !== window.__pc0 && rtcVideo.videoWidth > 0")) === true);
+check("session survived the drop", (await js("fetch('/status',{credentials:'same-origin'}).then(r=>r.json()).then(s=>s.phase)")) === "running");
+
 await js("document.getElementById('transport').value = 'mjpeg'; document.getElementById('transport').dispatchEvent(new Event('change', {bubbles: true}))");
 await sleep(3000);
 const mj = await js("({shown: getComputedStyle(document.getElementById('mjpeg')).display, w: document.getElementById('mjpeg').naturalWidth})");

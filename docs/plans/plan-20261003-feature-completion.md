@@ -32,7 +32,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   CSP, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`; `--ice-server`, `--turn-secret-file`, `/ice`; `--ice-port-range`;
   `--public`; account-lock tuning and device bypass; docs recipes. Check: server tests (headers, cookie flags, interlock), headless
   browser test still passes with the CSP.
-- [ ] **B. Reconnect.** Page auto-reconnects video and WebRTC with backoff; heartbeat default 30 s. Check: headless test with a dropped
+- [x] **B. Reconnect.** (done 2026-10-03; headless browser test now drops the link for 6.5 s) Page auto-reconnects video and WebRTC with backoff; heartbeat default 30 s. Check: headless test with a dropped
   client that returns inside the window and one that does not.
 - [ ] **C. Clipboard.** `blackroom-gnome` RemoteDesktop clipboard calls, `RemoteConsole::clipboard_{set,get}`, `POST/GET /clipboard`,
   page buttons. Check: headless Shell round trip both ways, limits, off-by-default.
