@@ -1,0 +1,44 @@
+#!/bin/sh
+# Gives (or takes away) one user read/write access to this laptop's BUILT-IN keyboard, mouse and touchpad nodes, which the
+# remote console needs to grab them while a session runs. Run it with sudo; it changes ACLs on /dev/input/event* only.
+#   sudo blackroom-grant-input status [--user NAME]
+#   sudo blackroom-grant-input grant  [--user NAME]
+#   sudo blackroom-grant-input revoke [--user NAME]
+# USB and Bluetooth devices are never touched, so an external keyboard keeps working locally. ACLs reset at reboot and
+# when a device is re-plugged: run `grant` again then. No udev rule is installed on purpose: a permanent rule would let
+# every program running as you read your keystrokes.
+set -eu
+action=${1:-}; [ $# -gt 0 ] && shift
+user=${SUDO_USER:-}
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --user) user=${2:-}; shift 2 || { echo "--user needs a name" >&2; exit 2; } ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+case "$action" in grant|revoke|status) ;; *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
+[ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 2; }
+[ -n "$user" ] && [ "$user" != root ] || { echo "no user: run via sudo from your own account or pass --user NAME" >&2; exit 2; }
+id -u "$user" >/dev/null 2>&1 || { echo "no such user: $user" >&2; exit 2; }
+command -v setfacl >/dev/null 2>&1 || { echo "setfacl is missing (apt install acl)" >&2; exit 2; }
+command -v udevadm >/dev/null 2>&1 || { echo "udevadm is missing" >&2; exit 2; }
+
+# Built-in = a keyboard, mouse or touchpad node whose bus is not USB or Bluetooth.
+nodes=""
+for node in /dev/input/event*; do
+  [ -c "$node" ] || continue
+  props=$(udevadm info --query=property --name="$node" 2>/dev/null) || continue
+  echo "$props" | grep -Eq '^ID_INPUT_(KEYBOARD|MOUSE|TOUCHPAD)=1$' || continue
+  echo "$props" | grep -Eq '^ID_BUS=(usb|bluetooth)$' && continue
+  nodes="$nodes $node"
+done
+[ -n "$nodes" ] || { echo "no built-in keyboard, mouse or touchpad node found" >&2; exit 1; }
+
+for node in $nodes; do
+  name=$(cat "/sys/class/input/$(basename "$node")/device/name" 2>/dev/null || echo "?")
+  case "$action" in
+    grant)  setfacl -m "u:$user:rw" "$node"; echo "granted  $user rw on $node ($name)" ;;
+    revoke) setfacl -x "u:$user" "$node" 2>/dev/null || true; echo "revoked  $user on $node ($name)" ;;
+    status) if getfacl -p "$node" 2>/dev/null | grep -q "^user:$user:rw-"; then echo "granted  $node ($name)"; else echo "missing  $node ($name)"; fi ;;
+  esac
+done

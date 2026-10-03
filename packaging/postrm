@@ -1,0 +1,5 @@
+#!/bin/sh
+# Per-user credentials and state (~/.local/share/blackroom-console) are never touched by the package: delete them
+# yourself with `blackroom reset full` BEFORE removing the package if you want them gone.
+set -e
+exit 0

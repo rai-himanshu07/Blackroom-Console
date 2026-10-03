@@ -1,0 +1,15 @@
+#!/bin/sh
+# Installing changes nothing about remote access: no unit is enabled or started, no credential is created.
+set -e
+if [ "$1" = configure ]; then
+  cat <<'MSG'
+
+Blackroom Console is installed. Remote access stays OFF until you set it up as the user who will use it:
+  blackroom setup                        enrol your authenticator, create the Remote Access Key, start the login authority
+  sudo blackroom-grant-input grant       let the console grab the built-in keyboard and touchpad (ACLs; reset at reboot)
+  systemctl --user start blackroom-console.service
+Read /usr/share/doc/blackroom-console/README.md. Remove with: apt remove blackroom-console
+
+MSG
+fi
+exit 0

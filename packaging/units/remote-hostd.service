@@ -1,0 +1,26 @@
+# The login authority of the remote console: checks the Linux password (through pam-auth-helper), the
+# authenticator code and the Remote Access Key or trusted device, and owns the sessions and the
+# security epoch. It runs as you, in your user manager; it listens only on two private sockets in
+# %t/blackroom-hostd (auth.sock, admin.sock). No [Install] section on purpose: start it by hand.
+#
+# Installed by the blackroom-console package; `blackroom setup` enrols you and starts it.
+#
+# NoNewPrivileges is deliberately NOT set: pam_unix verifies your password through the setgid helper
+# unix_chkpwd, which NoNewPrivileges would block. In a user manager every seccomp-based option
+# (MemoryDenyWriteExecute, RestrictAddressFamilies, LockPersonality, RestrictRealtime,
+# SystemCallArchitectures, SystemCallFilter) silently turns NoNewPrivileges on, so none is used
+# (verified: each one made the PAM helper exit 2, "cannot decide"). Do not add them back.
+
+[Unit]
+Description=Blackroom Console login authority (remote-hostd)
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/blackroom/remote-hostd --auth-service --state-dir %h/.local/share/blackroom-console/hostd --runtime-dir %t/blackroom-hostd --pam-helper /usr/lib/blackroom/pam-auth-helper
+RuntimeDirectory=blackroom-hostd
+RuntimeDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+LimitCORE=0

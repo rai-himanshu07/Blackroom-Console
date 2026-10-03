@@ -36,7 +36,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   client that returns inside the window and one that does not.
 - [x] **C. Clipboard.** (done 2026-10-03; `headless-clipboard-test.sh` CLIPBOARD OK both ways, browser test clicks the buttons) `blackroom-gnome` RemoteDesktop clipboard calls, `RemoteConsole::clipboard_{set,get}`, `POST/GET /clipboard`,
   page buttons. Check: headless Shell round trip both ways, limits, off-by-default.
-- [ ] **D. Packaging.** `cargo-deb` metadata, `/usr`-path units, maintainer scripts (no enable), `blackroom-grant-input`, install
+- [x] **D. Packaging.** (done 2026-10-03; built with `docs/ops/build-deb.sh` and dpkg-deb instead of cargo-deb: no extra tool, same result, checks included) metadata, `/usr`-path units, maintainer scripts (no enable), `blackroom-grant-input`, install
   simulation (`apt-get install --simulate`, `dpkg-deb -c`). Check: package builds and lints clean; **you** install it on a clean user.
 - [ ] **E. First-run and repair.** `blackroom setup` (enrol with terminal QR code, key, recovery codes, PAM check, start, URLs, public
   checklist), `blackroom reset {soft,security,full}`, `blackroom repair`, runbook. Check: wizard against a temp state directory.

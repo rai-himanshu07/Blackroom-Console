@@ -1,0 +1,19 @@
+# The remote console web app. No [Install] section on purpose: it never starts at login; `blackroom setup` or
+# `systemctl --user start blackroom-console.service` starts it. The page is served over https on the LAN and over
+# http only on this laptop (an SSH tunnel); put a real certificate behind --tls-cert for use outside the LAN
+# (docs: /usr/share/doc/blackroom-console/internet-access.md). Override flags with
+# `systemctl --user edit blackroom-console.service` (an empty `ExecStart=` line first).
+
+[Unit]
+Description=Blackroom Console web app (remote view and input)
+Requires=remote-hostd.service
+BindsTo=blackroom-console-emergencyd.service
+After=remote-hostd.service blackroom-console-emergencyd.service graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/blackroom/blackroom-console --grab-socket %t/blackroom-live/emergency.sock --listen 127.0.0.1:8080 --tls-listen 0.0.0.0:8443 --hostd-dir %t/blackroom-hostd --clipboard
+# SIGTERM runs Stop (restore, lock) before exit; leave it time.
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=5
