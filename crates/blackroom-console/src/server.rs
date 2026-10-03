@@ -440,9 +440,58 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
 
 /// The page loads nothing from elsewhere and cannot be framed; the policy keeps inline script because the
 /// page is one self-contained file.
-const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; \
-style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; \
-object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+/// Standard padded base64 (CSP hash sources), without a dependency for twelve lines.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0_u32, |n, (i, byte)| n | (u32::from(*byte) << (16 - 8 * i)));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// The `'sha256-...'` source for every inline script of the pages: they are the only scripts that run, so
+/// `script-src` needs no `'unsafe-inline'` and an injected script would not execute.
+fn script_hash_sources(pages: &[&str]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut sources = Vec::new();
+    for page in pages {
+        let mut rest = *page;
+        while let Some(start) = rest.find("<script>") {
+            let body = &rest[start + "<script>".len()..];
+            let Some(end) = body.find("</script>") else {
+                break;
+            };
+            sources.push(format!(
+                "'sha256-{}'",
+                base64(&Sha256::digest(body[..end].as_bytes()))
+            ));
+            rest = &body[end..];
+        }
+    }
+    sources.join(" ")
+}
+
+fn content_security_policy() -> &'static str {
+    static POLICY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    POLICY.get_or_init(|| {
+        format!(
+            "default-src 'self'; script-src 'self' {}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; \
+media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+            script_hash_sources(&[PAGE, LOGIN_PAGE, LOGIN_FULL_PAGE])
+        )
+    })
+}
 
 async fn security_headers(
     State(state): State<AppState>,
@@ -451,16 +500,30 @@ async fn security_headers(
 ) -> Response {
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
+    // Nothing here is worth keeping in a browser cache or a proxy (the page, status, clipboard, login replies).
+    if !headers.contains_key(CACHE_CONTROL) {
+        headers.insert(
+            CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-store"),
+        );
+    }
+    if let Ok(value) = axum::http::HeaderValue::from_str(content_security_policy()) {
+        headers.insert(
+            axum::http::HeaderName::from_static("content-security-policy"),
+            value,
+        );
+    }
     let mut set = |name: &'static str, value: &'static str| {
         headers.insert(
             axum::http::HeaderName::from_static(name),
             axum::http::HeaderValue::from_static(value),
         );
     };
-    set("content-security-policy", CONTENT_SECURITY_POLICY);
     set("x-content-type-options", "nosniff");
     set("x-frame-options", "DENY");
     set("referrer-policy", "no-referrer");
+    set("cross-origin-resource-policy", "same-origin");
+    set("cross-origin-opener-policy", "same-origin");
     set(
         "permissions-policy",
         "camera=(), microphone=(), geolocation=(), payment=()",
@@ -518,6 +581,7 @@ fn clipboard_refusal(error: &ClipboardError) -> Response {
         ClipboardError::Disabled => StatusCode::FORBIDDEN,
         ClipboardError::NotRunning => StatusCode::CONFLICT,
         ClipboardError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+        ClipboardError::Invalid(_) => StatusCode::BAD_REQUEST,
         ClipboardError::TooFast => StatusCode::TOO_MANY_REQUESTS,
         ClipboardError::NoText => StatusCode::NOT_FOUND,
         ClipboardError::Failed(_) => StatusCode::BAD_GATEWAY,

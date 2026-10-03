@@ -202,6 +202,11 @@ async fn main() -> anyhow::Result<()> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let args = Args::parse();
+    // The console acts for one user's desktop: root would add nothing but blast radius.
+    anyhow::ensure!(
+        !rustix::process::geteuid().is_root(),
+        "refusing to run as root: start the console as the user whose desktop it controls"
+    );
     let ice_config = ice_config_from(&args)?;
     if args.public {
         let problems =

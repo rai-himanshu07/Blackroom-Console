@@ -180,6 +180,13 @@ fn flag_value(args: &[OsString], flag: &str) -> Option<PathBuf> {
 /// `--auth-service --state-dir D --runtime-dir R --pam-helper P [--polkit]`: the real login
 /// authority (Phase 11). Fails closed: nothing starts unless a TOTP account is enrolled.
 fn auth_service(args: &[OsString]) -> io::Result<()> {
+    // The login authority checks one user's password and keeps that user's secrets: never root.
+    if rustix::process::geteuid().is_root() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "refusing to run as root: run the login authority as the user it protects",
+        ));
+    }
     let invalid = |message: &'static str| io::Error::new(io::ErrorKind::InvalidInput, message);
     let known = [
         "--auth-service",

@@ -44,7 +44,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   clipboard), diagnostics chip. Check: headless Chrome; Safari/iOS are **your** test.
 - [x] **G. Reliability and metrics.** (done 2026-10-03; 100 headless cycles with clipboard: flat fds/threads/rss, counters agree; **you** run the live 1 h soak: `docs/ops/soak.sh 60`) `/status` gains RSS, fd, thread, session counts; `docs/ops/cycle-test.sh` (N headless
   start/stop cycles with flat-resource assertion) and a soak script. Check: 100 headless cycles pass; **you** run the 1 h live soak.
-- [ ] **H. Adversarial tests that need no hardware.** Browser/network/privilege cases (cookie flags, CSRF, origin, headers, TLS config,
+- [x] **H. Adversarial tests that need no hardware.** (done 2026-10-03; `tests/adversarial.rs`, `docs/ops/adversarial-net-test.sh`, `docs/security/red-team-report.md`) Browser/network/privilege cases (cookie flags, CSRF, origin, headers, TLS config,
   no setuid/no root), property tests on the JSON inputs, `docs/security/red-team-report.md`.
 - [ ] **I. Compatibility gate.** Start refuses an untested GNOME/Mutter/PipeWire combination unless `--allow-untested`;
   `docs/ops/compatibility-matrix.md` with evidence per cell (this laptop PASS, everything else UNKNOWN, AMD UNKNOWN).

@@ -24,6 +24,8 @@ pub enum ClipboardError {
     Disabled,
     NotRunning,
     TooLarge,
+    /// The text itself is not acceptable (a client mistake, not a failure of the laptop).
+    Invalid(&'static str),
     TooFast,
     /// The laptop clipboard is empty or holds something other than text.
     NoText,
@@ -36,6 +38,7 @@ impl std::fmt::Display for ClipboardError {
             Self::Disabled => f.write_str("the clipboard is not enabled on this console"),
             Self::NotRunning => f.write_str("not running"),
             Self::TooLarge => write!(f, "text is larger than {} KiB", MAX_BYTES / 1024),
+            Self::Invalid(reason) => f.write_str(reason),
             Self::TooFast => f.write_str("too many clipboard requests, wait a moment"),
             Self::NoText => f.write_str("the laptop clipboard holds no text"),
             Self::Failed(reason) => write!(f, "clipboard transfer failed: {reason}"),
@@ -49,7 +52,7 @@ pub fn validate(text: &str) -> Result<(), ClipboardError> {
         return Err(ClipboardError::TooLarge);
     }
     if text.contains('\0') {
-        return Err(ClipboardError::Failed("text contains a NUL byte".into()));
+        return Err(ClipboardError::Invalid("text contains a NUL byte"));
     }
     Ok(())
 }
@@ -103,7 +106,10 @@ mod tests {
             validate(&"x".repeat(MAX_BYTES + 1)),
             Err(ClipboardError::TooLarge)
         );
-        assert!(validate("a\0b").is_err());
+        assert_eq!(
+            validate("a\0b"),
+            Err(ClipboardError::Invalid("text contains a NUL byte"))
+        );
     }
 
     #[test]

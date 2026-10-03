@@ -163,6 +163,13 @@ fn run(args: &Args) -> Fallible<()> {
 
 fn main() {
     let args = Args::parse();
+    // Access to the input nodes comes from ACLs for the user; root is never needed.
+    if rustix::process::geteuid().is_root() {
+        eprintln!(
+            "remote-emergencyd: refusing to run as root: run it as the user whose input it guards"
+        );
+        std::process::exit(1);
+    }
     if let Err(message) = run(&args) {
         eprintln!("remote-emergencyd: {message}");
         std::process::exit(1);
