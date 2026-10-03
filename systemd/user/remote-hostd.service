@@ -9,7 +9,10 @@
 #   systemctl --user start remote-hostd.service
 #
 # NoNewPrivileges is deliberately NOT set: pam_unix verifies your password through the setgid helper
-# unix_chkpwd, which NoNewPrivileges would block. Only settings that cannot affect PAM are used.
+# unix_chkpwd, which NoNewPrivileges would block. In a user manager every seccomp-based option
+# (MemoryDenyWriteExecute, RestrictAddressFamilies, LockPersonality, RestrictRealtime,
+# SystemCallArchitectures, SystemCallFilter) silently turns NoNewPrivileges on, so none is used
+# (verified: each one made the PAM helper exit 2, "cannot decide"). Do not add them back.
 
 [Unit]
 Description=Blackroom Console login authority (remote-hostd)
@@ -24,8 +27,3 @@ Restart=on-failure
 RestartSec=5
 TimeoutStopSec=10
 LimitCORE=0
-MemoryDenyWriteExecute=yes
-LockPersonality=yes
-RestrictRealtime=yes
-RestrictAddressFamilies=AF_UNIX AF_NETLINK
-SystemCallArchitectures=native

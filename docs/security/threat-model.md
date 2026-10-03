@@ -33,8 +33,8 @@ does not.
   password without root, through the setgid `unix_chkpwd`. A dedicated `remote-hostd` user would need
   root or the `shadow` group to check your password, which is a larger privilege than the problem
   needs. The cost is that a process running as you can read the credential files; see below.
-- **No NoNewPrivileges on the unit**, for the same reason (it blocks `unix_chkpwd`). Other sandbox
-  options that cannot affect PAM are set.
+- **No NoNewPrivileges on the unit**, for the same reason (it blocks `unix_chkpwd`). Seccomp-based
+  sandbox options are also off, because they imply it.
 - **Polkit is a gate for re-opening only.** Closing access (`disable`, `revoke-all`) never asks;
   `enable` can require a local, active session. It is off by default because a same-uid attacker can
   edit the files anyway; it protects against a mistaken or remote-shell `enable`, not against malware
@@ -57,8 +57,9 @@ does not.
   by guessing (availability, not access). `blackroom` on the local machine still works.
 - Timing: unknown and known accounts take the same code path and a PAM call; PAM's own failure delay
   applies to both. Not measured statistically.
-- The unit's seccomp-style options are minimal on purpose (a wrong filter would break PAM); a
-  `SystemCallFilter` is future work after a live PAM check.
+- The unit carries no seccomp-based option: in a user manager each one (checked live: `MemoryDenyWriteExecute`,
+  `RestrictAddressFamilies`, `LockPersonality`) turns `NoNewPrivileges` on and the PAM helper then cannot
+  decide (exit 2, login answers `HOST_UNAVAILABLE`). Sandboxing needs a design that keeps `unix_chkpwd` working.
 
 ## Gate J (no arbitrary privileged execution)
 
