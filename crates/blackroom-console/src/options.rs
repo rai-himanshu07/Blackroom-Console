@@ -3,6 +3,10 @@
 
 use serde::{Deserialize, Serialize};
 
+pub const MIN_FPS: u32 = 5;
+pub const MAX_FPS: u32 = 60;
+pub const MIN_BITRATE_KBPS: u32 = 300;
+pub const MAX_BITRATE_KBPS: u32 = 30_000;
 pub const MIN_HEARTBEAT_SECS: u32 = 5;
 pub const MAX_HEARTBEAT_SECS: u32 = 120;
 pub const MAX_IDLE_MINUTES: u32 = 24 * 60;
@@ -31,6 +35,12 @@ pub struct SessionOptions {
     pub lock_on_stop: bool,
     /// Virtual monitor size; `None` keeps the panel's own size. Ignored unless `blank_panel`.
     pub resolution: Option<Size>,
+    /// Draw the laptop's pointer into the picture (the page then hides its own pointer marker).
+    pub cursor_in_video: bool,
+    /// Frame-rate ceiling; 0 follows the quality level.
+    pub fps_cap: u32,
+    /// Video bitrate in kbit/s; 0 follows the quality level.
+    pub bitrate_kbps: u32,
     /// Seconds without a browser heartbeat before the session ends; `None` uses the console's own setting.
     pub heartbeat_secs: Option<u32>,
     /// Minutes without remote input before the session ends; 0 = never.
@@ -47,6 +57,9 @@ impl Default for SessionOptions {
             block_local_input: true,
             lock_on_stop: true,
             resolution: None,
+            cursor_in_video: false,
+            fps_cap: 0,
+            bitrate_kbps: 0,
             heartbeat_secs: None,
             idle_minutes: 0,
             max_hours: 0,
@@ -80,6 +93,16 @@ impl SessionOptions {
         {
             return Err(format!(
                 "heartbeat_secs must be {MIN_HEARTBEAT_SECS} to {MAX_HEARTBEAT_SECS}"
+            ));
+        }
+        if self.fps_cap != 0 && !(MIN_FPS..=MAX_FPS).contains(&self.fps_cap) {
+            return Err(format!("fps_cap must be 0 or {MIN_FPS} to {MAX_FPS}"));
+        }
+        if self.bitrate_kbps != 0
+            && !(MIN_BITRATE_KBPS..=MAX_BITRATE_KBPS).contains(&self.bitrate_kbps)
+        {
+            return Err(format!(
+                "bitrate_kbps must be 0 or {MIN_BITRATE_KBPS} to {MAX_BITRATE_KBPS}"
             ));
         }
         if self.idle_minutes > MAX_IDLE_MINUTES {
@@ -177,6 +200,22 @@ mod tests {
             })
         );
         for bad in [
+            SessionOptions {
+                fps_cap: 4,
+                ..Default::default()
+            },
+            SessionOptions {
+                fps_cap: 61,
+                ..Default::default()
+            },
+            SessionOptions {
+                bitrate_kbps: 299,
+                ..Default::default()
+            },
+            SessionOptions {
+                bitrate_kbps: 30_001,
+                ..Default::default()
+            },
             SessionOptions {
                 heartbeat_secs: Some(4),
                 ..Default::default()

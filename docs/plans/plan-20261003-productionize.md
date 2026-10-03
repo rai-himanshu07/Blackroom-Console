@@ -31,7 +31,7 @@ launcher, multi-monitor selection UI, file transfer, remote power control, mutin
   heartbeat, idle and max minutes), `POST /start` body, shared-mode capture and pointer mapping, status shows the mode.
   Check: headless Shell session in shared mode (video frames, no topology change, input accepted), private unchanged.
 - [x] **L. Settings profile.** (done 2026-10-03; `profile.rs`, `/settings`, modes test saves and follows a profile) `profile.rs`, `GET/POST /settings`, defaults and validation. Check: unit and adversarial tests.
-- [ ] **N. Display, rate and cursor options.** fps cap, bitrate cap, embedded cursor, live apply. Check: headless.
+- [x] **N. Display, rate and cursor options.** (done 2026-10-03; cursor-mode, fps and bitrate caps, `/tuning`; headless modes test) fps cap, bitrate cap, embedded cursor, live apply. Check: headless.
 - [ ] **M. Audio.** Opus branch, offer parsing, setting, page control. Check: headless Chrome receives audio from a test tone.
 - [ ] **O. Input options.** keysym text injection, Mac key mapping. Check: unit tests, headless browser.
 - [ ] **P. App shell and UI.** connect screen, in-session menu, settings sheet, toasts, timer, scale modes (fit, stretch,

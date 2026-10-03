@@ -82,6 +82,19 @@ echo "== defaults without a body are private"
 check "start without a body" "$(curl -s -b "$jar" -X POST -o /dev/null -w '%{http_code}' "$base/start")" 200
 check "mode" "$(status | jq -r .mode)" private
 check "stop" "$(stop)" 200
+echo "== cursor in the picture, frame-rate and bitrate caps"
+check "shared start with cursor and caps" "$(start '{"blank_panel":false,"block_local_input":false,"lock_on_stop":false,"cursor_in_video":true,"fps_cap":10,"bitrate_kbps":1500}')" 200
+check "frames still arrive" "$(jpeg_size)" 1920x1080
+check "caps are reported" "$(status | jq -r '"\(.session.fps_cap) \(.session.bitrate_kbps) \(.session.cursor_in_video)"')" "10 1500 true"
+check "tuning live" "$(curl -s -b "$jar" "${json[@]}" -X POST -d '{"fps_cap":20,"bitrate_kbps":0}' -o /dev/null -w '%{http_code}' "$base/tuning")" 200
+check "live caps are reported" "$(status | jq -r '"\(.session.fps_cap) \(.session.bitrate_kbps)"')" "20 0"
+check "tuning out of range" "$(curl -s -b "$jar" "${json[@]}" -X POST -d '{"fps_cap":3,"bitrate_kbps":0}' -o /dev/null -w '%{http_code}' "$base/tuning")" 400
+check "stop" "$(stop)" 200
+check "private start with cursor" "$(start '{"cursor_in_video":true}')" 200
+check "private frames arrive" "$(jpeg_size)" 1920x1080
+check "stop" "$(stop)" 200
+check "caps out of range are refused at start" "$(start '{"fps_cap":200}')" 400
+
 echo "== a saved profile decides what a bare Start does"
 check "save a shared profile" "$(curl -s -b "$jar" "${json[@]}" -X POST -d '{"session":{"blank_panel":false,"block_local_input":false,"lock_on_stop":false}}' -o /dev/null -w '%{http_code}' "$base/settings")" 200
 check "bare start follows the profile" "$(curl -s -b "$jar" -X POST -o /dev/null -w '%{http_code}' "$base/start")" 200

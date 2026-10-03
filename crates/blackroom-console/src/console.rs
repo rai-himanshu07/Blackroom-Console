@@ -132,6 +132,18 @@ pub struct Resources {
     pub sessions_stopped: u64,
 }
 
+fn effective_fps(quality: Quality, cap: u32) -> u32 {
+    if cap == 0 { quality.max_fps() } else { cap }
+}
+
+fn effective_bitrate(quality: Quality, override_kbps: u32) -> u32 {
+    if override_kbps == 0 {
+        quality.bitrate_kbps()
+    } else {
+        override_kbps
+    }
+}
+
 fn proc_status_value(text: &str, key: &str) -> u64 {
     text.lines()
         .find_map(|line| line.strip_prefix(key))
@@ -464,11 +476,33 @@ impl RemoteConsole {
     /// Applies at once to a running session and becomes the level of the next one.
     pub fn set_quality(&self, quality: Quality) {
         *lock_ok(&self.shared.quality) = quality;
+        self.apply_rates();
+    }
+
+    /// Changes the frame-rate ceiling and bitrate of the running session and of the next one (0 = follow the quality level).
+    pub fn set_rates(&self, fps_cap: u32, bitrate_kbps: u32) -> Result<(), String> {
+        let mut probe = lock_ok(&self.shared.options).clone();
+        (probe.fps_cap, probe.bitrate_kbps) = (fps_cap, bitrate_kbps);
+        let probe = probe.validated()?;
+        {
+            let mut options = lock_ok(&self.shared.options);
+            (options.fps_cap, options.bitrate_kbps) = (probe.fps_cap, probe.bitrate_kbps);
+        }
+        self.apply_rates();
+        Ok(())
+    }
+
+    fn apply_rates(&self) {
+        let quality = *lock_ok(&self.shared.quality);
+        let (fps_cap, bitrate) = {
+            let options = lock_ok(&self.shared.options);
+            (options.fps_cap, options.bitrate_kbps)
+        };
         if let Some(tuning) = lock_ok(&self.shared.tuning).as_ref() {
-            tuning.set(quality.jpeg_quality(), quality.max_fps());
+            tuning.set(quality.jpeg_quality(), effective_fps(quality, fps_cap));
         }
         if let Some(session) = lock_ok(&self.shared.webrtc).as_ref() {
-            session.set_bitrate(quality.bitrate_kbps());
+            session.set_bitrate(effective_bitrate(quality, bitrate));
         }
     }
 
@@ -488,7 +522,8 @@ impl RemoteConsole {
         let h264 = pick_h264(offer_sdp).ok_or("the browser offers no usable H.264")?;
         let console = self.clone();
         let input: InputSink = Arc::new(move |text| console.input_json(text));
-        let session = WebRtcSession::start(&tuning, quality.bitrate_kbps(), &h264, input)?;
+        let bitrate = effective_bitrate(quality, lock_ok(&self.shared.options).bitrate_kbps);
+        let session = WebRtcSession::start(&tuning, bitrate, &h264, input)?;
         let answer = session.answer(offer_sdp);
         let mut slot = lock_ok(&self.shared.webrtc);
         // Stop may have run while negotiating: its teardown has already passed.
@@ -903,11 +938,19 @@ impl<'c> Active<'c> {
             None => {
                 let (width, height) = self.size;
                 (
-                    sc.record_virtual(i32::try_from(width)?, i32::try_from(height)?, 60.0)?,
+                    sc.record_virtual_with_cursor(
+                        i32::try_from(width)?,
+                        i32::try_from(height)?,
+                        60.0,
+                        self.options.cursor_in_video,
+                    )?,
                     (width, height),
                 )
             }
-            Some(target) => (sc.record_monitor(&target.connector)?, target.native),
+            Some(target) => (
+                sc.record_monitor_with_cursor(&target.connector, self.options.cursor_in_video)?,
+                target.native,
+            ),
         };
         let node = stream.start_and_wait_for_pipewire_node(&sc)?;
         self.sc = Some(sc);
@@ -918,7 +961,7 @@ impl<'c> Active<'c> {
             preferred_width: i32::try_from(shape.0)?,
             preferred_height: i32::try_from(shape.1)?,
             quality: quality.jpeg_quality(),
-            max_fps: quality.max_fps(),
+            max_fps: effective_fps(quality, self.options.fps_cap),
         };
         let tuning = VideoTuning::new(&options);
         *lock_ok(&self.shared.tuning) = Some(Arc::clone(&tuning));

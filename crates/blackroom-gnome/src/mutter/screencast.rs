@@ -20,6 +20,14 @@ use blackroom_core::error::{BlackroomError, ErrorCode};
 /// default).
 const SIGNAL_WAIT: Duration = Duration::from_secs(10);
 
+fn cursor_props(embedded: bool) -> HashMap<&'static str, Value<'static>> {
+    let mut props = HashMap::new();
+    if embedded {
+        props.insert("cursor-mode", Value::from(1_u32));
+    }
+    props
+}
+
 fn mutter_unavailable(detail: impl std::fmt::Display) -> BlackroomError {
     BlackroomError::new(ErrorCode::MutterUnavailable, detail.to_string())
 }
@@ -80,10 +88,19 @@ impl<'a> ScreenCastSession<'a> {
     /// `"eDP-1"`) — the proven mechanism for capturing the existing desktop
     /// (Experiment 3), not a virtual monitor.
     pub fn record_monitor(&self, connector: &str) -> Result<ScreenCastStream<'a>, BlackroomError> {
-        let empty_props: HashMap<&str, Value<'_>> = HashMap::new();
+        self.record_monitor_with_cursor(connector, false)
+    }
+
+    /// `cursor_embedded` draws the pointer into the picture (`cursor-mode` 1); otherwise Mutter hides it.
+    pub fn record_monitor_with_cursor(
+        &self,
+        connector: &str,
+        cursor_embedded: bool,
+    ) -> Result<ScreenCastStream<'a>, BlackroomError> {
+        let props = cursor_props(cursor_embedded);
         let stream_path: OwnedObjectPath = self
             .session_proxy()?
-            .call("RecordMonitor", &(connector, empty_props))
+            .call("RecordMonitor", &(connector, props))
             .map_err(mutter_unavailable)?;
         Ok(ScreenCastStream {
             conn: self.conn,
@@ -104,11 +121,22 @@ impl<'a> ScreenCastSession<'a> {
         height: i32,
         refresh_rate: f64,
     ) -> Result<ScreenCastStream<'a>, BlackroomError> {
-        let props: HashMap<&str, Value<'_>> = HashMap::from([
+        self.record_virtual_with_cursor(width, height, refresh_rate, false)
+    }
+
+    pub fn record_virtual_with_cursor(
+        &self,
+        width: i32,
+        height: i32,
+        refresh_rate: f64,
+        cursor_embedded: bool,
+    ) -> Result<ScreenCastStream<'a>, BlackroomError> {
+        let mut props: HashMap<&str, Value<'_>> = HashMap::from([
             ("width", Value::from(width)),
             ("height", Value::from(height)),
             ("framerate", Value::from(refresh_rate)),
         ]);
+        props.extend(cursor_props(cursor_embedded));
         let stream_path: OwnedObjectPath = self
             .session_proxy()?
             .call("RecordVirtual", &(props,))

@@ -231,6 +231,10 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
             "/quality",
             post(quality).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
         )
+        .route(
+            "/tuning",
+            post(tuning).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
+        )
         .route("/ice", get(ice))
         .route(
             "/clipboard",
@@ -754,6 +758,31 @@ async fn webrtc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) 
 #[derive(Deserialize)]
 struct QualityBody {
     level: Quality,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TuningBody {
+    fps_cap: u32,
+    bitrate_kbps: u32,
+}
+
+/// Frame-rate ceiling and bitrate of the running session; 0 follows the quality level.
+async fn tuning(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    let Some(body): Option<TuningBody> = parse_body(&body) else {
+        return malformed();
+    };
+    match state.console.set_rates(body.fps_cap, body.bitrate_kbps) {
+        Ok(()) => Json(state.console.status()).into_response(),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response(),
+    }
 }
 
 async fn quality(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
