@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Name=Blackroom Console
+GenericName=Remote desktop host
+Comment=Share this laptop's desktop with your tablet or phone
+Exec=/usr/bin/blackroom-app
+Icon=blackroom-console
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=remote;desktop;tablet;phone;console;
+StartupNotify=false
+Actions=Settings;Exit;
+
+[Desktop Action Settings]
+Name=Host settings
+Exec=/usr/bin/blackroom-app open
+
+[Desktop Action Exit]
+Name=Exit Blackroom Console
+Exec=/usr/bin/blackroom-app exit

@@ -64,13 +64,22 @@ Runbooks for the released product (incident response, recovery) live in
 `docs/plans/Detailed_Project_Plan/21_OPERATIONAL_RUNBOOK_RECOVERY_AND_INCIDENT_RESPONSE.md`;
 this directory holds the project's own dev-workstation procedures.
 
+### The app launcher (applications menu)
+
+The `.deb` adds **Blackroom Console** to the applications menu (`/usr/bin/blackroom-app`, a desktop entry and an icon). Opening
+it turns the top-bar icon on, starts `blackroom-console.service` and opens the host settings page (`http://localhost:8090/`);
+its right-click actions are **Host settings** and **Exit Blackroom Console**. `blackroom-app exit` (and **Exit** in the tray menu)
+stops the console, ending any remote session the normal way (display restored, screen locked), and removes the top-bar icon;
+a console that was started by hand is not touched and keeps its icon. Proof without touching the real desktop:
+`docs/ops/launcher-test.sh`. Not observed: the entry in the real applications menu and the real **Exit** click.
+
 ### Laptop indicator (top bar)
 
 `gnome-extension/blackroom-indicator@blackroom.local` puts an icon in the GNOME top bar: dim when the console is off, normal
 when it is ready, orange with a timer while a remote session runs. Its menu shows the mode (private or shared), how long the
 session has run and whether laptop sound is sent, and offers **Disconnect the remote user**, **Lock this screen now**,
 **Host settings...** (the laptop-only settings page; the client page is deliberately not offered on the laptop),
-a **Remote use on the lock screen** switch (turns the lock-screen extension below on or off), and **Start/Stop the console** (`systemctl --user start|stop blackroom-console.service`, so the
+a **Remote use on the lock screen** switch (turns the lock-screen extension below on or off), **Start/Stop the console**, and **Exit** (stops the console and removes the icon until the launcher is used again) (`systemctl --user start|stop blackroom-console.service`, so the
 user unit must be installed). A notification appears when a session starts and when it ends. Install like the other
 extension (copy the directory to `~/.local/share/gnome-shell/extensions/`, log out and in; the `.deb` installs it under
 `/usr/share/gnome-shell/extensions/`), then `gnome-extensions enable blackroom-indicator@blackroom.local`. Unlike the

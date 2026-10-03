@@ -28,6 +28,7 @@ Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused
 | Approve each connection (Ask) on the real desktop | UNKNOWN | headless Shell: the request, Accept, Deny and no-answer paths and the notification with buttons; not the real desktop |
 | Tray switch for the lock-screen extension and the host page's lock-screen and sign-in settings on the real desktop | UNKNOWN | the tray switch's first enable was seen in a throwaway Shell (its key-file settings can undo a change, a real desktop uses dconf); the host page used stand-in commands |
 | Authenticator setup from the host page with real authenticator apps | UNKNOWN | the QR code is drawn by the `qrcode` crate and the confirming code is checked against the RFC 6238 algorithm and a Node re-implementation; no phone app has scanned it yet |
+| Applications-menu launcher and tray **Exit** on the real desktop | UNKNOWN | the launcher script is tested against stand-in commands and a fake console, the desktop file validates, and the tray menu shows the Exit row; the real menu entry and the real Exit click were not tried |
 | Installing the page as an app | UNKNOWN | headless Chrome finds no installability problem; a tablet over a trusted https address was not tried |
 | Browser: Safari, iOS Safari | UNKNOWN | fallbacks exist (no Keyboard Lock, prefixed fullscreen, blocked storage) and are exercised with a stub only |
 | Browser: Firefox | UNKNOWN | |

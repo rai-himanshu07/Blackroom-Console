@@ -1,0 +1,51 @@
+#!/bin/bash
+# The Blackroom Console app: the launcher in the applications menu runs this.
+#   blackroom-app          start the console, show the top-bar icon, open the host settings page
+#   blackroom-app open     only open the host settings page
+#   blackroom-app exit     stop the console and remove the top-bar icon
+# Nothing here changes who may connect: it starts the same user service you would start by hand.
+set -u
+UNIT=${BR_APP_UNIT:-blackroom-console.service}
+TRAY=${BR_APP_TRAY:-blackroom-indicator@blackroom.local}
+PORT=${BR_APP_HOST_PORT:-8090}
+
+say() { notify-send -a "Blackroom Console" -i blackroom-console "$1" "${2:-}" 2> /dev/null || echo "$1 ${2:-}" >&2; }
+up() { (: > "/dev/tcp/127.0.0.1/$PORT") 2> /dev/null; }
+
+case "${1:-start}" in
+  start)
+    if out=$(gnome-extensions enable "$TRAY" 2>&1); then :; else
+      say "The top-bar icon is not available" "Log out and in once so GNOME finds it. ${out}"
+    fi
+    if ! out=$(systemctl --user start "$UNIT" 2>&1); then
+      say "Could not start the console" "$out"
+      exit 1
+    fi
+    for _ in $(seq 1 40); do up && break; sleep 0.25; done
+    if ! up; then
+      say "The host settings page is not ready" "The console started but is not answering on port $PORT. See: journalctl --user -u $UNIT -n 30"
+      exit 1
+    fi
+    exec xdg-open "http://localhost:$PORT/"
+    ;;
+  open)
+    exec xdg-open "http://localhost:$PORT/"
+    ;;
+  exit)
+    systemctl --user stop "$UNIT" 2> /dev/null
+    sleep 1
+    if up; then
+      say "The console is still running" "It was not started by the user service, so it was left alone and the top-bar icon stays."
+      exit 1
+    fi
+    gnome-extensions disable "$TRAY" 2> /dev/null
+    say "Blackroom Console closed" "Open it again from the applications menu."
+    ;;
+  -h | --help | help)
+    sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  *)
+    echo "usage: blackroom-app [open|exit]" >&2
+    exit 2
+    ;;
+esac

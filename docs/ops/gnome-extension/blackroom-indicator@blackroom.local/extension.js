@@ -20,8 +20,9 @@ const POLL_SECONDS = 2;
 
 const Indicator = GObject.registerClass(
 class BlackroomIndicator extends PanelMenu.Button {
-    _init() {
+    _init(uuid) {
         super._init(0.0, 'Blackroom Console', false);
+        this._uuid = uuid;
         this._cancellable = new Gio.Cancellable();
         this._status = undefined;
 
@@ -54,6 +55,8 @@ class BlackroomIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._start = this._action('Start the console', () => this._systemctl('start'));
         this._stop = this._action('Stop the console', () => this._systemctl('stop'));
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this._action('Exit (stop the console and remove this icon)', () => this._exitApp());
 
         this.menu.connect('open-state-changed', (_menu, open) => {
             if (open)
@@ -140,6 +143,35 @@ class BlackroomIndicator extends PanelMenu.Button {
                 }
                 this._refresh();
             });
+    }
+
+    // Exit: stop the console, then remove this icon (disable this extension). A console that was started by hand keeps
+    // running, so the icon stays rather than hiding the way to disconnect.
+    _exitApp() {
+        const running = stateOf(this._status) !== 'off';
+        Main.notify('Blackroom Console', running ? 'Ending any remote session and closing the console...' : 'Closing...');
+        const process = Gio.Subprocess.new(['systemctl', '--user', 'stop', UNIT], Gio.SubprocessFlags.STDERR_PIPE);
+        process.communicate_utf8_async(null, null, () => {
+            Gio.DBus.session.call(BUS_NAME, OBJECT_PATH, INTERFACE, 'Status', null, new GLib.VariantType('(s)'),
+                Gio.DBusCallFlags.NONE, 1500, null, (connection, result) => {
+                    let stillRunning = true;
+                    try {
+                        connection.call_finish(result);
+                    } catch (_error) {
+                        stillRunning = false;
+                    }
+                    if (stillRunning) {
+                        Main.notify('The console is still running',
+                            'It was not started by the user service, so it was left alone and this icon stays.');
+                        return;
+                    }
+                    Main.notify('Blackroom Console closed', 'Open it again from the applications menu.');
+                    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                        Main.extensionManager.disableExtension(this._uuid);
+                        return GLib.SOURCE_REMOVE;
+                    });
+                });
+        });
     }
 
     _systemctl(verb) {
@@ -241,7 +273,7 @@ class BlackroomIndicator extends PanelMenu.Button {
 
 export default class BlackroomIndicatorExtension extends Extension {
     enable() {
-        this._indicator = new Indicator();
+        this._indicator = new Indicator(this.uuid);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
     }
 

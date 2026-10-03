@@ -29,6 +29,13 @@ install -d -m 755 "$root/usr/bin" "$root/usr/sbin" "$root/usr/lib/blackroom" "$r
   "$root/usr/share/gnome-shell/extensions"
 for b in "${BINS[@]}"; do install -m 755 "target/release/$b" "$root/usr/lib/blackroom/$b"; done
 install -m 755 target/release/blackroom "$root/usr/bin/blackroom"
+install -m 755 packaging/blackroom-app "$root/usr/bin/blackroom-app"
+install -d "$root/usr/share/applications" "$root/usr/share/icons/hicolor/scalable/apps" \
+  "$root/usr/share/icons/hicolor/192x192/apps" "$root/usr/share/icons/hicolor/512x512/apps"
+install -m 644 packaging/blackroom-console.desktop "$root/usr/share/applications/blackroom-console.desktop"
+install -m 644 crates/blackroom-console/src/web/icon.svg "$root/usr/share/icons/hicolor/scalable/apps/blackroom-console.svg"
+install -m 644 crates/blackroom-console/src/web/icons/icon-192.png "$root/usr/share/icons/hicolor/192x192/apps/blackroom-console.png"
+install -m 644 crates/blackroom-console/src/web/icons/icon-512.png "$root/usr/share/icons/hicolor/512x512/apps/blackroom-console.png"
 install -m 755 packaging/blackroom-grant-input "$root/usr/sbin/blackroom-grant-input"
 install -m 644 packaging/units/*.service "$root/usr/lib/systemd/user/"
 install -m 644 pam/blackroom-console "$root/etc/pam.d/blackroom-console"
@@ -92,7 +99,8 @@ check "no unit has an [Install] section" '! tar -xOf <(dpkg-deb --fsys-tarfile "
 check "units run only /usr/lib/blackroom binaries" '! tar -xOf <(dpkg-deb --fsys-tarfile "$deb") --wildcards "./usr/lib/systemd/user/*.service" 2>/dev/null | grep "^ExecStart=" | grep -v "ExecStart=/usr/lib/blackroom/" | grep -q .'
 check "no path of this repository inside the units" '! tar -xOf <(dpkg-deb --fsys-tarfile "$deb") --wildcards "./usr/lib/systemd/user/*.service" 2>/dev/null | grep -q "Playground"'
 check "conffile is the PAM service only" '[ "$(dpkg-deb -I "$deb" conffiles 2>/dev/null)" = "/etc/pam.d/blackroom-console" ]'
-check "maintainer scripts parse" 'sh -n packaging/postinst && sh -n packaging/postrm && sh -n packaging/blackroom-grant-input'
+check "maintainer scripts parse" 'sh -n packaging/postinst && sh -n packaging/postrm && sh -n packaging/blackroom-grant-input && bash -n packaging/blackroom-app'
+check "the menu launcher is a valid desktop entry with its icon" 'desktop-file-validate packaging/blackroom-console.desktop && echo "$contents" | grep -q "usr/share/applications/blackroom-console.desktop" && echo "$contents" | grep -q "hicolor/scalable/apps/blackroom-console.svg"'
 if sim=$(apt-get -s install "$deb" 2>&1); then
   echo "ok   apt-get --simulate install: $(echo "$sim" | grep -c '^Inst') package(s) would be installed"
 else
