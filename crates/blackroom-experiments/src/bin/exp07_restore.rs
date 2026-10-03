@@ -580,7 +580,7 @@ fn process_gone(pid: u32) -> bool {
     }
 }
 
-fn print_lock(session_id: &str) {
+fn print_lock(session_id: &str) -> bool {
     let locked = std::process::Command::new("loginctl")
         .args(["lock-session", session_id])
         .stdin(std::process::Stdio::null())
@@ -590,6 +590,16 @@ fn print_lock(session_id: &str) {
         "lock-session {session_id}: {}",
         if locked { "ok" } else { "FAILED" }
     );
+    locked
+}
+
+/// The process result: a restore that did not verify, or a lock that was asked for and failed, is an error.
+fn require_outcome(result: ExperimentResult, locked: Option<bool>) -> anyhow::Result<()> {
+    let verified = require_verified_restore(result);
+    if locked == Some(false) {
+        anyhow::bail!("the session could not be locked");
+    }
+    verified
 }
 
 fn main() -> anyhow::Result<()> {
@@ -616,7 +626,9 @@ fn main() -> anyhow::Result<()> {
     let conn = Connection::session()?;
     verify_live_identity(&conn, &backup)?;
     if args.after_pid.is_some() {
-        print_lock(&backup.session_id);
+        if !print_lock(&backup.session_id) {
+            anyhow::bail!("the session could not be locked");
+        }
         return Ok(());
     }
 
@@ -645,6 +657,9 @@ fn main() -> anyhow::Result<()> {
         retried = true;
         apply_error = attempt(false);
     }
+
+    // Locked before the verification poll: a failing state read there must not skip the lock.
+    let locked = args.lock_after.then(|| print_lock(&backup.session_id));
 
     let deadline = Instant::now() + POLL_WAIT;
     let (restored, topology_ok, configuration_hash_matches, monitors_final) = loop {
@@ -675,10 +690,6 @@ fn main() -> anyhow::Result<()> {
         }
         thread::sleep(Duration::from_millis(150));
     };
-
-    if args.lock_after {
-        print_lock(&backup.session_id);
-    }
 
     let findings = Findings {
         backup_path: args.backup.display().to_string(),
@@ -755,7 +766,7 @@ fn main() -> anyhow::Result<()> {
     )?;
     println!("Wrote evidence to {}", dir.display());
     println!("Result: {result}");
-    require_verified_restore(result)
+    require_outcome(result, locked)
 }
 
 #[cfg(test)]
@@ -781,6 +792,14 @@ mod tests {
     fn failed_restore_reports_a_nonzero_process_result() {
         assert!(require_verified_restore(ExperimentResult::Pass).is_ok());
         assert!(require_verified_restore(ExperimentResult::Fail).is_err());
+    }
+
+    #[test]
+    fn a_lock_that_was_asked_for_and_failed_is_a_nonzero_result() {
+        assert!(require_outcome(ExperimentResult::Pass, None).is_ok());
+        assert!(require_outcome(ExperimentResult::Pass, Some(true)).is_ok());
+        assert!(require_outcome(ExperimentResult::Pass, Some(false)).is_err());
+        assert!(require_outcome(ExperimentResult::Fail, Some(true)).is_err());
     }
 
     #[test]

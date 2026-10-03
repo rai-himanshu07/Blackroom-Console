@@ -434,7 +434,7 @@ fn setup(o: &Options) -> Result<(), Failure> {
 fn end_sessions(runtime: &Path) -> String {
     match security::revoke_all(runtime) {
         Ok(text) => text,
-        Err(_) => "hostd is not running: no live sessions exist".into(),
+        Err(error) => security::admin_failure_note(&error),
     }
 }
 

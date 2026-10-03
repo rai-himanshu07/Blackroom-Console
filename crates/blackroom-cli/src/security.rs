@@ -50,6 +50,18 @@ fn require_ok(reply: AdminReply) -> io::Result<AdminReply> {
     }
 }
 
+/// What to say about live sessions when hostd could not end them. Only a missing admin socket proves none exist;
+/// a timeout or a refusal does not.
+pub fn admin_failure_note(error: &io::Error) -> String {
+    if error.to_string().contains("not running") {
+        "hostd is not running: no live sessions exist".into()
+    } else {
+        format!(
+            "hostd did not answer ({error}): live sessions may stay open until they expire; run revoke-all when hostd is back"
+        )
+    }
+}
+
 pub fn sessions(runtime: &Path) -> io::Result<String> {
     let reply = require_ok(admin(runtime, json!({"command": "sessions"}))?)?;
     let mut lines = vec![format!(
@@ -100,7 +112,7 @@ pub fn disable(directory: &File, runtime: &Path, reason: Option<&str>) -> io::Re
             "hostd refused to end sessions: {}",
             reply.code.unwrap_or_default()
         ),
-        Err(_) => "hostd is not running: no live sessions exist".into(),
+        Err(error) => admin_failure_note(&error),
     };
     Ok(format!("REMOTE ACCESS DISABLED ({ended})"))
 }
@@ -190,14 +202,18 @@ pub fn revoke_device(directory: &File, runtime: &Path, device_id: &str) -> io::R
             "no such trusted device, or already revoked",
         ));
     }
-    let ended = admin(
+    let ended = match admin(
         runtime,
         json!({"command": "revoke_client", "client_id": device_id}),
-    )
-    .ok()
-    .filter(|reply| reply.ok)
-    .map_or(0, |reply| reply.revoked.unwrap_or(0));
-    Ok(format!("device revoked; {ended} live session(s) ended"))
+    ) {
+        Ok(reply) if reply.ok => format!("{} live session(s) ended", reply.revoked.unwrap_or(0)),
+        Ok(reply) => format!(
+            "hostd refused to end sessions: {}",
+            reply.code.unwrap_or_default()
+        ),
+        Err(error) => admin_failure_note(&error),
+    };
+    Ok(format!("device revoked; {ended}"))
 }
 
 /// Per-account credential state: presence and counts only.
@@ -380,5 +396,20 @@ pub fn login_check(runtime: &Path, account: &str) -> io::Result<String> {
             "LOGIN REFUSED: {}",
             reply.code.unwrap_or_else(|| "UNKNOWN".into())
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_missing_admin_socket_proves_that_no_sessions_exist() {
+        let absent = io::Error::other("hostd is not running (no admin socket)");
+        assert!(admin_failure_note(&absent).contains("no live sessions exist"));
+        let silent = io::Error::new(io::ErrorKind::TimedOut, "read timed out");
+        let note = admin_failure_note(&silent);
+        assert!(!note.contains("no live sessions exist"), "{note}");
+        assert!(note.contains("revoke-all"), "{note}");
     }
 }
