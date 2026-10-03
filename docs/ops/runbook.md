@@ -75,5 +75,5 @@ See `internet-access.md`: Tailscale (nothing exposed, recommended), or a port-fo
 
 ## Known limits (see also the release notes)
 
-One display only (the built-in panel), no audio, no file transfer, one controller at a time. GNOME on Wayland only.
+One display only (the built-in panel), no file transfer, one controller at a time. GNOME on Wayland only.
 Safari and iOS are not yet observed. A session survives a network drop for about 30 seconds.
