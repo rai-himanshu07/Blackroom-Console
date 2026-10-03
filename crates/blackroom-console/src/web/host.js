@@ -30,6 +30,20 @@ function show(view) {
   $("appView").hidden = view !== "app";
   $("savebar").hidden = view !== "app";
   $("logout").hidden = view !== "app";
+  // Leaving the signed-in view (sign out, expired session) must not leave secrets or typed passwords behind.
+  if (view !== "app") {
+    hideSecret();
+    closeTotp();
+    for (const id of ["credPassword", "totpPassword", "lockPassword"]) $(id).value = "";
+    $("credStatus").textContent = "";
+  }
+}
+
+// A saved value the dropdown has no entry for (a limit set by hand) must show as itself, never as an empty choice.
+function ensureOption(el, value) {
+  if (el.tagName !== "SELECT" || value === null || value === undefined) return;
+  const text = String(value);
+  if (![...el.options].some((option) => option.value === text)) el.append(new Option(`${text} (current setting)`, text));
 }
 
 function fill(config) {
@@ -38,7 +52,10 @@ function fill(config) {
     if (el.type === "checkbox") el.checked = value === true;
     else if (el.dataset.type === "bool-or-null") el.value = value === null || value === undefined ? "" : String(value);
     else if (el.dataset.type === "string-or-null") el.value = value ?? "";
-    else el.value = value === null || value === undefined ? "" : String(value);
+    else {
+      if (el.dataset.type === "number" || el.dataset.type === "number-or-null") ensureOption(el, value);
+      el.value = value === null || value === undefined ? "" : String(value);
+    }
   }
 }
 
@@ -47,7 +64,8 @@ function collect() {
   for (const el of keyed()) {
     let value;
     if (el.type === "checkbox") value = el.checked;
-    else if (el.dataset.type === "number") value = Number(el.value);
+    // An empty number is never "no limit" (0): keep what is saved.
+    else if (el.dataset.type === "number") value = el.value === "" ? get(saved, el.dataset.key) : Number(el.value);
     else if (el.dataset.type === "bool-or-null") value = el.value === "" ? null : el.value === "true";
     else if (el.dataset.type === "string-or-null") value = el.value.trim() === "" ? null : el.value.trim();
     else if (el.dataset.type === "string") value = el.value.trim();
@@ -119,7 +137,8 @@ function renderLock(snapshot) {
   $("lockNote").textContent = !lock.installed
     ? "The lock-screen extension is not installed (the .deb installs it; log out and in once so GNOME finds it)."
     : lock.enabled && !lock.active ? "It is switched on but GNOME has not loaded it yet: log out and in once."
-    : lock.enabled ? "On: a remote session can be opened on the lock screen." : "Off: locking the laptop ends remote sessions.";
+    : lock.enabled ? "On: a remote session can be opened on the lock screen."
+    : "Off: locking the laptop ends remote sessions. A session already open on a locked screen keeps running until it ends.";
 }
 
 function renderStatus(snapshot) {
@@ -150,6 +169,8 @@ async function load(first) {
   if (status !== 200) { $("loginMsg").textContent = data.error ?? "The laptop did not answer."; show("login"); return false; }
   state = data;
   show("app");
+  $("configNote").hidden = !data.note;
+  $("configNote").textContent = data.note ? "Warning: " + data.note + ". Saving this page writes a valid file again." : "";
   if (first || !dirty()) renderForm(data);
   renderStatus(data);
   renderLogin(data);
@@ -206,10 +227,20 @@ async function save() {
 $("save").addEventListener("click", save);
 
 $("restart").addEventListener("click", async () => {
-  if (state && state.status.phase !== "idle"
-      && !window.confirm("A remote session is running. Restarting the console ends it. Continue?")) return;
+  // The laptop refuses to end a running session without `confirm`: it is sent only after the owner agreed.
+  const warning = "A remote session is running. Restarting the console ends it. Continue?";
+  let confirmed = false;
+  if (state && state.status.phase !== "idle") {
+    if (!window.confirm(warning)) return;
+    confirmed = true;
+  }
   if (dirty() && !(await save())) return;
-  const { ok, data } = await api("POST", "/host/restart", { confirm: true });
+  let reply = await api("POST", "/host/restart", { confirm: confirmed });
+  if (reply.status === 409) {
+    if (!window.confirm(warning)) { $("saveNote").textContent = "Not restarted: a remote session is running."; return; }
+    reply = await api("POST", "/host/restart", { confirm: true });
+  }
+  const { ok, data } = reply;
   if (!ok) { $("saveNote").textContent = data.error ?? "Could not restart."; return; }
   if (!data.restarting) { $("saveNote").textContent = data.note ?? "Saved."; return; }
   $("saveNote").textContent = "Restarting the console...";
@@ -244,12 +275,14 @@ $("lockOn").addEventListener("change", async () => {
   const reply = await api("POST", "/host/lockscreen", { enabled: wanted, password: $("lockPassword").value });
   $("lockPassword").value = "";
   if (!reply.ok) { $("lockOn").checked = !wanted; $("saveNote").textContent = reply.data.error ?? "That did not work."; return; }
-  $("saveNote").textContent = wanted ? "Remote use on the lock screen is on." : "Remote use on the lock screen is off.";
+  $("saveNote").textContent = wanted ? "Remote use on the lock screen is on." : "Remote use on the lock screen is off. A session already open on a locked screen keeps running until it ends.";
   await load(false);
 });
 
 // ---- authenticator app: scan or type the key, then one right code stores it ----
+let totpTimer = 0;
 function closeTotp() {
+  clearTimeout(totpTimer);
   $("totpBox").hidden = true;
   $("totpQr").removeAttribute("src");
   $("totpSecret").textContent = "";
@@ -267,6 +300,8 @@ $("totpStart").addEventListener("click", async () => {
   $("totpMsg").textContent = "Waiting for a code from the app (this setup expires in " + Math.round(reply.data.expires_secs / 60) + " minutes).";
   $("totpBox").hidden = false;
   $("totpCode").focus();
+  // The laptop drops the setup after expires_secs: do not leave a dead QR code and key on screen.
+  totpTimer = setTimeout(() => { closeTotp(); $("saveNote").textContent = "The authenticator setup expired. Start again."; }, reply.data.expires_secs * 1000);
 });
 
 $("totpVerify").addEventListener("click", async () => {

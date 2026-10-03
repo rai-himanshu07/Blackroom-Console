@@ -39,7 +39,7 @@ let failed = false;
 const check = (name, ok, detail = "") => { console.log(`${ok ? "ok  " : "FAIL"} ${name} ${detail}`); if (!ok) failed = true; };
 
 // The laptop owner's settings page: sign in, change and save settings, refused changes, sign out.
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { createHmac } from "node:crypto";
 // The code an authenticator app would show for a base32 setup key.
 const base32 = (text) => {
@@ -112,6 +112,23 @@ await set("allow_shared", true);
 await js("document.getElementById('restart').click()");
 await sleep(1500);
 check("Restart saves and explains a console that was started by hand", /started by systemd|by hand|not started/i.test(await js("document.getElementById('saveNote').textContent")));
+
+// A limit written by hand has no dropdown entry: it shows as itself and an unrelated save keeps it (it used to become "no limit").
+const onDisk = readFileSync(`${stateDir}/host.json`, "utf8");
+writeFileSync(`${stateDir}/host.json`, JSON.stringify({ ...JSON.parse(onDisk), max_session_hours: 3 }));
+await js("load(true).then(() => true)");
+check("a saved limit without a dropdown entry shows as itself", (await js("document.querySelector('[data-key=max_session_hours]').value")) === "3");
+await set("approval", "never");
+await js("document.getElementById('save').click()");
+await sleep(1000);
+check("an unrelated save keeps that limit", JSON.parse(readFileSync(`${stateDir}/host.json`, "utf8")).max_session_hours === 3);
+// A damaged file is explained on the page, and every connection asks the owner meanwhile.
+writeFileSync(`${stateDir}/host.json`, "{ nope");
+await js("load(true).then(() => true)");
+check("a damaged host.json is explained on the page", (await visible("configNote")) && /every connection asks the owner/.test(await js("document.getElementById('configNote').textContent")));
+writeFileSync(`${stateDir}/host.json`, onDisk);
+await js("load(true).then(() => true)");
+check("the warning goes away once the file is valid again", !(await visible("configNote")));
 
 // Credentials: the page asks the laptop's own command; a change needs the password again; secrets are shown once.
 await js("window.confirm = () => true; true");
