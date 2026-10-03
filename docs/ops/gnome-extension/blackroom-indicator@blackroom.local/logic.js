@@ -9,6 +9,15 @@ export function parseStatus(text) {
     }
 }
 
+// A console started with the one-time URL token (no hostd login) refuses a page opened without it: take the token from
+// the console's own `url` file (owner-only) and add it to the local address. With a hostd or TOTP login there is none.
+export function pageUrl(localUrl, urlFileText) {
+    if (!localUrl)
+        return null;
+    const token = /[?&]t=([0-9a-f]{16,})/.exec(urlFileText ?? '');
+    return token ? `${localUrl}?t=${token[1]}` : localUrl;
+}
+
 export function formatDuration(secs) {
     const total = Math.max(0, Math.floor(Number(secs) || 0));
     const pad = n => String(n).padStart(2, '0');

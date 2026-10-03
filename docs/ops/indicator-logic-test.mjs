@@ -1,6 +1,6 @@
 // Tests the indicator's pure logic: node docs/ops/indicator-logic-test.mjs
 import assert from 'node:assert/strict';
-import {formatDuration, parseStatus, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
+import {formatDuration, pageUrl, parseStatus, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
 
 const idle = {phase: 'idle', mode: 'private', session_secs: 0, blank_panel: true, block_local_input: true, audio: 'off',
     version: '0.1.0', local_url: 'https://localhost:8443/', last_stop: null};
@@ -13,6 +13,13 @@ assert.equal(formatDuration(3725), '1:02:05');
 assert.equal(formatDuration(-5), '0:00');
 assert.equal(formatDuration('x'), '0:00');
 
+const local = 'https://localhost:8443/';
+assert.equal(pageUrl(local, 'https://192.168.1.50:8443/?t=0123456789abcdef0123\nhttp://127.0.0.1:8080/?t=0123456789abcdef0123'), `${local}?t=0123456789abcdef0123`);
+assert.equal(pageUrl(local, 'https://192.168.1.50:8443/\n'), local, 'no token with a hostd login');
+assert.equal(pageUrl(local, ''), local);
+assert.equal(pageUrl(local, undefined), local);
+assert.equal(pageUrl(local, '?t=short'), local, 'a short value is not a token');
+assert.equal(pageUrl(null, '?t=0123456789abcdef0123'), null);
 assert.equal(parseStatus('{"phase":"idle"}').phase, 'idle');
 for (const bad of ['', 'nope', '[1]', 'null', '3']) assert.equal(parseStatus(bad), null, bad);
 

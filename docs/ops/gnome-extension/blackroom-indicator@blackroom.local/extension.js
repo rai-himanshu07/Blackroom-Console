@@ -8,7 +8,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import {parseStatus, stateOf, transitionNotice, view} from './logic.js';
+import {pageUrl, parseStatus, stateOf, transitionNotice, view} from './logic.js';
 
 const BUS_NAME = 'org.blackroom.Console';
 const OBJECT_PATH = '/org/blackroom/Console';
@@ -110,8 +110,16 @@ class BlackroomIndicator extends PanelMenu.Button {
     }
 
     _openPage() {
-        if (this._url)
-            Gio.AppInfo.launch_default_for_uri(this._url, global.create_app_launch_context(0, -1));
+        let urlFile = '';
+        try {
+            const [, bytes] = GLib.file_get_contents(GLib.build_filenamev([GLib.get_user_runtime_dir(), 'blackroom-console', 'url']));
+            urlFile = new TextDecoder().decode(bytes);
+        } catch (_error) {
+            // No url file (another state directory): open the plain address.
+        }
+        const url = pageUrl(this._url, urlFile);
+        if (url)
+            Gio.AppInfo.launch_default_for_uri(url, global.create_app_launch_context(0, -1));
     }
 
     _apply(status) {

@@ -68,7 +68,7 @@ this directory holds the project's own dev-workstation procedures.
 `gnome-extension/blackroom-indicator@blackroom.local` puts an icon in the GNOME top bar: dim when the console is off, normal
 when it is ready, orange with a timer while a remote session runs. Its menu shows the mode (private or shared), how long the
 session has run and whether laptop sound is sent, and offers **Disconnect the remote user**, **Lock this screen now**,
-**Open the console page**, and **Start/Stop the console** (`systemctl --user start|stop blackroom-console.service`, so the
+**Open the console page** (it adds the one-time token from the console's `url` file when the console runs in token mode), and **Start/Stop the console** (`systemctl --user start|stop blackroom-console.service`, so the
 user unit must be installed). A notification appears when a session starts and when it ends. Install like the other
 extension (copy the directory to `~/.local/share/gnome-shell/extensions/`, log out and in; the `.deb` installs it under
 `/usr/share/gnome-shell/extensions/`), then `gnome-extensions enable blackroom-indicator@blackroom.local`. Unlike the
