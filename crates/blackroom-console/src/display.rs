@@ -343,8 +343,55 @@ pub fn lock_session(session_id: &str) -> bool {
 
 pub const RECOVERY_MARKER: &str = "recovery.json";
 
+/// Holds suspend and idle sleep off while a session runs; released on drop.
+pub enum SleepLock {
+    Logind(zbus::zvariant::OwnedFd),
+    Gnome { conn: Connection, cookie: u32 },
+}
+
+impl Drop for SleepLock {
+    fn drop(&mut self) {
+        if let Self::Gnome { conn, cookie } = self
+            && let Ok(session) = gnome_session(conn)
+        {
+            let _ = session.call::<_, _, ()>("Uninhibit", &(*cookie,));
+        }
+    }
+}
+
+fn gnome_session(conn: &Connection) -> zbus::Result<Proxy<'_>> {
+    Proxy::new(
+        conn,
+        "org.gnome.SessionManager",
+        "/org/gnome/SessionManager",
+        "org.gnome.SessionManager",
+    )
+}
+
+const SLEEP_REASON: &str = "a remote console session is running";
+
+/// logind refuses a `block` lock to callers outside a local session (an SSH or systemd start asks for
+/// admin authentication), so the GNOME session manager's suspend+idle inhibitor is the fallback.
+pub fn inhibit_sleep(session: &Connection) -> anyhow::Result<SleepLock> {
+    match logind_sleep_lock() {
+        Ok(fd) => Ok(SleepLock::Logind(fd)),
+        Err(logind) => gnome_sleep_lock(session)
+            .map_err(|gnome| anyhow::anyhow!("logind: {logind}; GNOME session: {gnome}")),
+    }
+}
+
+fn gnome_sleep_lock(session: &Connection) -> zbus::Result<SleepLock> {
+    // Flags: 4 = suspend, 8 = idle.
+    let cookie: u32 = gnome_session(session)?
+        .call("Inhibit", &("Blackroom Console", 0u32, SLEEP_REASON, 12u32))?;
+    Ok(SleepLock::Gnome {
+        conn: session.clone(),
+        cookie,
+    })
+}
+
 /// A logind `block` inhibitor for suspend and idle sleep; it ends when the returned fd is dropped.
-pub fn inhibit_sleep() -> anyhow::Result<zbus::zvariant::OwnedFd> {
+fn logind_sleep_lock() -> anyhow::Result<zbus::zvariant::OwnedFd> {
     let system = Connection::system()?;
     let manager = Proxy::new(
         &system,
@@ -354,12 +401,7 @@ pub fn inhibit_sleep() -> anyhow::Result<zbus::zvariant::OwnedFd> {
     )?;
     let fd: zbus::zvariant::OwnedFd = manager.call(
         "Inhibit",
-        &(
-            "sleep:idle",
-            "Blackroom Console",
-            "a remote console session is running",
-            "block",
-        ),
+        &("sleep:idle", "Blackroom Console", SLEEP_REASON, "block"),
     )?;
     Ok(fd)
 }
@@ -608,11 +650,29 @@ mod tests {
             String::from_utf8_lossy(&out.stdout).contains("a remote console session is running")
         };
         assert!(!listed());
-        let fd = inhibit_sleep().unwrap();
+        let fd = logind_sleep_lock().unwrap();
         assert!(listed());
         drop(fd);
         std::thread::sleep(Duration::from_millis(300));
         assert!(!listed());
+    }
+
+    #[test]
+    #[ignore = "needs the session bus: cargo test -p blackroom-console -- --ignored gnome_sleep_lock"]
+    fn gnome_sleep_lock_is_counted_while_held_and_gone_after_drop() {
+        let session = Connection::session().unwrap();
+        let count = || -> usize {
+            let inhibitors: Vec<zbus::zvariant::OwnedObjectPath> = gnome_session(&session)
+                .unwrap()
+                .call("GetInhibitors", &())
+                .unwrap();
+            inhibitors.len()
+        };
+        let before = count();
+        let lock = gnome_sleep_lock(&session).unwrap();
+        assert_eq!(count(), before + 1);
+        drop(lock);
+        assert_eq!(count(), before);
     }
 
     #[test]

@@ -402,7 +402,7 @@ struct Active<'c> {
     last_watchdog: Instant,
     released_early: Vec<String>,
     /// Dropping it ends the logind inhibitor that stops suspend and idle sleep mid-session.
-    sleep_inhibitor: Option<zbus::zvariant::OwnedFd>,
+    sleep_inhibitor: Option<display::SleepLock>,
 }
 
 /// Restores the display and locks the screen when a previous console died mid-session.
@@ -604,7 +604,7 @@ impl<'c> Active<'c> {
         };
 
         if !config.headless {
-            match display::inhibit_sleep() {
+            match display::inhibit_sleep(self.conn) {
                 Ok(fd) => self.sleep_inhibitor = Some(fd),
                 Err(error) => self.note(format!("could not hold off suspend: {error:#}")),
             }
