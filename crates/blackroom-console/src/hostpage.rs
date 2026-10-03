@@ -55,6 +55,8 @@ pub struct Settings {
     pub hostd_runtime: PathBuf,
     /// The `gnome-extensions` command, used for the lock-screen extension.
     pub gnome_extensions: PathBuf,
+    /// `systemctl`, used to restart the login authority after the authenticator changes.
+    pub systemctl: PathBuf,
 }
 
 #[derive(Default)]
@@ -75,6 +77,7 @@ struct App {
     check: PasswordFactory,
     sessions: Arc<Mutex<Sessions>>,
     limiter: Arc<Mutex<Limiter>>,
+    totp: Arc<Mutex<Option<PendingTotp>>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -90,6 +93,7 @@ pub fn router(console: RemoteConsole, settings: Settings, check: PasswordFactory
         check,
         sessions: Arc::default(),
         limiter: Arc::default(),
+        totp: Arc::default(),
     };
     Router::new()
         .route("/", get(index))
@@ -105,6 +109,9 @@ pub fn router(console: RemoteConsole, settings: Settings, check: PasswordFactory
         .route("/host/autostart", post(autostart))
         .route("/host/credentials", post(credentials))
         .route("/host/lockscreen", post(lockscreen))
+        .route("/host/totp/start", post(totp_start))
+        .route("/host/totp/verify", post(totp_verify))
+        .route("/host/totp/cancel", post(totp_cancel))
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::from_fn(security_headers))
         .with_state(app)
@@ -501,6 +508,7 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
                 "autostart": autostart_enabled(&settings.home, &settings.unit),
             },
             "sinks": sound_outputs(),
+            "totp": { "enrolled": totp_enrolled(&settings) },
             "login": { "ready": crate::hostd_auth::sockets_present(&settings.hostd_runtime) },
             "lockscreen": lock_state(&settings.gnome_extensions),
         })
@@ -894,6 +902,184 @@ async fn lockscreen(State(app): State<App>, headers: HeaderMap, body: Bytes) -> 
             "the change failed to run",
         ),
     }
+}
+
+/// A new authenticator secret that has been shown but not yet proven with a code: the old one keeps working until then.
+struct PendingTotp {
+    secret: zeroize::Zeroizing<String>,
+    since: Instant,
+    wrong: u32,
+}
+
+const TOTP_LIFETIME: Duration = Duration::from_secs(10 * 60);
+const TOTP_WRONG_CODES: u32 = 5;
+
+fn totp_enrolled(settings: &Settings) -> bool {
+    remote_hostd::store::open_state_directory(&settings.state_dir)
+        .and_then(|directory| remote_hostd::totp::enrolled_accounts(&directory))
+        .is_ok_and(|accounts| accounts.contains(&settings.account))
+}
+
+fn qr_svg(text: &str) -> Option<String> {
+    let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
+    Some(
+        code.render::<qrcode::render::svg::Color>()
+            .min_dimensions(256, 256)
+            .quiet_zone(true)
+            .dark_color(qrcode::render::svg::Color("#000000"))
+            .light_color(qrcode::render::svg::Color("#ffffff"))
+            .build(),
+    )
+}
+
+/// The setup key as the apps show it: groups of four.
+fn grouped(secret: &str) -> String {
+    secret
+        .as_bytes()
+        .chunks(4)
+        .map(|part| String::from_utf8_lossy(part).into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TotpStartBody {
+    password: String,
+}
+
+/// Step 1: a new secret and its QR code. Nothing is stored and the current authenticator keeps working.
+async fn totp_start(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    let Ok(TotpStartBody { password }) = object::<TotpStartBody>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "send {\"password\": \"...\"}");
+    };
+    if let Err(refusal) = check_password(&app, password).await {
+        return refusal;
+    }
+    let Ok(secret) = remote_hostd::totp::generate_secret() else {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "no random source");
+    };
+    let uri = remote_hostd::totp::otpauth_uri(&app.settings.account, &secret);
+    let Some(svg) = qr_svg(&uri) else {
+        return error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "could not draw the QR code",
+        );
+    };
+    let shown = grouped(&secret);
+    *lock(&app.totp) = Some(PendingTotp {
+        secret,
+        since: Instant::now(),
+        wrong: 0,
+    });
+    reply(
+        StatusCode::OK,
+        &json!({
+            "account": app.settings.account,
+            "secret": shown,
+            "uri": uri,
+            "svg": svg,
+            "expires_secs": TOTP_LIFETIME.as_secs(),
+        }),
+    )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TotpVerifyBody {
+    code: String,
+}
+
+/// Step 2: a code from the app proves the secret works; only then is it stored as the authenticator.
+async fn totp_verify(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    let Ok(TotpVerifyBody { code }) = object::<TotpVerifyBody>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "send {\"code\": \"123456\"}");
+    };
+    let settings = Arc::clone(&app.settings);
+    let pending = Arc::clone(&app.totp);
+    let result = tokio::task::spawn_blocking(move || {
+        let mut slot = lock(&pending);
+        let Some(current) = slot.as_mut() else {
+            return Err((
+                StatusCode::CONFLICT,
+                "start again: there is no authenticator waiting to be confirmed".to_string(),
+            ));
+        };
+        if current.since.elapsed() > TOTP_LIFETIME {
+            *slot = None;
+            return Err((
+                StatusCode::CONFLICT,
+                "that setup expired: start again".to_string(),
+            ));
+        }
+        let step = remote_hostd::totp::matching_step(
+            &current.secret,
+            code.trim(),
+            remote_hostd::totp::unix_now(),
+        );
+        let Some(step) = step else {
+            current.wrong += 1;
+            if current.wrong >= TOTP_WRONG_CODES {
+                *slot = None;
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "too many wrong codes: start again".to_string(),
+                ));
+            }
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "that code is not right: check the app and try the next one".to_string(),
+            ));
+        };
+        let saved = (|| -> std::io::Result<()> {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(&settings.state_dir)?;
+            let directory = remote_hostd::store::open_state_directory(&settings.state_dir)?;
+            remote_hostd::totp::set_secret(&directory, &settings.account, &current.secret, step)
+        })();
+        if let Err(save_error) = saved {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("the code is right but the authenticator could not be saved: {save_error}"),
+            ));
+        }
+        *slot = None;
+        // The login authority reads the authenticator when it starts.
+        let restarted = std::process::Command::new(&settings.systemctl)
+            .args(["--user", "try-restart", "remote-hostd.service"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        Ok(restarted)
+    })
+    .await;
+    match result {
+        Ok(Ok(restarted)) => reply(
+            StatusCode::OK,
+            &json!({ "ok": true, "authority_restarted": restarted }),
+        ),
+        Ok(Err((code, message))) => error(code, &message),
+        Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "the check failed to run"),
+    }
+}
+
+async fn totp_cancel(State(app): State<App>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    *lock(&app.totp) = None;
+    reply(StatusCode::OK, &json!({ "ok": true }))
 }
 
 #[cfg(test)]

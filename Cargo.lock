@@ -440,6 +440,7 @@ dependencies = [
  "gstreamer",
  "gstreamer-sdp",
  "gstreamer-webrtc",
+ "qrcode",
  "rcgen",
  "reis",
  "remote-emergency-client",

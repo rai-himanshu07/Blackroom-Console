@@ -16,6 +16,8 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
   exceed, sound, clipboard, typing, network, credentials (shown once, password asked again), notifications, start at login,
   and approve-each-connection (Accept or Deny on the laptop). Client choices now live on each device and stay inside those
   limits. See `docs/ops/settings-guide.md`.
+- **Authenticator setup in the page (new):** scan a QR code or type the setup key, then confirm with one code from the app
+  before the new secret replaces the old one.
 - **Laptop top-bar indicator (new):** a GNOME extension shows whether a remote session runs (icon, timer, notices) and lets
   you disconnect it, lock the screen, open the host settings, switch remote use on the lock screen on or off, or start and
   stop the console. The client page is not offered on the laptop. See `docs/ops/README.md`.

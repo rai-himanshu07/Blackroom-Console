@@ -104,6 +104,13 @@ function renderLogin(snapshot) {
   $("loginNote").textContent = parts.join(" ");
 }
 
+function renderTotp(snapshot) {
+  $("totpStatus").textContent = snapshot.totp.enrolled
+    ? "An authenticator is set up. Replace it if you lost the phone or want another app."
+    : "No authenticator is set up yet. Add one before choosing the password + authenticator sign-in.";
+  $("totpStart").textContent = snapshot.totp.enrolled ? "Replace the authenticator" : "Add an authenticator";
+}
+
 function renderLock(snapshot) {
   const lock = snapshot.lockscreen;
   if (document.activeElement === $("lockOn")) return;
@@ -146,6 +153,7 @@ async function load(first) {
   if (first || !dirty()) renderForm(data);
   renderStatus(data);
   renderLogin(data);
+  renderTotp(data);
   renderLock(data);
   return true;
 }
@@ -169,8 +177,10 @@ $("loginForm").addEventListener("submit", async (event) => {
 });
 
 $("logout").addEventListener("click", async () => {
+  await api("POST", "/host/totp/cancel", {}).catch(() => {});
   await api("POST", "/host/logout", {});
   hideSecret();
+  closeTotp();
   clearInterval(timer);
   saved = null;
   show("login");
@@ -230,6 +240,43 @@ $("lockOn").addEventListener("change", async () => {
   $("saveNote").textContent = wanted ? "Remote use on the lock screen is on." : "Remote use on the lock screen is off.";
   await load(false);
 });
+
+// ---- authenticator app: scan or type the key, then one right code stores it ----
+function closeTotp() {
+  $("totpBox").hidden = true;
+  $("totpQr").removeAttribute("src");
+  $("totpSecret").textContent = "";
+  $("totpCode").value = "";
+  $("totpMsg").textContent = "";
+}
+
+$("totpStart").addEventListener("click", async () => {
+  const reply = await api("POST", "/host/totp/start", { password: $("totpPassword").value });
+  $("totpPassword").value = "";
+  if (!reply.ok) { $("saveNote").textContent = reply.data.error ?? "That did not work."; return; }
+  $("totpQr").src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(reply.data.svg);
+  $("totpSecret").textContent = reply.data.secret;
+  $("totpAccount").textContent = "Blackroom Console:" + reply.data.account;
+  $("totpMsg").textContent = "Waiting for a code from the app (this setup expires in " + Math.round(reply.data.expires_secs / 60) + " minutes).";
+  $("totpBox").hidden = false;
+  $("totpCode").focus();
+});
+
+$("totpVerify").addEventListener("click", async () => {
+  const reply = await api("POST", "/host/totp/verify", { code: $("totpCode").value.trim() });
+  if (reply.ok) {
+    closeTotp();
+    $("saveNote").textContent = "Authenticator confirmed and saved. Clients now need a code from this app" +
+      (reply.data.authority_restarted ? " (the login authority was restarted; remote logins ended)." : ".");
+    await load(false);
+    return;
+  }
+  $("totpMsg").textContent = reply.data.error ?? "That did not work.";
+  $("totpCode").value = "";
+  if (reply.status === 409 || reply.status === 429) { $("totpQr").removeAttribute("src"); $("totpSecret").textContent = ""; }
+});
+$("totpCode").addEventListener("keydown", (event) => { if (event.key === "Enter") $("totpVerify").click(); });
+$("totpCancel").addEventListener("click", async () => { await api("POST", "/host/totp/cancel", {}); closeTotp(); });
 
 // ---- credentials: the laptop's own `blackroom` command does the work; secrets are shown once and not kept ----
 let hideTimer = 0;

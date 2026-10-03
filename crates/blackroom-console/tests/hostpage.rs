@@ -37,6 +37,20 @@ fn fixture() -> Fixture {
     let tool = dir.path().join("gnome-extensions");
     std::fs::write(&tool, format!("#!/bin/bash\necho \"$@\" >> '{d}/ext-calls'\nU=blackroom-locked-remote@blackroom.local\ncase \"$1 $2\" in\n  \"list \") echo $U ;;\n  \"list --enabled\"|\"list --active\") [ -f '{d}/ext-on' ] && echo $U ;;\n  enable*) touch '{d}/ext-on' ;;\n  disable*) rm -f '{d}/ext-on' ;;\nesac\nexit 0\n", d = dir.path().display())).unwrap();
     std::fs::set_permissions(&tool, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+    let systemctl = dir.path().join("systemctl");
+    std::fs::write(
+        &systemctl,
+        format!(
+            "#!/bin/bash\necho \"$@\" >> '{}/systemctl-calls'\nexit 0\n",
+            dir.path().display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        &systemctl,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
     let cli = dir.path().join("blackroom");
     std::fs::write(&cli, format!("#!/bin/bash\necho \"$@\" >> '{}/cli-calls'\necho 'secret: S3CRET-ONCE'\necho 'note on stderr' >&2\n[ \"$3\" = status ] && echo not-a-secret\nexit 0\n", dir.path().display())).unwrap();
     std::fs::set_permissions(&cli, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
@@ -61,6 +75,7 @@ fn fixture() -> Fixture {
         state_dir: dir.path().join("hostd"),
         hostd_runtime: dir.path().join("runtime"),
         gnome_extensions: tool,
+        systemctl,
     };
     let check: PasswordFactory = Arc::new(|| Box::new(Fake) as Box<dyn PasswordCheck>);
     Fixture {
@@ -181,6 +196,10 @@ async fn nothing_but_the_page_is_open_without_a_login() {
         (Method::POST, "/host/restart"),
         (Method::POST, "/host/approve"),
         (Method::POST, "/host/autostart"),
+        (Method::POST, "/host/totp/start"),
+        (Method::POST, "/host/totp/verify"),
+        (Method::POST, "/host/totp/cancel"),
+        (Method::POST, "/host/lockscreen"),
         (Method::POST, "/host/logout"),
     ] {
         let response = send(
@@ -807,5 +826,193 @@ async fn the_sign_in_method_needs_a_running_login_authority_and_setup_needs_the_
     assert_eq!(
         send(&fixture.app, save(config)).await.status(),
         StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn a_new_authenticator_replaces_the_old_one_only_after_a_right_code() {
+    use remote_hostd::totp::{base32_decode, totp, unix_now};
+    let fixture = fixture();
+    let state_dir = fixture.dir.path().join("hostd");
+    std::fs::create_dir(&state_dir).unwrap();
+    std::fs::set_permissions(
+        &state_dir,
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .unwrap();
+    let old = remote_hostd::totp::generate_secret().unwrap();
+    remote_hostd::totp::set_secret(
+        &remote_hostd::store::open_state_directory(&state_dir).unwrap(),
+        "owner",
+        &old,
+        0,
+    )
+    .unwrap();
+    let store = || std::fs::read_to_string(state_dir.join("totp-credentials")).unwrap();
+    let cookie = signed_in(&fixture.app).await;
+    let post = |path: &str, body: Value| {
+        request(
+            Method::POST,
+            path,
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            body,
+        )
+    };
+    let state = json_of(
+        send(
+            &fixture.app,
+            request(
+                Method::GET,
+                "/host/state",
+                HOSTNAME,
+                None,
+                Some(&cookie),
+                Value::Null,
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(state["totp"]["enrolled"], true);
+
+    // Starting asks for the password and stores nothing.
+    for body in [json!({}), json!({ "password": "wrong" })] {
+        let refused = send(&fixture.app, post("/host/totp/start", body)).await;
+        assert!(
+            refused.status() == StatusCode::BAD_REQUEST
+                || refused.status() == StatusCode::UNAUTHORIZED
+        );
+    }
+    let before = store();
+    let started = send(
+        &fixture.app,
+        post("/host/totp/start", json!({ "password": "correct horse" })),
+    )
+    .await;
+    assert_eq!(started.status(), StatusCode::OK);
+    let started = json_of(started).await;
+    let secret = started["secret"].as_str().unwrap().replace(' ', "");
+    assert!(
+        base32_decode(&secret).is_some_and(|bytes| bytes.len() == 20),
+        "the manual key is the secret"
+    );
+    assert!(
+        started["secret"]
+            .as_str()
+            .unwrap()
+            .split(' ')
+            .all(|group| group.len() <= 4)
+    );
+    assert!(
+        started["uri"]
+            .as_str()
+            .unwrap()
+            .starts_with("otpauth://totp/Blackroom%20Console:owner?secret=")
+    );
+    assert!(started["uri"].as_str().unwrap().contains(&secret));
+    assert!(
+        started["svg"].as_str().unwrap().contains("<svg"),
+        "a QR code is drawn"
+    );
+    assert_eq!(store(), before, "nothing is stored before a code proves it");
+
+    // A wrong or malformed code stores nothing; a right one does.
+    for bad in ["000000", "12345", "abcdef", ""] {
+        let wrong = send(
+            &fixture.app,
+            post("/host/totp/verify", json!({ "code": bad })),
+        )
+        .await;
+        assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED, "{bad:?}");
+    }
+    assert_eq!(store(), before);
+    let code = totp(&base32_decode(&secret).unwrap(), unix_now());
+    let done = send(
+        &fixture.app,
+        post("/host/totp/verify", json!({ "code": code })),
+    )
+    .await;
+    assert_eq!(done.status(), StatusCode::OK);
+    assert_eq!(json_of(done).await["authority_restarted"], true);
+    assert!(
+        store().contains(&secret) && !store().contains(old.as_str()),
+        "the new secret replaced the old one"
+    );
+    let calls = std::fs::read_to_string(fixture.dir.path().join("systemctl-calls")).unwrap();
+    assert!(
+        calls.contains("--user try-restart remote-hostd.service"),
+        "{calls}"
+    );
+    let again = send(
+        &fixture.app,
+        post(
+            "/host/totp/verify",
+            json!({ "code": totp(&base32_decode(&secret).unwrap(), unix_now()) }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        again.status(),
+        StatusCode::CONFLICT,
+        "nothing is waiting any more"
+    );
+
+    // Five wrong codes end a setup.
+    send(
+        &fixture.app,
+        post("/host/totp/start", json!({ "password": "correct horse" })),
+    )
+    .await;
+    for _ in 0..4 {
+        assert_eq!(
+            send(
+                &fixture.app,
+                post("/host/totp/verify", json!({ "code": "000000" }))
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        send(
+            &fixture.app,
+            post("/host/totp/verify", json!({ "code": "000000" }))
+        )
+        .await
+        .status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        send(
+            &fixture.app,
+            post("/host/totp/verify", json!({ "code": "000000" }))
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    // Cancelling forgets the secret too.
+    send(
+        &fixture.app,
+        post("/host/totp/start", json!({ "password": "correct horse" })),
+    )
+    .await;
+    assert_eq!(
+        send(&fixture.app, post("/host/totp/cancel", json!({})))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(
+            &fixture.app,
+            post("/host/totp/verify", json!({ "code": "000000" }))
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
     );
 }

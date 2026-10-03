@@ -112,6 +112,9 @@ struct Args {
     /// The `gnome-extensions` command the settings page uses for the lock-screen extension (default: from PATH). For tests.
     #[arg(long)]
     gnome_extensions: Option<PathBuf>,
+    /// `systemctl`, used to restart the login authority after a new authenticator is confirmed. For tests.
+    #[arg(long)]
+    systemctl: Option<PathBuf>,
     /// Do not offer the laptop's D-Bus service (the top-bar indicator then shows the console as off). For tests that must
     /// not touch the real session bus.
     #[arg(long)]
@@ -233,6 +236,7 @@ struct HostPageArgs {
     effective: serde_json::Value,
     hostd_runtime: PathBuf,
     gnome_extensions: Option<PathBuf>,
+    systemctl: Option<PathBuf>,
 }
 
 /// True when systemd says this process is the unit's main process (a console started by hand is not).
@@ -301,6 +305,10 @@ async fn start_host_page(args: &HostPageArgs, console: &RemoteConsole) -> Option
             .gnome_extensions
             .clone()
             .unwrap_or_else(|| PathBuf::from("gnome-extensions")),
+        systemctl: args
+            .systemctl
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("systemctl")),
         state_dir: args
             .state_dir
             .clone()
@@ -446,6 +454,7 @@ async fn main() -> anyhow::Result<()> {
     let args_for_host_page = HostPageArgs {
         hostd_runtime: args.hostd_dir.clone().unwrap_or(default_hostd),
         gnome_extensions: args.gnome_extensions.clone(),
+        systemctl: args.systemctl.clone(),
         listen: args
             .host_listen
             .or_else(|| (!args.headless).then(|| SocketAddr::from(([127, 0, 0, 1], 8090)))),

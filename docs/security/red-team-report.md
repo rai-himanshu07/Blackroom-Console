@@ -45,6 +45,12 @@ second Unix user, or a real phone are listed at the end as untested.
   browser text that reaches a command line is a device id of letters, digits and `_.-`); new secrets are returned once and not
   stored or logged. Tests: `tests/hostpage.rs` and `docs/ops/headless-hostpage-test.sh`. Residual risk: anything running as the
   owner on the laptop can reach the loopback port and try the password; the unlocked laptop is the owner's trust boundary.
+- **Authenticator setup from the page**: needs the password; the new secret is generated and held in memory (zeroized) until
+  one right code from the app is typed, so a failed scan never locks the owner out; five wrong codes or ten minutes drop it;
+  it is shown on screen as a QR code and a text key and removed from the page when confirmed, cancelled or signed out; the
+  confirming code's step is recorded so that code cannot be replayed to sign in. Tests: `totp.rs` (RFC vector, skew, replace,
+  replay) and `tests/hostpage.rs`. A screenshot or shoulder-surfer during setup sees the key: it is the same exposure as the
+  terminal's setup output.
 - **Lock-screen access** is a switch (host page, tray) that enables the existing lock-screen extension. The host page asks for
   the password to turn it on and warns that locking then no longer ends a remote session; the tray switch needs a person at
   the unlocked laptop. **Sign-in method** (`host.json` `login`): saving "hostd" is refused while the login authority is not

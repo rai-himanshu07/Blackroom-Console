@@ -96,6 +96,9 @@ check and a stand-in `blackroom` command, so the real credentials are never touc
 check, the real `blackroom` verbs from the page, start-at-login and the restart button under systemd, notifications on the
 real desktop. See `docs/ops/settings-guide.md`.
 
+The authenticator is set up from the page too (QR code or manual key, then one confirming code); `blackroom setup` in a terminal
+still works and prints a text QR code without a confirming step.
+
 ### Modes, settings and the web app
 
 The page opens on a connect screen with Private and Shared modes and a settings sheet whose choices are saved on the

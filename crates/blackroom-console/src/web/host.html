@@ -113,6 +113,27 @@
       <p class="note">The first method needs the login authority: use "Set up the login authority" under Credentials below once, then choose it here, Save and restart the console.</p>
     </section>
 
+    <section class="card" id="totpCard">
+      <h2>Authenticator app</h2>
+      <p class="note" id="totpStatus"></p>
+      <p class="note">Clients type a 6-digit code from an authenticator app (Google Authenticator, Aegis, 1Password, Microsoft Authenticator and others). You scan a QR code, or type the setup key by hand, then confirm with one code from the app. The old authenticator keeps working until you confirm.</p>
+      <label class="field">Your laptop password, to start <input type="password" id="totpPassword" autocomplete="current-password"></label>
+      <div class="actions"><button type="button" id="totpStart">Add or replace the authenticator</button></div>
+      <div id="totpBox" hidden>
+        <p><b>1.</b> In your authenticator app choose "scan a QR code" and point it at this:</p>
+        <img id="totpQr" alt="QR code to add this laptop to your authenticator app" width="256" height="256">
+        <p><b>Can't scan?</b> In the app choose "enter a setup key" and type this key (spaces do not matter). Account name <code id="totpAccount"></code>, key type "time based", 6 digits, 30 seconds:</p>
+        <pre class="secret" id="totpSecret"></pre>
+        <p><b>2.</b> Type the 6-digit code the app shows now to confirm that it works:</p>
+        <div class="row">
+          <label class="field grow">Code from the app <input type="text" id="totpCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" spellcheck="false"></label>
+          <button type="button" id="totpVerify" class="primary">Confirm</button>
+          <button type="button" id="totpCancel" class="ghost">Cancel</button>
+        </div>
+        <p class="note" id="totpMsg" role="status"></p>
+      </div>
+    </section>
+
     <section class="card" id="credCard">
       <h2>Login and credentials</h2>
       <p class="note">A client signs in with your Linux password, an authenticator code and the Remote Access Key, or from a trusted browser. New secrets appear below once and are never stored here.</p>

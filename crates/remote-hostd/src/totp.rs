@@ -279,6 +279,11 @@ fn refuse(code: ErrorCode, message: &'static str) -> BlackroomError {
     BlackroomError::new(code, message)
 }
 
+/// Seconds since the Unix epoch.
+pub fn unix_now() -> u64 {
+    system_clock()
+}
+
 fn system_clock() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -593,6 +598,71 @@ pub fn enroll(directory: &File, account: &str) -> io::Result<Zeroizing<String>> 
     });
     write_store(directory, &stored)?;
     Ok(encoded)
+}
+
+/// A fresh random secret (base32) that is stored nowhere yet: shown to the owner, proven with a code, then stored by
+/// [`set_secret`].
+pub fn generate_secret() -> io::Result<Zeroizing<String>> {
+    let mut secret = Zeroizing::new([0_u8; SECRET_BYTES]);
+    getrandom::fill(&mut *secret).map_err(|error| io::Error::other(error.to_string()))?;
+    Ok(Zeroizing::new(base32_encode(&*secret)))
+}
+
+/// The 30-second step whose code is `code`, within one step of clock skew either way; `None` for a wrong or malformed code.
+pub fn matching_step(secret_base32: &str, code: &str, unix_secs: u64) -> Option<u64> {
+    if code.len() != DIGITS as usize || !code.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let secret = Zeroizing::new(base32_decode(secret_base32)?);
+    let step = unix_secs / STEP_SECS;
+    let mut found = None;
+    for candidate in [step.saturating_sub(1), step, step + 1] {
+        if same_code(&hotp(&secret, candidate), code) {
+            found = Some(candidate);
+        }
+    }
+    found
+}
+
+/// Stores `secret_base32` as the account's authenticator, replacing an earlier one. `last_step` is the step whose code was just
+/// shown to be right, so that code cannot be used again to sign in.
+pub fn set_secret(
+    directory: &File,
+    account: &str,
+    secret_base32: &str,
+    last_step: u64,
+) -> io::Result<()> {
+    if !valid_account(account) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "account must be 1 to 32 characters of a-z, 0-9, '_', '.', '-'",
+        ));
+    }
+    if base32_decode(secret_base32).is_none_or(|secret| secret.len() < 10) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not an authenticator secret",
+        ));
+    }
+    let _lock = lock_store(directory)?;
+    let mut stored = read_store(directory)?;
+    let entry = StoredAccount {
+        account: account.to_string(),
+        secret: Zeroizing::new(secret_base32.to_ascii_uppercase()),
+        last_step,
+    };
+    if let Some(known) = stored
+        .accounts
+        .iter_mut()
+        .find(|known| known.account == account)
+    {
+        *known = entry;
+    } else if stored.accounts.len() >= MAX_ACCOUNTS {
+        return Err(io::Error::other("too many accounts"));
+    } else {
+        stored.accounts.push(entry);
+    }
+    write_store(directory, &stored)
 }
 
 /// Removes an account and its authenticator secret; false when it was not enrolled.
@@ -1007,6 +1077,99 @@ mod tests {
         verifier
             .verify(credential(&totp(RFC_SECRET, 4_000_000)))
             .expect("the real account is untouched");
+    }
+
+    #[test]
+    fn a_new_secret_is_proven_by_a_code_before_it_is_stored() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // RFC 6238: the secret "12345678901234567890" at t = 59 s gives 287082 (six digits).
+        let secret = base32_encode(RFC_SECRET);
+        assert_eq!(matching_step(&secret, "287082", 59), Some(1));
+        assert_eq!(
+            matching_step(&secret, "287082", 59 + 30),
+            Some(1),
+            "one step of skew either way"
+        );
+        assert_eq!(matching_step(&secret, "287082", 29), Some(1));
+        assert_eq!(
+            matching_step(&secret, "287082", 59 + 90),
+            None,
+            "two steps away is refused"
+        );
+        for bad in [
+            "",
+            "28708",
+            "2870822",
+            "28708a",
+            "000000",
+            "\u{661}\u{662}\u{663}\u{664}\u{665}\u{666}",
+        ] {
+            assert_eq!(matching_step(&secret, bad, 59), None, "{bad:?}");
+        }
+        assert_eq!(matching_step("not base32!", "287082", 59), None);
+        let fresh = generate_secret().unwrap();
+        assert!(base32_decode(&fresh).is_some_and(|bytes| bytes.len() == SECRET_BYTES));
+        assert_ne!(*fresh, *generate_secret().unwrap());
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let handle = crate::store::open_state_directory(dir.path()).expect("open");
+        assert!(set_secret(&handle, "Bad Name", &fresh, 0).is_err());
+        assert!(
+            set_secret(&handle, "alice", "AAAA", 0).is_err(),
+            "too short"
+        );
+        assert!(set_secret(&handle, "alice", "not base32!", 0).is_err());
+        assert!(
+            enrolled_accounts(&handle).unwrap().is_empty(),
+            "refused secrets store nothing"
+        );
+        set_secret(&handle, "alice", &secret, 1).unwrap();
+        assert_eq!(
+            enrolled_accounts(&handle).unwrap(),
+            vec!["alice".to_string()]
+        );
+        let mode = std::fs::metadata(dir.path().join(STORE_FILE))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+        // The code that proved the secret cannot be replayed to sign in; the next step's code works.
+        let mut verifier = load_verifier(&handle, Limits::default())
+            .unwrap()
+            .with_clock(|| 59);
+        let credential = |code: &str| TotpCredential {
+            account: "alice".into(),
+            client_id: "tablet".into(),
+            code: code.into(),
+        };
+        assert!(
+            verifier.verify(credential("287082")).is_err(),
+            "the proving code is spent"
+        );
+        assert!(verifier.verify(credential(&totp(RFC_SECRET, 89))).is_ok());
+        // Replacing keeps one account and swaps the secret.
+        let other = base32_encode(b"abcdefghijklmnopqrst");
+        set_secret(&handle, "alice", &other, 0).unwrap();
+        assert_eq!(
+            enrolled_accounts(&handle).unwrap(),
+            vec!["alice".to_string()]
+        );
+        let mut verifier = load_verifier(&handle, Limits::default())
+            .unwrap()
+            .with_clock(|| 2_000_000);
+        assert!(
+            verifier
+                .verify(credential(&totp(RFC_SECRET, 2_000_000)))
+                .is_err(),
+            "the old secret no longer works"
+        );
+        assert!(
+            verifier
+                .verify(credential(&totp(b"abcdefghijklmnopqrst", 2_000_000)))
+                .is_ok()
+        );
     }
 
     #[test]

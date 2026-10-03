@@ -40,6 +40,20 @@ const check = (name, ok, detail = "") => { console.log(`${ok ? "ok  " : "FAIL"} 
 
 // The laptop owner's settings page: sign in, change and save settings, refused changes, sign out.
 import { readFileSync, existsSync } from "node:fs";
+import { createHmac } from "node:crypto";
+// The code an authenticator app would show for a base32 setup key.
+const base32 = (text) => {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0, acc = 0; const out = [];
+  for (const c of text.replace(/\s/g, "")) { acc = ((acc << 5) | alphabet.indexOf(c)) & 0xffff; bits += 5; if (bits >= 8) { bits -= 8; out.push((acc >> bits) & 255); } }
+  return Buffer.from(out);
+};
+const appCode = (secret, seconds = Date.now() / 1000) => {
+  const counter = Buffer.alloc(8); counter.writeBigUInt64BE(BigInt(Math.floor(seconds / 30)));
+  const h = createHmac("sha1", base32(secret)).update(counter).digest();
+  const o = h[19] & 15;
+  return String((((h[o] & 127) << 24) | (h[o + 1] << 16) | (h[o + 2] << 8) | h[o + 3]) % 1000000).padStart(6, "0");
+};
 const sleep2 = sleep;
 await cdp("Page.navigate", { url });
 await sleep(1500);
@@ -115,6 +129,37 @@ check("the password field is emptied", (await js("document.getElementById('credP
 check("the laptop ran the fixed command", /rotate-key --account \S+/.test(readFileSync(`${stateDir}/cli-calls`, "utf8")));
 await js("document.getElementById('credHide').click()");
 check("Hide removes the secret from the page", (await js("document.getElementById('credOut').textContent")) === "" && (await js("document.getElementById('secretBox').hidden")) === true);
+
+// Authenticator app: scan the QR code or type the key, then one right code stores it.
+check("the page says no authenticator exists yet", /No authenticator/.test(await js("document.getElementById('totpStatus').textContent")));
+await js("document.getElementById('totpStart').click()");
+await sleep(600);
+check("starting without the password shows nothing", (await js("document.getElementById('totpBox').hidden")) === true);
+await js("document.getElementById('totpPassword').value = 'hostpass'; document.getElementById('totpStart').click(); true");
+await sleep(1200);
+check("the setup box opens", (await js("document.getElementById('totpBox').hidden")) === false);
+check("the QR code is drawn", (await js("new Promise((r) => { const i = document.getElementById('totpQr'); if (i.complete) r(i.naturalWidth); else i.onload = () => r(i.naturalWidth); })")) > 100);
+const manualKey = await js("document.getElementById('totpSecret').textContent");
+check("the key to type by hand is shown in groups", /^([A-Z2-7]{4} )+[A-Z2-7]{1,4}$/.test(manualKey), manualKey);
+check("the account name to type is shown", /Blackroom Console:\S+/.test(await js("document.getElementById('totpAccount').textContent")));
+if (process.env.BR_SHOT) {
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 900, height: 900, deviceScaleFactor: 1, mobile: false });
+  await js("document.getElementById('totpCard').scrollIntoView(); true");
+  await sleep(400);
+  const shot2 = await cdp("Page.captureScreenshot", { format: "png" });
+  (await import("node:fs")).writeFileSync(process.env.BR_SHOT.replace(/\.png$/, "-totp.png"), Buffer.from(shot2.result.data, "base64"));
+  await cdp("Emulation.clearDeviceMetricsOverride");
+}
+await js("document.getElementById('totpCode').value = '000000'; document.getElementById('totpVerify').click(); true");
+await sleep(900);
+check("a wrong code is refused and nothing is stored", /not right/.test(await js("document.getElementById('totpMsg').textContent")) && !existsSync(`${stateDir}/hostd/totp-credentials`));
+await js(`document.getElementById('totpCode').value = ${JSON.stringify(appCode(manualKey))}; document.getElementById('totpVerify').click(); true`);
+await sleep(1200);
+check("one right code from the app confirms it", /confirmed and saved/.test(await js("document.getElementById('saveNote').textContent")) && (await js("document.getElementById('totpBox').hidden")) === true);
+check("the secret is now stored, owner-only", existsSync(`${stateDir}/hostd/totp-credentials`) && readFileSync(`${stateDir}/hostd/totp-credentials`, "utf8").includes(manualKey.replace(/\s/g, "")));
+check("the login authority was asked to pick it up", /--user try-restart remote-hostd/.test(readFileSync(`${stateDir}/systemctl-calls`, "utf8")));
+check("the page now says an authenticator exists", /An authenticator is set up/.test(await js("document.getElementById('totpStatus').textContent")));
+check("the key is gone from the page", (await js("document.getElementById('totpSecret').textContent")) === "" && (await js("document.getElementById('totpQr').getAttribute('src')")) === null);
 
 // Sign-in method: the page explains where things stand and refuses a method the laptop cannot serve yet.
 check("the page says how clients sign in now", /one-time address/.test(await js("document.getElementById('loginNote').textContent")) && /not running/.test(await js("document.getElementById('loginNote').textContent")));
