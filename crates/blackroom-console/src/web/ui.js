@@ -311,16 +311,21 @@ document.querySelectorAll(".tabs [data-tab]").forEach((tab) => tab.addEventListe
   document.querySelectorAll(".pane").forEach((pane) => { pane.hidden = pane.dataset.pane !== tab.dataset.tab; });
 }));
 $("settingsReset").addEventListener("click", async () => {
-  if (!window.confirm("Reset every setting to its default?")) return;
+  if (!window.confirm("Forget this device's choices and go back to the laptop's defaults?")) return;
   try {
-    const response = await post("/settings/reset");
-    if (response.ok) {
-      settings = await response.json();
+    if (onDevice) {
       try { localStorage.removeItem(DEVICE_KEY); } catch (_) { /* nothing kept */ }
+      await loadSettings();
+    } else {
+      // This browser keeps nothing, so its choices live on the laptop: that is what gets reset.
+      const response = await post("/settings/reset");
+      if (!response.ok) throw new Error("the laptop answered " + response.status);
+      settings = await response.json();
       policyKey = "";
       if (lastState) applyPolicy(lastState.policy);
-      applyAll(); toast("Settings reset.");
+      applyAll();
     }
+    toast("Settings reset.");
   } catch (error) { toast("Could not reset: " + error, "bad"); }
 });
 

@@ -366,7 +366,19 @@ function pointerEnd(event) {
   }
 }
 onSurface("pointerup", pointerEnd);
-onSurface("pointercancel", pointerEnd);
+// A cancelled touch (the browser took it for a scroll or a system gesture) only lets go: it must never click.
+onSurface("pointercancel", (event) => {
+  if (event.pointerType === "mouse") {
+    if (BTN[event.button]) release(BTN[event.button]);
+    return;
+  }
+  touches.delete(event.pointerId);
+  if (touches.size > 0 || !gesture) return;
+  const g = gesture;
+  gesture = null; scrollLast = null;
+  clearTimeout(g.longPress);
+  if (g.pressed) { release(0x110); lastTapEnd = 0; }
+});
 onSurface("contextmenu", (event) => event.preventDefault());
 onSurface("wheel", (event) => {
   if (!running) return;

@@ -167,9 +167,16 @@ $("loginForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("loginBtn").disabled = true;
   $("loginMsg").textContent = "";
-  const { ok, data } = await api("POST", "/host/login", { password: $("password").value });
-  $("password").value = "";
-  $("loginBtn").disabled = false;
+  let reply;
+  try {
+    reply = await api("POST", "/host/login", { password: $("password").value });
+  } catch (_) {
+    reply = { ok: false, data: { error: "The laptop did not answer. Try again." } };
+  } finally {
+    $("password").value = "";
+    $("loginBtn").disabled = false;
+  }
+  const { ok, data } = reply;
   if (!ok) { $("loginMsg").textContent = data.error ?? "Sign-in failed."; return; }
   await load(true);
   schedule();
@@ -266,8 +273,9 @@ $("totpVerify").addEventListener("click", async () => {
   const reply = await api("POST", "/host/totp/verify", { code: $("totpCode").value.trim() });
   if (reply.ok) {
     closeTotp();
-    $("saveNote").textContent = "Authenticator confirmed and saved. Clients now need a code from this app" +
-      (reply.data.authority_restarted ? " (the login authority was restarted; remote logins ended)." : ".");
+    $("saveNote").textContent = reply.data.authority_restarted
+      ? "Authenticator confirmed and saved. Clients now need a code from this app (the login authority was restarted; remote logins ended)."
+      : "Authenticator confirmed and saved, but the login authority was not restarted: until it is (systemctl --user restart remote-hostd), clients are still checked against the old authenticator.";
     await load(false);
     return;
   }

@@ -1,11 +1,14 @@
 # Compatibility matrix
 
-The console refuses to start on a combination it has not been proven on (`--allow-untested` overrides an *untested*
-verdict; an *unsupported* one is never allowed). `blackroom-console --check-compat` prints this host's verdict as JSON.
-The code that decides is `crates/blackroom-console/src/compat.rs`; the tested list lives there.
+The console checks three things at start and refuses an untested combination unless `--allow-untested` is given: the GNOME
+Shell **major** version (tested: 50), the PipeWire **major** version (tested: 1) and a Wayland session. `blackroom-console
+--check-compat` prints this host's verdict as JSON. The code that decides is `crates/blackroom-console/src/compat.rs`; the
+tested list lives there. **Every other row below (distribution, GPU, encoder, minor versions, browsers) is documentation
+only: the gate does not look at it**, so an UNKNOWN row there is not refused. The single-output rule is enforced
+separately when a session starts.
 
-Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused unless `--allow-untested`),
-**NO** = cannot work (refused always).
+Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused only where the gate above checks it),
+**NO** = cannot work (an X11 session or a missing GNOME Shell is refused always; the other NO rows are not checked).
 
 | Cell | Status | Evidence |
 |---|---|---|
