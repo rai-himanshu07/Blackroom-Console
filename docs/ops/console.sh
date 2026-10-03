@@ -63,9 +63,11 @@ preflight() {
   connected=$(grep -l '^connected$' /sys/class/drm/card*-*/status 2>/dev/null | sed 's|/sys/class/drm/||; s|/status||')
   [ "$connected" = "card1-eDP-1" ] || bad "connected outputs are not exactly the built-in panel: $connected"
   [ -z "$(systemctl --user list-timers --all --no-legend 'blackroom-*' 2>/dev/null)" ] || bad "a blackroom-* timer is pending"
-  for p in remote-emergenc blackroom-conso remote-hostd remote-gateway exp06_isolate_o exp09_grab_prob; do
+  for p in remote-emergenc blackroom-conso remote-gateway exp06_isolate_o exp09_grab_prob; do
     pgrep -x "$p" > /dev/null && bad "$p is running"
   done
+  # The login authority (remote-hostd --auth-service) is meant to run; only the offline simulation host is not.
+  pgrep -f 'remote-hostd --offline-sim' > /dev/null && bad "a remote-hostd offline simulation is running"
   [ "$(systemctl --user is-active gnome-remote-desktop.service)" != "active" ] || bad "gnome-remote-desktop is active"
   [ "$(gsettings get org.gnome.desktop.lockdown disable-lock-screen)" = "false" ] || bad "disable-lock-screen is not false"
   if [ "$(loginctl show-session "$SESS" -p LockedHint --value)" != "no" ]; then
