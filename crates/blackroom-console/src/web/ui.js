@@ -296,3 +296,22 @@ if (logout) logout.addEventListener("click", () => { fetch("/logout", { method: 
 
 applyAll();
 loadSettings();
+
+// ---- installable web app ----
+const standalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+let installPrompt = null;
+function showInstall(text) {
+  if (standalone()) return;
+  $("installCard").hidden = false;
+  if (text) { $("installCard").querySelector(".note").textContent = text; $("installBtn").hidden = true; }
+}
+window.addEventListener("beforeinstallprompt", (event) => { event.preventDefault(); installPrompt = event; showInstall(); });
+window.addEventListener("appinstalled", () => { installPrompt = null; $("installCard").hidden = true; toast("Installed. Open Blackroom Console from your apps."); });
+$("installBtn").addEventListener("click", async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice.catch(() => {});
+  installPrompt = null; $("installCard").hidden = true;
+});
+if (capabilities().ios) showInstall("To install on this device: tap Share, then Add to Home Screen.");
+if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => { /* untrusted certificate: no install, the page still works */ });

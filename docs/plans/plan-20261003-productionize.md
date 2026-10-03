@@ -36,7 +36,7 @@ launcher, multi-monitor selection UI, file transfer, remote power control, mutin
 - [x] **O. Input options.** (done 2026-10-03 server side: keysym text typing proven in the headless Shell; Mac key mapping and text mode switch land in the page, chunk P) keysym text injection, Mac key mapping. Check: unit tests, headless browser.
 - [x] **P. App shell and UI.** (done 2026-10-03; connect screen, menu, settings sheet, toasts, timer, scale modes; headless Chrome walkthrough passes; fixed the logout button blocked by the CSP) connect screen, in-session menu, settings sheet, toasts, timer, scale modes (fit, stretch,
   1:1 with follow-cursor). Check: headless Chrome walkthrough.
-- [ ] **Q. Installable web app.** manifest, icons, service worker, offline page, install button. Check: headless Chrome
+- [x] **Q. Installable web app.** manifest, icons, service worker, offline page, install button. Check: headless Chrome
   manifest and worker checks, curl.
 - [ ] **R. Docs, gate, package, notes.** settings guide, runbook, release notes, compatibility matrix, workspace gate, `.deb`.
 

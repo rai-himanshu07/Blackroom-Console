@@ -47,6 +47,15 @@ check("the connect screen names the laptop", (await js("document.getElementById(
 const unnamedHome = await js(`[...document.querySelectorAll("button, select, textarea, input, [role=button]")].filter((el) => el.getClientRects().length && !(el.getAttribute("aria-label") || el.textContent.trim() || el.getAttribute("title") || el.getAttribute("placeholder") || (el.closest("label") && el.closest("label").textContent.trim()))).map((el) => el.id || el.tagName)`);
 check("every connect-screen control has an accessible name", unnamedHome.length === 0, JSON.stringify(unnamedHome));
 
+// Installable web app: the manifest parses, the worker registers, Chrome finds no installability problem.
+const manifest = await js("fetch(document.querySelector('link[rel=manifest]').href).then((r) => r.json())");
+check("the web app manifest is linked and complete", manifest.display === "standalone" && manifest.icons.length >= 3 && manifest.start_url === "/", JSON.stringify(manifest).slice(0, 80));
+const worker = await js("navigator.serviceWorker.register('/sw.js').then((r) => navigator.serviceWorker.ready).then((r) => r.active && r.active.state)").catch((e) => String(e).slice(0, 120));
+check("the service worker registers and activates", worker === "activated", String(worker));
+await sleep(500);
+const installability = await cdp("Page.getInstallabilityErrors");
+check("Chrome finds no installability problem", (installability.result.installabilityErrors || []).length === 0, JSON.stringify(installability.result.installabilityErrors || []));
+
 // Presets and the settings sheet (saved on the laptop).
 await js("document.querySelector('.mode[data-preset=shared]').click()");
 check("the Shared preset leaves screen and input alone", (await js("!settings.session.blank_panel && !settings.session.block_local_input && currentPreset() === 'shared'")) === true);

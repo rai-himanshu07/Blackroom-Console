@@ -28,6 +28,13 @@ const PAGE: &str = include_str!("web/index.html");
 const APP_JS: &str = include_str!("web/app.js");
 const APP_CSS: &str = include_str!("web/app.css");
 const UI_JS: &str = include_str!("web/ui.js");
+// Public on purpose (a browser fetches the manifest and worker without credentials): static files, no secrets.
+const MANIFEST: &str = include_str!("web/manifest.webmanifest");
+const SERVICE_WORKER: &str = include_str!("web/sw.js");
+const ICON_SVG: &str = include_str!("web/icon.svg");
+const ICON_192: &[u8] = include_bytes!("web/icons/icon-192.png");
+const ICON_512: &[u8] = include_bytes!("web/icons/icon-512.png");
+const ICON_MASKABLE: &[u8] = include_bytes!("web/icons/icon-maskable-512.png");
 const LOGIN_PAGE: &str = include_str!("login.html");
 const LOGIN_FULL_PAGE: &str = include_str!("login_full.html");
 // No inline handler: the page's CSP allows only its own script files; ui.js wires this button by id.
@@ -212,6 +219,56 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
         .route("/app.js", get(app_js))
         .route("/app.css", get(app_css))
         .route("/ui.js", get(ui_js))
+        .route("/manifest.webmanifest", get(manifest))
+        .route("/sw.js", get(service_worker))
+        .route(
+            "/icon.svg",
+            get(|| async {
+                (
+                    [
+                        (CONTENT_TYPE, "image/svg+xml"),
+                        (CACHE_CONTROL, "public, max-age=86400"),
+                    ],
+                    ICON_SVG,
+                )
+            }),
+        )
+        .route(
+            "/icon-192.png",
+            get(|| async {
+                (
+                    [
+                        (CONTENT_TYPE, "image/png"),
+                        (CACHE_CONTROL, "public, max-age=86400"),
+                    ],
+                    ICON_192,
+                )
+            }),
+        )
+        .route(
+            "/icon-512.png",
+            get(|| async {
+                (
+                    [
+                        (CONTENT_TYPE, "image/png"),
+                        (CACHE_CONTROL, "public, max-age=86400"),
+                    ],
+                    ICON_512,
+                )
+            }),
+        )
+        .route(
+            "/icon-maskable-512.png",
+            get(|| async {
+                (
+                    [
+                        (CONTENT_TYPE, "image/png"),
+                        (CACHE_CONTROL, "public, max-age=86400"),
+                    ],
+                    ICON_MASKABLE,
+                )
+            }),
+        )
         .route("/video", get(video))
         .route("/status", get(status))
         .route(
@@ -840,6 +897,32 @@ async fn app_js(State(state): State<AppState>, headers: HeaderMap) -> Response {
         return refusal;
     }
     ([(CONTENT_TYPE, "text/javascript; charset=utf-8")], APP_JS).into_response()
+}
+
+async fn manifest() -> Response {
+    (
+        [
+            (CONTENT_TYPE, "application/manifest+json"),
+            (CACHE_CONTROL, "no-cache"),
+        ],
+        MANIFEST,
+    )
+        .into_response()
+}
+
+async fn service_worker() -> Response {
+    (
+        [
+            (CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (CACHE_CONTROL, "no-cache"),
+            (
+                axum::http::HeaderName::from_static("service-worker-allowed"),
+                "/",
+            ),
+        ],
+        SERVICE_WORKER,
+    )
+        .into_response()
 }
 
 async fn ui_js(State(state): State<AppState>, headers: HeaderMap) -> Response {

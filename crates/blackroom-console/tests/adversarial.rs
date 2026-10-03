@@ -558,3 +558,64 @@ fn input_validation_holds_for_every_generated_event() {
         assert!(event.clone().validate().is_err(), "{event:?}");
     }
 }
+
+/// The install files are fetched without credentials, so they are public: they must be static, carry the usual
+/// security headers, not depend on the token, and not allow anything but GET.
+#[tokio::test]
+async fn install_files_are_public_static_and_still_hardened() {
+    let app = app(Hardening::default());
+    let files = [
+        ("/manifest.webmanifest", "application/manifest+json"),
+        ("/sw.js", "text/javascript; charset=utf-8"),
+        ("/icon.svg", "image/svg+xml"),
+        ("/icon-192.png", "image/png"),
+        ("/icon-512.png", "image/png"),
+        ("/icon-maskable-512.png", "image/png"),
+    ];
+    for (uri, content_type) in files {
+        let response = send(&app, request(Method::GET, uri, false, &[], vec![])).await;
+        assert_eq!(response.status(), StatusCode::OK, "GET {uri}");
+        assert_eq!(response.headers()[CONTENT_TYPE], content_type, "{uri}");
+        assert_eq!(
+            response.headers()["x-content-type-options"],
+            "nosniff",
+            "{uri}"
+        );
+        assert!(
+            response.headers().contains_key("content-security-policy"),
+            "{uri}"
+        );
+        let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        assert!(!body.is_empty(), "{uri}");
+        assert!(
+            !String::from_utf8_lossy(&body).contains(TOKEN),
+            "{uri} must not contain the token"
+        );
+        let post = send(&app, request(Method::POST, uri, false, &[], vec![])).await;
+        assert!(
+            post.status() == StatusCode::METHOD_NOT_ALLOWED
+                || post.status() == StatusCode::UNAUTHORIZED,
+            "POST {uri} -> {}",
+            post.status()
+        );
+    }
+    let worker = send(&app, request(Method::GET, "/sw.js", false, &[], vec![])).await;
+    assert_eq!(worker.headers()["service-worker-allowed"], "/");
+    let manifest = send(
+        &app,
+        request(Method::GET, "/manifest.webmanifest", false, &[], vec![]),
+    )
+    .await;
+    let body = axum::body::to_bytes(manifest.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("the manifest is JSON");
+    assert_eq!(json["display"], "standalone");
+    assert!(
+        json["icons"]
+            .as_array()
+            .is_some_and(|icons| icons.len() >= 3)
+    );
+}
