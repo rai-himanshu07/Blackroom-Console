@@ -80,6 +80,10 @@ struct Args {
     /// Starting quality; the page can change it while a session runs.
     #[arg(long, default_value = "medium", value_parser = ["low", "medium", "high"])]
     quality: String,
+    /// Offer the text clipboard: two buttons in the page send text to the laptop and fetch the laptop's
+    /// text (explicit, 256 KiB, rate limited, never logged). Off unless given.
+    #[arg(long)]
+    clipboard: bool,
     /// Development only: serve a throwaway `--headless` Shell on a private bus (no grab, watchdog or lock).
     #[arg(long)]
     headless: bool,
@@ -243,6 +247,7 @@ async fn main() -> anyhow::Result<()> {
         heartbeat_timeout: Duration::from_secs(args.heartbeat_secs),
         restore_bin,
     });
+    console.set_clipboard_enabled(args.clipboard);
 
     enum Mode {
         Hostd(std::sync::Arc<HostdAuth>),

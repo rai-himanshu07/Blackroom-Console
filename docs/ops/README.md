@@ -63,6 +63,17 @@ Runbooks for the released product (incident response, recovery) live in
 `docs/plans/Detailed_Project_Plan/21_OPERATIONAL_RUNBOOK_RECOVERY_AND_INCIDENT_RESPONSE.md`;
 this directory holds the project's own dev-workstation procedures.
 
+### Clipboard (text only)
+
+`console.sh` starts the console with `--clipboard` (set `BR_CLIPBOARD=0` to leave it out; the binary alone has it off).
+While a session runs, the page shows a text box with two buttons: **Send to laptop** puts the box text (or this
+device's clipboard when the box is empty) on the laptop clipboard, and **Get from laptop** shows the laptop's clipboard
+text in the box and copies it on this device. Each is one explicit tap: nothing is synced in the background.
+Limits: text only, 256 KiB, one request per 500 ms, the same login and same-origin checks as input. The text is held in
+memory only while the session runs and is never logged (the log has sizes). Reading this device's clipboard needs https
+or localhost and the browser may ask first; the box is the fallback. Proof without hardware:
+`BR_BIN=docs/ops/headless-clipboard-test.sh docs/ops/headless-repro.sh` (both directions through a real Mutter selection).
+
 ### TOTP login (optional, Phase 11 slice 1)
 
 Default is the URL token. To log in with an authenticator code instead:

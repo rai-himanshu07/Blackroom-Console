@@ -34,7 +34,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   browser test still passes with the CSP.
 - [x] **B. Reconnect.** (done 2026-10-03; headless browser test now drops the link for 6.5 s) Page auto-reconnects video and WebRTC with backoff; heartbeat default 30 s. Check: headless test with a dropped
   client that returns inside the window and one that does not.
-- [ ] **C. Clipboard.** `blackroom-gnome` RemoteDesktop clipboard calls, `RemoteConsole::clipboard_{set,get}`, `POST/GET /clipboard`,
+- [x] **C. Clipboard.** (done 2026-10-03; `headless-clipboard-test.sh` CLIPBOARD OK both ways, browser test clicks the buttons) `blackroom-gnome` RemoteDesktop clipboard calls, `RemoteConsole::clipboard_{set,get}`, `POST/GET /clipboard`,
   page buttons. Check: headless Shell round trip both ways, limits, off-by-default.
 - [ ] **D. Packaging.** `cargo-deb` metadata, `/usr`-path units, maintainer scripts (no enable), `blackroom-grant-input`, install
   simulation (`apt-get install --simulate`, `dpkg-deb -c`). Check: package builds and lints clean; **you** install it on a clean user.

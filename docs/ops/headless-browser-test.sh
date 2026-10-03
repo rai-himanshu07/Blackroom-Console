@@ -8,7 +8,7 @@ BIN=target/debug/blackroom-console
 [ -x "$BIN" ] || { echo "build first: cargo build -p blackroom-console"; exit 2; }
 log=$(mktemp /tmp/br-console.XXXXXX)
 state=$(mktemp -d /tmp/br-console-state.XXXXXX)
-"$BIN" --headless --listen 127.0.0.1:18080 --tls-listen 127.0.0.1:18443 --cert-dir "$state/cert" --state-dir "$state" > "$log" 2>&1 &
+"$BIN" --headless --clipboard --listen 127.0.0.1:18080 --tls-listen 127.0.0.1:18443 --cert-dir "$state/cert" --state-dir "$state" > "$log" 2>&1 &
 srv=$!
 trap 'kill "$srv" 2>/dev/null' EXIT
 url=""

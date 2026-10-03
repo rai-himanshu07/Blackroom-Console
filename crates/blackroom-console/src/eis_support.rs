@@ -230,7 +230,8 @@ pub fn command_line(program: &str, args: &[&str]) -> Option<String> {
 pub struct Remote<'a> {
     pub devices: Devices,
     pub eis: EiConnection,
-    _session: RemoteDesktopSession<'a>,
+    session: RemoteDesktopSession<'a>,
+    clipboard: bool,
 }
 
 pub fn open_remote<'a>(
@@ -238,8 +239,20 @@ pub fn open_remote<'a>(
     authority: &Authority,
     seen: &mut Vec<DeviceSeen>,
 ) -> Result<Remote<'a>, (String, String)> {
+    open_remote_with(conn, authority, seen, false)
+}
+
+/// `clipboard` enables Mutter's clipboard on the session before it starts.
+pub fn open_remote_with<'a>(
+    conn: &'a Connection,
+    authority: &Authority,
+    seen: &mut Vec<DeviceSeen>,
+    clipboard: bool,
+) -> Result<Remote<'a>, (String, String)> {
     let fail = |step: &str, error: BlackroomError| (step.to_string(), error.to_string());
     let mut session = RemoteDesktopSession::create(conn).map_err(|e| fail("CreateSession", e))?;
+    // A refused clipboard must not cost the session: it simply runs without one.
+    let clipboard = clipboard && session.enable_clipboard().is_ok();
     session.start().map_err(|e| fail("Start", e))?;
     let mut eis = session
         .connect_to_eis(&authority.authorization(false))
@@ -252,11 +265,22 @@ pub fn open_remote<'a>(
     Ok(Remote {
         devices,
         eis,
-        _session: session,
+        session,
+        clipboard,
     })
 }
 
 impl Remote<'_> {
+    /// Whether Mutter accepted the clipboard for this session.
+    pub fn clipboard_enabled(&self) -> bool {
+        self.clipboard
+    }
+
+    /// The underlying session, for its clipboard calls.
+    pub fn session(&self) -> &RemoteDesktopSession<'_> {
+        &self.session
+    }
+
     /// Applies queued EIS events so the latest resumed devices are current.
     fn drain(&mut self) {
         let _ = pump(

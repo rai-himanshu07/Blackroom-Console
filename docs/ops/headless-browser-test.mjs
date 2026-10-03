@@ -73,6 +73,16 @@ await js("document.getElementById('quality').value = 'low'; document.getElementB
 await sleep(1500);
 check("quality changed live", (await js("fetch('/status',{credentials:'same-origin'}).then(r=>r.json()).then(s=>s.quality)")) === "low");
 
+// Clipboard buttons: shown while running, send the box text, fetch it back (this headless Shell has no other
+// clipboard owner, so the text set from the page is what comes back).
+check("clipboard row is shown", (await js("getComputedStyle(document.getElementById('clip')).display")) === "flex");
+await js("document.getElementById('cliptext').value = 'page clipboard test'; document.getElementById('clipsend').click()");
+await sleep(1500);
+check("clipboard send reports success", /Sent 19 characters/.test(await js("document.getElementById('clipmsg').textContent")));
+await js("document.getElementById('cliptext').value = ''; document.getElementById('clipget').click()");
+await sleep(1500);
+check("clipboard get fills the box", (await js("document.getElementById('cliptext').value")) === "page clipboard test");
+
 // A dropped link: the page notices after two failed status polls and rebuilds the video when the link returns,
 // without a new login and without the session ending.
 await js("window.__pc0 = pc; true");

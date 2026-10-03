@@ -18,6 +18,7 @@ use blackroom_core::error::BlackroomError;
 use blackroom_gnome::backend::SessionInfo;
 use blackroom_gnome::mutter::display_config::{self, DisplayBackup};
 use blackroom_gnome::mutter::lock;
+use blackroom_gnome::mutter::remote_desktop::{SelectionEvent, listen_selection_events};
 use blackroom_gnome::mutter::screencast::ScreenCastSession;
 use blackroom_gnome::mutter::session::discover_session;
 use blackroom_gnome::mutter::video::{JpegSlot, VideoOptions, VideoTuning, stream_jpeg_tuned};
@@ -25,8 +26,9 @@ use remote_emergency_client::client::{Client, Outcome};
 use serde::{Deserialize, Serialize};
 use zbus::blocking::Connection;
 
+use crate::clipboard::{self, ClipboardError};
 use crate::display::{self, Watchdog};
-use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote};
+use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote_with};
 use crate::webrtc::{InputSink, WebRtcSession, pick_h264};
 
 const TICK: Duration = Duration::from_millis(25);
@@ -130,6 +132,8 @@ pub struct Status {
     pub webrtc_error: Option<String>,
     pub webrtc_frames: Option<u64>,
     pub last_stop: Option<StopReport>,
+    /// Whether the page may offer the clipboard buttons.
+    pub clipboard: bool,
 }
 
 /// One input event from the browser. Pointer positions are fractions of the screen.
@@ -187,6 +191,10 @@ struct Shared {
     webrtc: Mutex<Option<WebRtcSession>>,
     input_accepted: AtomicU64,
     input_refused: AtomicU64,
+    clipboard_enabled: AtomicBool,
+    /// Mutter accepted the clipboard for the running session.
+    clipboard_live: AtomicBool,
+    last_clipboard: Mutex<Option<Instant>>,
 }
 
 fn lock_ok<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -197,6 +205,8 @@ enum Command {
     Start(Sender<Result<(), String>>),
     Stop(Sender<StopReport>),
     Input(Vec<InputEvent>),
+    ClipboardSet(String, Sender<Result<(), ClipboardError>>),
+    ClipboardGet(Sender<Result<String, ClipboardError>>),
 }
 
 #[derive(Clone)]
@@ -222,6 +232,9 @@ impl RemoteConsole {
             webrtc: Mutex::new(None),
             input_accepted: AtomicU64::new(0),
             input_refused: AtomicU64::new(0),
+            clipboard_enabled: AtomicBool::new(false),
+            clipboard_live: AtomicBool::new(false),
+            last_clipboard: Mutex::new(None),
         });
         let actor_shared = Arc::clone(&shared);
         thread::Builder::new()
@@ -298,6 +311,61 @@ impl RemoteConsole {
         }
     }
 
+    /// Turns the clipboard on for sessions started afterwards (off by default).
+    pub fn set_clipboard_enabled(&self, enabled: bool) {
+        self.shared
+            .clipboard_enabled
+            .store(enabled, Ordering::Relaxed);
+    }
+
+    fn clipboard_gate(&self) -> Result<(), ClipboardError> {
+        if !self.shared.clipboard_enabled.load(Ordering::Relaxed) {
+            return Err(ClipboardError::Disabled);
+        }
+        if *lock_ok(&self.shared.phase) != Phase::Running {
+            return Err(ClipboardError::NotRunning);
+        }
+        if !self.shared.clipboard_live.load(Ordering::Relaxed) {
+            return Err(ClipboardError::Failed(
+                "Mutter did not enable the clipboard for this session".into(),
+            ));
+        }
+        let mut last = lock_ok(&self.shared.last_clipboard);
+        let now = Instant::now();
+        if last.is_some_and(|at| now.duration_since(at) < clipboard::MIN_INTERVAL) {
+            return Err(ClipboardError::TooFast);
+        }
+        *last = Some(now);
+        drop(last);
+        self.beat();
+        Ok(())
+    }
+
+    /// Puts `text` on the laptop clipboard; blocks until Mutter took it.
+    pub fn clipboard_set(&self, text: String) -> Result<(), ClipboardError> {
+        clipboard::validate(&text)?;
+        self.clipboard_gate()?;
+        let (reply, answer) = mpsc::channel();
+        self.commands
+            .send(Command::ClipboardSet(text, reply))
+            .map_err(|_| ClipboardError::Failed("console actor is gone".into()))?;
+        answer
+            .recv()
+            .map_err(|_| ClipboardError::Failed("console actor is gone".into()))?
+    }
+
+    /// The text currently on the laptop clipboard.
+    pub fn clipboard_get(&self) -> Result<String, ClipboardError> {
+        self.clipboard_gate()?;
+        let (reply, answer) = mpsc::channel();
+        self.commands
+            .send(Command::ClipboardGet(reply))
+            .map_err(|_| ClipboardError::Failed("console actor is gone".into()))?;
+        answer
+            .recv()
+            .map_err(|_| ClipboardError::Failed("console actor is gone".into()))?
+    }
+
     /// Emergency chords so far; sessions opened before a change are void.
     pub fn emergency_count(&self) -> u64 {
         self.shared.emergencies.load(Ordering::Relaxed)
@@ -357,6 +425,7 @@ impl RemoteConsole {
     }
 
     pub fn status(&self) -> Status {
+        let phase = *lock_ok(&self.shared.phase);
         let (width, height) = *lock_ok(&self.shared.size);
         let (webrtc_encoder, webrtc_error, webrtc_frames) =
             match lock_ok(&self.shared.webrtc).as_ref() {
@@ -368,7 +437,7 @@ impl RemoteConsole {
                 None => (None, None, None),
             };
         Status {
-            phase: *lock_ok(&self.shared.phase),
+            phase,
             width,
             height,
             notes: lock_ok(&self.shared.notes).clone(),
@@ -379,6 +448,11 @@ impl RemoteConsole {
             webrtc_error,
             webrtc_frames,
             last_stop: lock_ok(&self.shared.last_stop).clone(),
+            clipboard: if phase == Phase::Running {
+                self.shared.clipboard_live.load(Ordering::Relaxed)
+            } else {
+                self.shared.clipboard_enabled.load(Ordering::Relaxed)
+            },
         }
     }
 }
@@ -416,6 +490,10 @@ struct Active<'c> {
     released_early: Vec<String>,
     /// Dropping it ends the logind inhibitor that stops suspend and idle sleep mid-session.
     sleep_inhibitor: Option<display::SleepLock>,
+    /// Text the browser put on the laptop clipboard, served to every paste; dropped with the session.
+    clipboard_text: Option<String>,
+    /// Whether this session currently owns the laptop clipboard.
+    clipboard_owned: bool,
 }
 
 /// Restores the display and locks the screen when a previous console died mid-session.
@@ -457,9 +535,16 @@ fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<Co
         *lock_ok(&shared.recovery_pending) = Some(pending);
     }
     let mut active: Option<Active<'_>> = None;
+    let mut selection: Option<Receiver<SelectionEvent>> = None;
     loop {
         match receiver.recv_timeout(TICK) {
             Ok(Command::Start(reply)) => {
+                if selection.is_none()
+                    && shared.clipboard_enabled.load(Ordering::Relaxed)
+                    && let Ok(conn) = &conn
+                {
+                    selection = listen_selection_events(conn).ok();
+                }
                 let result = match (&conn, active.is_some()) {
                     (_, true) => Err("already running".to_string()),
                     (Err(error), _) => Err(format!("session bus: {error}")),
@@ -491,12 +576,31 @@ fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<Co
                     running.apply_input(events);
                 }
             }
+            Ok(Command::ClipboardSet(text, reply)) => {
+                let _ = reply.send(match active.as_mut() {
+                    Some(running) => running.clipboard_set(text),
+                    None => Err(ClipboardError::NotRunning),
+                });
+            }
+            Ok(Command::ClipboardGet(reply)) => {
+                let _ = reply.send(match active.as_mut() {
+                    Some(running) => running.clipboard_get(),
+                    None => Err(ClipboardError::NotRunning),
+                });
+            }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 if let Some(running) = active.take() {
                     finish(running, "console handle dropped");
                 }
                 return;
+            }
+        }
+        if let Some(events) = &selection {
+            while let Ok(event) = events.try_recv() {
+                if let Some(running) = active.as_mut() {
+                    running.on_selection(&event);
+                }
             }
         }
         if let Some(running) = active.as_mut()
@@ -535,6 +639,7 @@ fn finish(active: Active<'_>, reason: &str) -> StopReport {
     }
     *lock_ok(&shared.slot) = None;
     *lock_ok(&shared.tuning) = None;
+    shared.clipboard_live.store(false, Ordering::Relaxed);
     *lock_ok(&shared.last_stop) = Some(report.clone());
     *lock_ok(&shared.phase) = Phase::Idle;
     report
@@ -580,6 +685,8 @@ fn begin<'c>(
         last_watchdog: Instant::now(),
         released_early: Vec::new(),
         sleep_inhibitor: None,
+        clipboard_text: None,
+        clipboard_owned: false,
     };
     match active.setup() {
         Ok(()) => {
@@ -642,11 +749,23 @@ impl<'c> Active<'c> {
         });
 
         let mut seen: Vec<DeviceSeen> = Vec::new();
-        let remote =
-            open_remote(self.conn, &self.authority, &mut seen).map_err(|(step, detail)| {
-                let hint = if locked { LOCKED_HINT } else { "" };
-                anyhow::anyhow!("remote session {step}: {detail}{hint}")
-            })?;
+        let remote = open_remote_with(
+            self.conn,
+            &self.authority,
+            &mut seen,
+            self.shared.clipboard_enabled.load(Ordering::Relaxed),
+        )
+        .map_err(|(step, detail)| {
+            let hint = if locked { LOCKED_HINT } else { "" };
+            anyhow::anyhow!("remote session {step}: {detail}{hint}")
+        })?;
+        if self.shared.clipboard_enabled.load(Ordering::Relaxed) {
+            if remote.clipboard_enabled() {
+                self.shared.clipboard_live.store(true, Ordering::Relaxed);
+            } else {
+                self.note("the laptop refused the clipboard: clipboard buttons are off".into());
+            }
+        }
         self.remote = Some(remote);
         if locked {
             self.note("started on the lock screen: type the account password to unlock".into());
@@ -757,6 +876,93 @@ impl<'c> Active<'c> {
             Ok(())
         } else {
             Err("refusing to restore: different GNOME session or Shell process".into())
+        }
+    }
+
+    fn clipboard_session_path(&self) -> Option<String> {
+        self.remote
+            .as_ref()
+            .map(|remote| remote.session().object_path().to_string())
+    }
+
+    fn clipboard_set(&mut self, text: String) -> Result<(), ClipboardError> {
+        let remote = self.remote.as_ref().ok_or(ClipboardError::NotRunning)?;
+        remote
+            .session()
+            .set_selection(&clipboard::TEXT_MIMES)
+            .map_err(|error| ClipboardError::Failed(error.to_string()))?;
+        self.clipboard_text = Some(text);
+        self.clipboard_owned = true;
+        tracing::info!("clipboard: set from the browser");
+        Ok(())
+    }
+
+    fn clipboard_get(&mut self) -> Result<String, ClipboardError> {
+        if self.clipboard_owned
+            && let Some(text) = &self.clipboard_text
+        {
+            return Ok(text.clone());
+        }
+        let remote = self.remote.as_ref().ok_or(ClipboardError::NotRunning)?;
+        let mut last = ClipboardError::NoText;
+        for mime in clipboard::TEXT_MIMES {
+            match remote.session().selection_read(mime) {
+                Ok(fd) => match clipboard::read_with_timeout(fd, clipboard::TRANSFER_TIMEOUT) {
+                    Ok(text) => {
+                        tracing::info!(bytes = text.len(), "clipboard: read for the browser");
+                        return Ok(text);
+                    }
+                    Err(error) => last = error,
+                },
+                Err(error) => {
+                    tracing::debug!(%error, mime, "clipboard: no data in this format");
+                }
+            }
+        }
+        Err(last)
+    }
+
+    fn on_selection(&mut self, event: &SelectionEvent) {
+        let Some(own) = self.clipboard_session_path() else {
+            return;
+        };
+        match event {
+            SelectionEvent::OwnerChanged {
+                path,
+                session_is_owner,
+                ..
+            } if *path == own => {
+                self.clipboard_owned = *session_is_owner;
+                if !*session_is_owner {
+                    self.clipboard_text = None;
+                }
+            }
+            SelectionEvent::Transfer {
+                path,
+                mime_type,
+                serial,
+            } if *path == own => {
+                let Some(remote) = self.remote.as_ref() else {
+                    return;
+                };
+                let session = remote.session();
+                let served = match (
+                    &self.clipboard_text,
+                    clipboard::TEXT_MIMES.contains(&mime_type.as_str()),
+                ) {
+                    (Some(text), true) => session.selection_write(*serial).is_ok_and(|fd| {
+                        clipboard::write_with_timeout(
+                            fd,
+                            text.clone().into_bytes(),
+                            clipboard::TRANSFER_TIMEOUT,
+                        )
+                    }),
+                    _ => false,
+                };
+                let _ = session.selection_write_done(*serial, served);
+                tracing::info!(served, "clipboard: paste on the laptop answered");
+            }
+            _ => {}
         }
     }
 

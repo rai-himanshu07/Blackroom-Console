@@ -17,6 +17,7 @@ use axum::{Json, Router};
 use futures_util::StreamExt;
 use serde::Deserialize;
 
+use crate::clipboard::{self, ClipboardError};
 use crate::console::{InputEvent, Quality, RemoteConsole};
 use crate::hostd_auth::{HostdAuth, LoginForm, LoginOutcome};
 use crate::login::{Login, LoginError};
@@ -217,6 +218,12 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
             post(quality).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
         )
         .route("/ice", get(ice))
+        .route(
+            "/clipboard",
+            get(clipboard_get)
+                .post(clipboard_set)
+                .layer(DefaultBodyLimit::max(clipboard::MAX_BYTES + 1024)),
+        )
         .with_state(state.clone())
         .layer(axum::middleware::from_fn_with_state(
             state,
@@ -503,6 +510,54 @@ async fn input(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(message) if message == "not running" => (StatusCode::CONFLICT, message).into_response(),
         Err(message) => (StatusCode::BAD_REQUEST, message).into_response(),
+    }
+}
+
+fn clipboard_refusal(error: &ClipboardError) -> Response {
+    let status = match error {
+        ClipboardError::Disabled => StatusCode::FORBIDDEN,
+        ClipboardError::NotRunning => StatusCode::CONFLICT,
+        ClipboardError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+        ClipboardError::TooFast => StatusCode::TOO_MANY_REQUESTS,
+        ClipboardError::NoText => StatusCode::NOT_FOUND,
+        ClipboardError::Failed(_) => StatusCode::BAD_GATEWAY,
+    };
+    (status, format!("{error}\n")).into_response()
+}
+
+/// The browser's text goes onto the laptop clipboard (body: the text, UTF-8).
+async fn clipboard_set(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    let Ok(text) = String::from_utf8(body.to_vec()) else {
+        return malformed();
+    };
+    let console = state.console.clone();
+    match tokio::task::spawn_blocking(move || console.clipboard_set(text)).await {
+        Ok(Ok(())) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Err(error)) => clipboard_refusal(&error),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// The laptop clipboard as plain text, never cached.
+async fn clipboard_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    let console = state.console.clone();
+    match tokio::task::spawn_blocking(move || console.clipboard_get()).await {
+        Ok(Ok(text)) => (
+            [
+                (CONTENT_TYPE, "text/plain; charset=utf-8"),
+                (CACHE_CONTROL, "no-store"),
+            ],
+            text,
+        )
+            .into_response(),
+        Ok(Err(error)) => clipboard_refusal(&error),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
 
@@ -1338,6 +1393,54 @@ mod tests {
         assert!(String::from_utf8_lossy(&body).contains(r#""quality":"high""#));
         let idle = call(&app, with_cookie("POST", "/webrtc", r#"{"sdp":"v=0"}"#)).await;
         assert_eq!(idle.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn clipboard_is_guarded_off_by_default_and_size_capped() {
+        let app = app();
+        let anonymous = Request::builder()
+            .method("GET")
+            .uri("/clipboard")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            call(&app, anonymous).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        // Off unless the console was started with --clipboard, in both directions.
+        let off = call(&app, with_cookie("GET", "/clipboard", "")).await;
+        assert_eq!(off.status(), StatusCode::FORBIDDEN);
+        let off = call(&app, with_cookie("POST", "/clipboard", "hello")).await;
+        assert_eq!(off.status(), StatusCode::FORBIDDEN);
+        let big = "x".repeat(clipboard::MAX_BYTES + 1);
+        let big = call(&app, with_cookie("POST", "/clipboard", &big)).await;
+        assert_eq!(big.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let huge = "x".repeat(clipboard::MAX_BYTES + 4096);
+        let huge = call(&app, with_cookie("POST", "/clipboard", &huge)).await;
+        assert_eq!(huge.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn an_enabled_clipboard_still_needs_a_running_session() {
+        let console = RemoteConsole::spawn(ConsoleConfig {
+            grab_socket: None,
+            state_dir: std::env::temp_dir().join("br-console-server-test-clip"),
+            headless: true,
+            quality: crate::console::Quality::Medium,
+            heartbeat_timeout: Duration::from_secs(15),
+            restore_bin: std::path::PathBuf::new(),
+        });
+        console.set_clipboard_enabled(true);
+        let app = router(console, TOKEN);
+        let idle = call(&app, with_cookie("POST", "/clipboard", "hello")).await;
+        assert_eq!(idle.status(), StatusCode::CONFLICT);
+        let idle = call(&app, with_cookie("GET", "/clipboard", "")).await;
+        assert_eq!(idle.status(), StatusCode::CONFLICT);
+        let status = call(&app, with_cookie("GET", "/status", "")).await;
+        let body = axum::body::to_bytes(status.into_body(), 1 << 16)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("\"clipboard\":true"));
     }
 
     #[tokio::test]
