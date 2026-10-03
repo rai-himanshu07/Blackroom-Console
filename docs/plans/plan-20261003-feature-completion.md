@@ -48,7 +48,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   no setuid/no root), property tests on the JSON inputs, `docs/security/red-team-report.md`.
 - [x] **I. Compatibility gate.** (done 2026-10-03; `compat.rs`, `--allow-untested`, `--check-compat`, `docs/ops/compatibility-matrix.md`) Start refuses an untested GNOME/Mutter/PipeWire combination unless `--allow-untested`;
   `docs/ops/compatibility-matrix.md` with evidence per cell (this laptop PASS, everything else UNKNOWN, AMD UNKNOWN).
-- [ ] **J. Release notes.** Known limits, supported scope, runbook, one independent review (you name the model).
+- [x] **J. Release notes.** (done 2026-10-03: `docs/RELEASE_NOTES.md`; the independent review is still owed, you name the model) Known limits, supported scope, runbook, one independent review (you name the model).
 
 ## Owner live steps (only these need you)
 1. After A and B: pick a recipe, follow `docs/ops/internet-access.md`, and log in from a phone on mobile data.
