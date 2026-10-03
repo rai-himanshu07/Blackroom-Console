@@ -77,3 +77,16 @@ Default is the URL token. To log in with an authenticator code instead:
    in memory only, so a console restart logs everyone out.
 
 Not covered: logout button, rate limits per client address (one shared counter), live use.
+
+### Login authority (Phase 11): password + authenticator + key or trusted device
+
+Separate from the console's own TOTP mode above. Install and check with `docs/ops/install-security.sh`
+(`--check` is read-only; `--install` builds, copies binaries to `~/.local/lib/blackroom`, installs the
+user unit and, with sudo, `/etc/pam.d/blackroom-console` and the polkit policy; `--uninstall` reverses it).
+Then, once: `blackroom --state-dir ~/.local/share/blackroom-console/hostd enroll --account $USER`,
+`rotate-key --account $USER`, optionally `recovery-codes --account $USER`; start with
+`systemctl --user start remote-hostd.service`; test the real chain with `blackroom ... login-check --account $USER`
+(it asks for the password, the authenticator code and the key on the terminal and prints only the verdict).
+Operator verbs: `status`, `sessions`, `revoke-session <id>`, `revoke-all`, `disable [--reason ...]`, `enable`,
+`rotate-key [--revoke-devices]`, `devices`, `revoke-device <id>`, `doctor`, `diagnostics`, `compatibility`.
+`disable` works with hostd stopped. Details: `docs/security/authentication.md`, `credential-lifecycle.md`.

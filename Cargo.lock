@@ -413,11 +413,13 @@ dependencies = [
 name = "blackroom-cli"
 version = "0.1.0"
 dependencies = [
+ "blackroom-store",
  "remote-emergencyd",
  "remote-hostd",
  "rustix",
  "serde_json",
  "tempfile",
+ "zeroize",
 ]
 
 [[package]]
@@ -504,6 +506,19 @@ dependencies = [
  "sha2",
  "tracing",
  "zbus",
+]
+
+[[package]]
+name = "blackroom-store"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "hex",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zeroize",
 ]
 
 [[package]]
@@ -1999,6 +2014,7 @@ name = "remote-hostd"
 version = "0.1.0"
 dependencies = [
  "blackroom-core",
+ "blackroom-store",
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
@@ -2006,6 +2022,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "zeroize",
 ]

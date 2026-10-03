@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 blackroom-core = { version = "0.1.0", path = "../blackroom-core" }
+blackroom-store = { version = "0.1.0", path = "../blackroom-store" }
 ed25519-dalek = "3.0.0"
 getrandom = "0.4.3"
 hex = "0.4.3"
@@ -19,6 +20,7 @@ remote-emergency-client = { version = "0.1.0", path = "../remote-emergency-clien
 rustix = { version = "1.1.4", features = ["fs", "process", "net", "event"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sha2 = "0.11.0"
 zeroize = { version = "1.9.0", features = ["alloc", "serde"] }
 
 [dev-dependencies]

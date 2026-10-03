@@ -14,13 +14,22 @@ use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 
 use auth::{AuthSession, Principal};
 
+pub mod access_key;
 pub mod audit;
 pub mod auth;
+pub mod authd;
 pub mod isolation;
+pub mod login;
 pub mod offline_control;
+pub mod password;
+pub mod ratelimit;
+pub mod recovery_codes;
+pub mod remote_switch;
+pub mod secret_hash;
 pub mod service;
 pub mod store;
 pub mod totp;
+pub mod trusted_devices;
 
 pub const SIMULATED_SESSION_ID: &str = "simulated-session-only";
 

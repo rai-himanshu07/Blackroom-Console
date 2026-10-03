@@ -5,7 +5,17 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
+use remote_hostd::authd::{
+    ADMIN_SOCKET, AUTH_SOCKET, AuthDaemon, EnableAuthorizer, OwnerOnly, Polkit, bind_private, serve,
+};
 use remote_hostd::isolation::{DaemonIsolation, InputIsolation};
+use remote_hostd::login::MultiFactorVerifier;
+use remote_hostd::password::PamHelper;
+use remote_hostd::ratelimit::FailureLimiter;
+use remote_hostd::totp::{self, Limits};
 use remote_hostd::{service, store::PersistentHostAuthority, write_update};
 
 fn service_arguments(args: &[OsString]) -> io::Result<(PathBuf, PathBuf, PathBuf)> {
@@ -159,9 +169,84 @@ fn split_emergency_socket(args: &[OsString]) -> (&[OsString], Option<PathBuf>) {
     }
 }
 
+const POLKIT_CHECK: &str = "/usr/bin/pkcheck";
+
+fn flag_value(args: &[OsString], flag: &str) -> Option<PathBuf> {
+    let at = args.iter().position(|arg| arg == OsStr::new(flag))?;
+    args.get(at + 1).map(PathBuf::from)
+}
+
+/// `--auth-service --state-dir D --runtime-dir R --pam-helper P [--polkit]`: the real login
+/// authority (Phase 11). Fails closed: nothing starts unless a TOTP account is enrolled.
+fn auth_service(args: &[OsString]) -> io::Result<()> {
+    let invalid = |message: &'static str| io::Error::new(io::ErrorKind::InvalidInput, message);
+    let known = [
+        "--auth-service",
+        "--state-dir",
+        "--runtime-dir",
+        "--pam-helper",
+        "--polkit",
+    ];
+    if args.iter().any(|arg| {
+        arg.to_str()
+            .is_some_and(|text| text.starts_with("--") && !known.contains(&text))
+    }) {
+        return Err(invalid("unknown option"));
+    }
+    let state = flag_value(args, "--state-dir").ok_or_else(|| invalid("--state-dir required"))?;
+    let runtime =
+        flag_value(args, "--runtime-dir").ok_or_else(|| invalid("--runtime-dir required"))?;
+    let helper =
+        flag_value(args, "--pam-helper").ok_or_else(|| invalid("--pam-helper required"))?;
+    if !state.is_absolute() || !runtime.is_absolute() || !helper.is_absolute() {
+        return Err(invalid("all paths must be absolute"));
+    }
+    if !helper.is_file() {
+        return Err(invalid("--pam-helper is not a file"));
+    }
+    let directory = open_state_dir(&state)?;
+    if totp::enrolled_accounts(&directory)?.is_empty() {
+        return Err(invalid(
+            "no TOTP account enrolled: run `blackroom --state-dir <dir> enroll --account <name>`",
+        ));
+    }
+    let store = blackroom_store::SecretStore::open(&directory).map_err(io::Error::other)?;
+    let verifier = MultiFactorVerifier::new(
+        store,
+        totp::load_verifier(&directory, Limits::default())?,
+        None,
+        FailureLimiter::new(Limits::default()),
+    );
+    let gate: Box<dyn EnableAuthorizer> = if args.iter().any(|arg| arg == OsStr::new("--polkit")) {
+        Box::new(Polkit {
+            pkcheck: PathBuf::from(POLKIT_CHECK),
+        })
+    } else {
+        Box::new(OwnerOnly)
+    };
+    let daemon = Arc::new(AuthDaemon::new(&directory, verifier, gate)?);
+    let auth = bind_private(&runtime, AUTH_SOCKET)?;
+    let admin = bind_private(&runtime, ADMIN_SOCKET)?;
+    println!(
+        "AUTH SERVICE READY | sockets {} and {}",
+        runtime.join(AUTH_SOCKET).display(),
+        runtime.join(ADMIN_SOCKET).display()
+    );
+    // SIGTERM ends the process; stale sockets are replaced at the next start.
+    serve(
+        &daemon,
+        auth,
+        admin,
+        Box::new(PamHelper::new(helper)),
+        &Arc::new(AtomicBool::new(false)),
+    )
+}
+
 fn main() {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
-    let result = if args.first() == Some(&OsString::from("--offline-sim-service")) {
+    let result = if args.first() == Some(&OsString::from("--auth-service")) {
+        auth_service(&args)
+    } else if args.first() == Some(&OsString::from("--offline-sim-service")) {
         let (service_args, emergency_socket) = split_emergency_socket(&args);
         service_arguments(service_args).and_then(|(state, agent, control)| {
             let directory = open_state_dir(&state)?;

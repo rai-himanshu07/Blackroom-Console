@@ -12,6 +12,7 @@ use std::time::SystemTime;
 use blackroom_core::epoch::SecurityEpoch;
 use blackroom_core::error::{BlackroomError, ErrorCode};
 use blackroom_core::limits::{AUTH_SESSION_TTL, MAX_CONCURRENT_AUTH_SESSIONS};
+use zeroize::Zeroizing;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Principal {
@@ -41,6 +42,17 @@ pub trait CredentialVerifier {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SessionToken([u8; 32]);
 
+impl SessionToken {
+    /// For handing the bearer credential to the client that just authenticated, once.
+    pub fn to_hex(&self) -> Zeroizing<String> {
+        Zeroizing::new(hex::encode(self.0))
+    }
+
+    pub fn from_hex(text: &str) -> Option<Self> {
+        <[u8; 32]>::try_from(hex::decode(text).ok()?).ok().map(Self)
+    }
+}
+
 impl fmt::Debug for SessionToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("SessionToken(<redacted>)")
@@ -49,12 +61,27 @@ impl fmt::Debug for SessionToken {
 
 #[derive(Debug)]
 pub struct AuthSession {
+    id: String,
     principal: Principal,
     epoch: SecurityEpoch,
     expires_at: SystemTime,
 }
 
+/// What an operator may see of a session: an identifier that is not the bearer credential.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionInfo {
+    pub id: String,
+    pub user_id: String,
+    pub client_id: String,
+    pub expires_at: SystemTime,
+}
+
 impl AuthSession {
+    /// Public label for listing and revoking; it cannot be used to authenticate.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     pub fn principal(&self) -> &Principal {
         &self.principal
     }
@@ -136,10 +163,18 @@ impl HostSessions {
                 "host session credential unavailable",
             )
         })?;
+        let mut id = [0_u8; 8];
+        getrandom::fill(&mut id).map_err(|_| {
+            BlackroomError::new(
+                ErrorCode::RecoveryFailed,
+                "host session credential unavailable",
+            )
+        })?;
         let token = SessionToken(bytes);
         self.sessions.insert(
             token.clone(),
             AuthSession {
+                id: hex::encode(id),
                 principal,
                 epoch,
                 expires_at: now + AUTH_SESSION_TTL,
@@ -198,6 +233,30 @@ impl HostSessions {
 
     pub fn revoke(&mut self, token: &SessionToken) -> bool {
         self.sessions.remove(token).is_some()
+    }
+
+    /// Live sessions of the current epoch, oldest first by expiry.
+    pub fn list(&self, epoch: SecurityEpoch, now: SystemTime) -> Vec<SessionInfo> {
+        let mut live: Vec<SessionInfo> = self
+            .sessions
+            .values()
+            .filter(|session| session.check(epoch, now).is_ok())
+            .map(|session| SessionInfo {
+                id: session.id.clone(),
+                user_id: session.principal.user_id.clone(),
+                client_id: session.principal.client_id.clone(),
+                expires_at: session.expires_at,
+            })
+            .collect();
+        live.sort_by_key(|info| info.expires_at);
+        live
+    }
+
+    /// Operator revocation by the public session id.
+    pub fn revoke_by_id(&mut self, id: &str) -> bool {
+        let before = self.sessions.len();
+        self.sessions.retain(|_, session| session.id != id);
+        before != self.sessions.len()
     }
 
     /// Device revocation (Doc 03 §23): ends every session of `client_id`.

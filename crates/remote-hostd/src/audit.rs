@@ -37,6 +37,20 @@ pub enum AuditEvent<'a> {
     AuthRefused {
         code: &'static str,
     },
+    LoginAccepted {
+        user_id: &'a str,
+        client_id: &'a str,
+    },
+    /// An operator action on the running host (`revoke-all`, `disable`, ...); `count` is how many
+    /// sessions it ended.
+    AdminAction {
+        action: &'static str,
+        count: u64,
+    },
+    CredentialChanged {
+        kind: &'static str,
+        action: &'static str,
+    },
     GrantIssued {
         epoch: u64,
         user_id: &'a str,

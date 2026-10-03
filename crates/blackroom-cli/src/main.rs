@@ -3,7 +3,10 @@
 //! `status`, `logs`, `doctor`, `accounts` and `emergency-status` never create, lock or change
 //! anything and never print key material, proofs, input grants or credential secrets.
 //! `enroll` is the one verb that writes: it adds a TOTP account to the credential file and prints
-//! the new secret exactly once.
+//! the new secret exactly once. The security verbs (`sessions`, `revoke-session`, `revoke-all`,
+//! `disable`, `enable`, `rotate-key`, `recovery-codes`, `devices`, `revoke-device`, `login-check`,
+//! `compatibility`, `diagnostics`) live in `security.rs`; the live ones talk to hostd's private
+//! admin socket.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -11,6 +14,8 @@ use std::io::{self, Read};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+mod security;
 
 use remote_emergencyd::client::Client;
 use remote_hostd::audit::AUDIT_FILE;
@@ -21,7 +26,7 @@ use rustix::fs::{Mode, OFlags};
 const DEFAULT_TAIL: usize = 20;
 const MAX_TAIL: usize = 1000;
 const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
-const USAGE: &str = "usage: blackroom --state-dir <absolute path> status | logs [--tail <1-1000>] | doctor | accounts | enroll --account <name>\n       blackroom emergency-status --socket <absolute path>";
+const USAGE: &str = "usage: blackroom --state-dir <absolute path> [--runtime-dir <absolute path>] <verb>\n  verbs: status | logs [--tail <1-1000>] | doctor | accounts | enroll --account <name>\n         sessions | revoke-session <id> | revoke-all | disable [--reason <text>] | enable\n         rotate-key --account <name> [--revoke-devices] | recovery-codes --account <name>\n         devices --account <name> | revoke-device <id> | login-check --account <name>\n         compatibility | diagnostics\n       blackroom emergency-status --socket <absolute path>";
 
 enum Verb {
     Status,
@@ -29,11 +34,39 @@ enum Verb {
     Doctor,
     Accounts,
     Enroll(String),
+    Sessions,
+    RevokeSession(String),
+    RevokeAll,
+    Disable(Option<String>),
+    Enable,
+    RotateKey {
+        account: String,
+        revoke_devices: bool,
+    },
+    RecoveryCodes(String),
+    Devices(String),
+    RevokeDevice(String),
+    LoginCheck(String),
+    Compatibility,
+    Diagnostics,
 }
 
 enum Command {
-    State(PathBuf, Verb),
+    State {
+        path: PathBuf,
+        runtime: Option<PathBuf>,
+        verb: Verb,
+    },
     EmergencyStatus(PathBuf),
+}
+
+fn account_flag(rest: &[OsString]) -> Result<String, String> {
+    match rest {
+        [flag, account] if flag == OsStr::new("--account") => {
+            Ok(account.to_str().ok_or(USAGE)?.to_string())
+        }
+        _ => Err(USAGE.into()),
+    }
 }
 
 fn parse(args: &[OsString]) -> Result<Command, String> {
@@ -48,13 +81,50 @@ fn parse(args: &[OsString]) -> Result<Command, String> {
             Err(USAGE.into())
         };
     }
-    let [flag, path, verb, rest @ ..] = args else {
+    let [flag, path, tail @ ..] = args else {
         return Err(USAGE.into());
     };
     if flag != OsStr::new("--state-dir") {
         return Err(USAGE.into());
     }
+    let (runtime, tail) = match tail {
+        [flag, runtime, rest @ ..] if flag == OsStr::new("--runtime-dir") => {
+            let runtime = PathBuf::from(runtime);
+            if !runtime.is_absolute() {
+                return Err(USAGE.into());
+            }
+            (Some(runtime), rest)
+        }
+        _ => (None, tail),
+    };
+    let [verb, rest @ ..] = tail else {
+        return Err(USAGE.into());
+    };
     let verb = match (verb.to_str(), rest) {
+        (Some("sessions"), []) => Verb::Sessions,
+        (Some("revoke-session"), [id]) => Verb::RevokeSession(id.to_str().ok_or(USAGE)?.into()),
+        (Some("revoke-all"), []) => Verb::RevokeAll,
+        (Some("disable"), []) => Verb::Disable(None),
+        (Some("disable"), [flag, reason]) if flag == OsStr::new("--reason") => {
+            Verb::Disable(Some(reason.to_str().ok_or(USAGE)?.into()))
+        }
+        (Some("enable"), []) => Verb::Enable,
+        (Some("rotate-key"), rest) => {
+            let (rest, revoke_devices) = match rest {
+                [account @ .., flag] if flag == OsStr::new("--revoke-devices") => (account, true),
+                rest => (rest, false),
+            };
+            Verb::RotateKey {
+                account: account_flag(rest)?,
+                revoke_devices,
+            }
+        }
+        (Some("recovery-codes"), rest) => Verb::RecoveryCodes(account_flag(rest)?),
+        (Some("devices"), rest) => Verb::Devices(account_flag(rest)?),
+        (Some("revoke-device"), [id]) => Verb::RevokeDevice(id.to_str().ok_or(USAGE)?.into()),
+        (Some("login-check"), rest) => Verb::LoginCheck(account_flag(rest)?),
+        (Some("compatibility"), []) => Verb::Compatibility,
+        (Some("diagnostics"), []) => Verb::Diagnostics,
         (Some("status"), []) => Verb::Status,
         (Some("doctor"), []) => Verb::Doctor,
         (Some("accounts"), []) => Verb::Accounts,
@@ -72,18 +142,27 @@ fn parse(args: &[OsString]) -> Result<Command, String> {
         }
         _ => return Err(USAGE.into()),
     };
-    Ok(Command::State(PathBuf::from(path), verb))
+    Ok(Command::State {
+        path: PathBuf::from(path),
+        runtime,
+        verb,
+    })
 }
 
-fn status(directory: &File) -> io::Result<String> {
-    let status = PersistentHostAuthority::inspect(directory)?;
-    Ok(serde_json::json!({
+fn status_value(directory: &File, status: &remote_hostd::store::HostStatus) -> serde_json::Value {
+    serde_json::json!({
         "mode": "OFFLINE_SIMULATION",
         "epoch": status.epoch,
         "emergency_pending": status.emergency_pending,
         "recovery_pending": status.recovery_pending,
+        "remote_access": security::remote_access_label(directory),
+        "credentials": security::credentials(directory),
     })
-    .to_string())
+}
+
+fn status(directory: &File) -> io::Result<String> {
+    let status = PersistentHostAuthority::inspect(directory)?;
+    Ok(status_value(directory, &status).to_string())
 }
 
 fn logs(directory: &File, tail: usize) -> io::Result<(String, usize)> {
@@ -137,13 +216,17 @@ fn doctor(directory: &Path) -> (Vec<String>, bool) {
             format!("state directory unreadable: {}", error.kind()),
         ),
     }
-    let files: [(&str, Option<u64>, bool); 6] = [
+    let files: [(&str, Option<u64>, bool); 10] = [
         ("host-identity.key", Some(32), true),
         ("security-epoch", Some(8), true),
         ("audit.log", None, false),
         ("emergency-stop", Some(8), false),
         ("recovery-pending", Some(8), false),
         ("totp-credentials", None, false),
+        ("access-keys", None, false),
+        ("recovery-codes", None, false),
+        ("trusted-devices", None, false),
+        ("remote-access", None, false),
     ];
     let mut warnings = Vec::new();
     for (name, length, required) in files {
@@ -201,15 +284,107 @@ fn emergency_status(socket: &Path) -> io::Result<String> {
 
 fn run(args: &[OsString]) -> Result<ExitCode, (u8, String)> {
     let refuse = |error: io::Error| (1, format!("refused: {error}"));
-    let (path, verb) = match parse(args).map_err(|message| (2, message))? {
+    let (path, runtime, verb) = match parse(args).map_err(|message| (2, message))? {
         Command::EmergencyStatus(socket) => {
             println!("{}", emergency_status(&socket).map_err(refuse)?);
             return Ok(ExitCode::SUCCESS);
         }
-        Command::State(path, verb) => (path, verb),
+        Command::State {
+            path,
+            runtime,
+            verb,
+        } => (path, runtime, verb),
     };
     let directory = open_state_directory(&path).map_err(refuse)?;
+    let runtime = || match &runtime {
+        Some(runtime) => Ok(runtime.clone()),
+        None => security::default_runtime(),
+    };
     match verb {
+        Verb::Sessions => println!(
+            "{}",
+            security::sessions(&runtime().map_err(refuse)?).map_err(refuse)?
+        ),
+        Verb::RevokeSession(id) => println!(
+            "{}",
+            security::revoke_session(&runtime().map_err(refuse)?, &id).map_err(refuse)?
+        ),
+        Verb::RevokeAll => println!(
+            "{}",
+            security::revoke_all(&runtime().map_err(refuse)?).map_err(refuse)?
+        ),
+        Verb::Disable(reason) => println!(
+            "{}",
+            security::disable(&directory, &runtime().map_err(refuse)?, reason.as_deref())
+                .map_err(refuse)?
+        ),
+        Verb::Enable => println!(
+            "{}",
+            security::enable(&directory, &runtime().map_err(refuse)?).map_err(refuse)?
+        ),
+        Verb::RotateKey {
+            account,
+            revoke_devices,
+        } => {
+            print!(
+                "{}",
+                security::rotate_key(
+                    &directory,
+                    &runtime().map_err(refuse)?,
+                    &account,
+                    revoke_devices
+                )
+                .map_err(refuse)?
+            );
+            eprintln!(
+                "The key is shown once and is not recoverable; store it in a password manager now."
+            );
+        }
+        Verb::RecoveryCodes(account) => {
+            print!(
+                "{}",
+                security::new_recovery_codes(&directory, &account).map_err(refuse)?
+            );
+            eprintln!(
+                "Each code works once and replaces the authenticator code only; these are shown once."
+            );
+        }
+        Verb::Devices(account) => println!(
+            "{}",
+            security::devices(&directory, &account).map_err(refuse)?
+        ),
+        Verb::RevokeDevice(id) => println!(
+            "{}",
+            security::revoke_device(&directory, &runtime().map_err(refuse)?, &id)
+                .map_err(refuse)?
+        ),
+        Verb::LoginCheck(account) => println!(
+            "{}",
+            security::login_check(&runtime().map_err(refuse)?, &account).map_err(refuse)?
+        ),
+        Verb::Compatibility => println!("{}", security::compatibility()),
+        Verb::Diagnostics => {
+            let status = PersistentHostAuthority::inspect(&directory)
+                .map(|status| status_value(&directory, &status))
+                .unwrap_or_else(
+                    |error| serde_json::json!({"unavailable": error.kind().to_string()}),
+                );
+            let (report, _) = doctor(&path);
+            let tail = logs(&directory, 50)
+                .map(|(text, _)| {
+                    text.lines()
+                        .filter_map(|line| serde_json::from_str(line).ok())
+                        .collect::<Vec<serde_json::Value>>()
+                })
+                .unwrap_or_default();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&security::diagnostics(
+                    &directory, &path, status, report, tail
+                ))
+                .map_err(|error| (1, error.to_string()))?
+            );
+        }
         Verb::Status => println!("{}", status(&directory).map_err(refuse)?),
         Verb::Logs(tail) => {
             let (text, invalid) = logs(&directory, tail).map_err(refuse)?;

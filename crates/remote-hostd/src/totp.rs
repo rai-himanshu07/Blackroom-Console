@@ -168,6 +168,7 @@ pub fn base32_decode(text: &str) -> Option<Vec<u8>> {
 /// Accounts are short lowercase names: no path, URI or log-injection surprises.
 pub fn valid_account(account: &str) -> bool {
     (1..=32).contains(&account.len())
+        && !account.starts_with(['.', '-'])
         && account.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_.-".contains(&byte)
         })

@@ -474,6 +474,15 @@ impl PersistentHostAuthority {
         Ok(self.inner.revoke_update())
     }
 
+    /// Raises the epoch with no grant involved (`revoke-all`): every authentication session of
+    /// the old epoch stops resolving. Allowed while blocked, since it only removes authority.
+    pub fn advance_epoch(&mut self) -> io::Result<SecurityEpoch> {
+        let next = next_epoch(self.inner.epoch())?;
+        persist_epoch(&self.directory, next)?;
+        self.inner.epoch = next;
+        Ok(next)
+    }
+
     pub fn complete_recovery(&self, granted_epoch: SecurityEpoch) -> io::Result<()> {
         if self.blocked || self.inner.state() != State::LocalLocked {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied));

@@ -1,0 +1,6 @@
+#%PAM-1.0
+# Blackroom Console remote login. Used only by pam-auth-helper (run by remote-hostd as the owner).
+# It checks the owner's own Linux password through pam_unix and nothing else: no session is opened,
+# no password can be changed, no other module (fingerprint, keyring, network) is consulted.
+auth     required   pam_unix.so
+account  required   pam_unix.so

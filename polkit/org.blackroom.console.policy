@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Used only when remote-hostd runs with the polkit option: `blackroom enable` then needs a local, active
+     session of the owner. Closing remote access (disable, revoke-all) never asks polkit. -->
+<policyconfig>
+  <vendor>Blackroom Console</vendor>
+  <action id="org.blackroom.console.enable-remote-access">
+    <description>Re-open Blackroom Console remote access</description>
+    <message>Authentication is required to re-open remote access to this computer</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>
