@@ -51,6 +51,10 @@ pub struct Settings {
     /// The `blackroom` command and its login-authority state directory, used for credential management.
     pub cli: PathBuf,
     pub state_dir: PathBuf,
+    /// Where the login authority's sockets appear when it runs.
+    pub hostd_runtime: PathBuf,
+    /// The `gnome-extensions` command, used for the lock-screen extension.
+    pub gnome_extensions: PathBuf,
 }
 
 #[derive(Default)]
@@ -100,6 +104,7 @@ pub fn router(console: RemoteConsole, settings: Settings, check: PasswordFactory
         .route("/host/approve", post(approve))
         .route("/host/autostart", post(autostart))
         .route("/host/credentials", post(credentials))
+        .route("/host/lockscreen", post(lockscreen))
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::from_fn(security_headers))
         .with_state(app)
@@ -496,6 +501,8 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
                 "autostart": autostart_enabled(&settings.home, &settings.unit),
             },
             "sinks": sound_outputs(),
+            "login": { "ready": crate::hostd_auth::sockets_present(&settings.hostd_runtime) },
+            "lockscreen": lock_state(&settings.gnome_extensions),
         })
     })
     .await;
@@ -527,6 +534,14 @@ async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Resp
             "this console has no settings directory",
         );
     };
+    if config.login == Some(crate::host::LoginMethod::Hostd)
+        && !crate::hostd_auth::sockets_present(&app.settings.hostd_runtime)
+    {
+        return error(
+            StatusCode::CONFLICT,
+            "the login authority is not running: use \"Set up the login authority\" first",
+        );
+    }
     match config.save(&dir) {
         Ok(_) => reply(
             StatusCode::OK,
@@ -662,6 +677,18 @@ pub fn cli_args(
     // The second value says whether the action needs the password again.
     Ok(match body_action {
         "status" => (base(&["status"]), false),
+        // `setup` must be the first argument of the command.
+        "setup" => (
+            vec![
+                "setup".into(),
+                "--state-dir".into(),
+                settings.state_dir.display().to_string(),
+                "--account".into(),
+                account.into(),
+                "--no-login-check".into(),
+            ],
+            true,
+        ),
         "devices" => (base(&["devices", "--account", account]), false),
         "rotate_key" => {
             let mut args = base(&["rotate-key", "--account", account]);
@@ -788,6 +815,83 @@ async fn credentials(State(app): State<App>, headers: HeaderMap, body: Bytes) ->
         Err(_) => error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "the command failed to run",
+        ),
+    }
+}
+
+pub const LOCK_EXTENSION: &str = "blackroom-locked-remote@blackroom.local";
+
+fn extension_list(tool: &Path, which: &[&str]) -> Vec<String> {
+    let output = std::process::Command::new(tool)
+        .arg("list")
+        .args(which)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    match output {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|line| line.trim().to_string())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Whether the lock-screen extension is installed, switched on, and loaded by the Shell.
+pub fn lock_state(tool: &Path) -> Value {
+    let has = |list: Vec<String>| list.iter().any(|name| name == LOCK_EXTENSION);
+    let installed = has(extension_list(tool, &[]));
+    let enabled = has(extension_list(tool, &["--enabled"]));
+    let active = has(extension_list(tool, &["--active"]));
+    json!({ "installed": installed, "enabled": enabled, "active": active })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LockBody {
+    enabled: bool,
+    #[serde(default)]
+    password: String,
+}
+
+/// Turning remote use on the lock screen ON asks for the password: while it is on, locking no longer ends a remote session.
+async fn lockscreen(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    let Ok(LockBody { enabled, password }) = object::<LockBody>(&body) else {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "send {\"enabled\": true, \"password\": \"...\"}",
+        );
+    };
+    if enabled && let Err(refusal) = check_password(&app, password).await {
+        return refusal;
+    }
+    let tool = app.settings.gnome_extensions.clone();
+    let verb = if enabled { "enable" } else { "disable" };
+    let changed = tokio::task::spawn_blocking(move || {
+        run_cli(
+            &tool,
+            &[verb.to_string(), LOCK_EXTENSION.to_string()],
+            Duration::from_secs(20),
+        )
+        .map(|(ok, _, notice)| (ok, notice, lock_state(&tool)))
+    })
+    .await;
+    match changed {
+        Ok(Ok((true, _, state))) => reply(StatusCode::OK, &state),
+        Ok(Ok((false, notice, _))) => error(
+            StatusCode::BAD_GATEWAY,
+            &format!(
+                "gnome-extensions could not change it ({}). A newly installed extension is found after you log out and in.",
+                notice.trim()
+            ),
+        ),
+        Ok(Err(message)) => error(StatusCode::BAD_GATEWAY, &message),
+        Err(_) => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the change failed to run",
         ),
     }
 }

@@ -17,7 +17,8 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
   and approve-each-connection (Accept or Deny on the laptop). Client choices now live on each device and stay inside those
   limits. See `docs/ops/settings-guide.md`.
 - **Laptop top-bar indicator (new):** a GNOME extension shows whether a remote session runs (icon, timer, notices) and lets
-  you disconnect it, lock the screen, open the console page, or start and stop the console. See `docs/ops/README.md`.
+  you disconnect it, lock the screen, open the host settings, switch remote use on the lock screen on or off, or start and
+  stop the console. The client page is not offered on the laptop. See `docs/ops/README.md`.
 - **Laptop sound** to the tablet (Opus over WebRTC, off by default) and an **installable web app** (manifest, icons,
   pass-through service worker; needs a trusted https address or localhost).
 - **Safety:** the display is restored and the screen locked on Stop, on heartbeat loss, on the emergency chord

@@ -51,7 +51,7 @@ const SESSION_TTL: Duration = Duration::from_secs(24 * 3600);
 const MAX_INPUT_MESSAGE: usize = 64 * 1024;
 const HEADLESS_SESSION: &str = "headless";
 /// GNOME refuses remote sessions on a locked screen unless the Blackroom extension lifts that.
-const LOCKED_HINT: &str = " (the screen is locked: enable the blackroom-locked-remote extension, see docs/ops/README.md, or unlock locally)";
+const LOCKED_HINT: &str = " (the screen is locked: switch on \"Remote use on the lock screen\" in the tray menu or Host settings, or unlock locally)";
 
 #[derive(Debug, Clone)]
 pub struct ConsoleConfig {

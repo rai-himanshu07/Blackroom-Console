@@ -26,6 +26,7 @@ Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused
 | Laptop top-bar indicator on the real desktop | UNKNOWN | headless: the extension loads in a throwaway Shell, shows the session and its menu's Disconnect ends it; the real top bar and notifications were not observed |
 | Host settings page with the real password check and the real `blackroom` commands | UNKNOWN | headless Chrome with a stand-in password check and stand-in command; the real PAM helper, credential verbs, start-at-login and restart-by-systemd were not run from the page |
 | Approve each connection (Ask) on the real desktop | UNKNOWN | headless Shell: the request, Accept, Deny and no-answer paths and the notification with buttons; not the real desktop |
+| Tray switch for the lock-screen extension and the host page's lock-screen and sign-in settings on the real desktop | UNKNOWN | the tray switch's first enable was seen in a throwaway Shell (its key-file settings can undo a change, a real desktop uses dconf); the host page used stand-in commands |
 | Installing the page as an app | UNKNOWN | headless Chrome finds no installability problem; a tablet over a trusted https address was not tried |
 | Browser: Safari, iOS Safari | UNKNOWN | fallbacks exist (no Keyboard Lock, prefixed fullscreen, blocked storage) and are exercised with a stub only |
 | Browser: Firefox | UNKNOWN | |

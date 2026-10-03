@@ -100,12 +100,26 @@
       <p class="note">Network changes need a restart. A wrong address stops the console from starting: check them before restarting.</p>
     </section>
 
+    <section class="card" id="loginCard">
+      <h2>How clients sign in</h2>
+      <label class="field">Sign-in method
+        <select data-key="login" data-type="string-or-null">
+          <option value="">Keep the way the console was started</option>
+          <option value="hostd">Linux password + authenticator code + Remote Access Key (recommended)</option>
+          <option value="token">One-time address with a token (no sign-in page)</option>
+        </select>
+      </label>
+      <p class="note" id="loginNote"></p>
+      <p class="note">The first method needs the login authority: use "Set up the login authority" under Credentials below once, then choose it here, Save and restart the console.</p>
+    </section>
+
     <section class="card" id="credCard">
       <h2>Login and credentials</h2>
       <p class="note">A client signs in with your Linux password, an authenticator code and the Remote Access Key, or from a trusted browser. New secrets appear below once and are never stored here.</p>
       <pre id="credStatus" class="secret">Loading...</pre>
       <label class="field">Your laptop password, needed for every change below <input type="password" id="credPassword" autocomplete="current-password"></label>
       <div class="actions">
+        <button type="button" id="loginSetup">Set up the login authority</button>
         <button type="button" id="credKey">New remote access key</button>
         <button type="button" id="credCodes">New recovery codes</button>
         <button type="button" id="credReset" class="danger">New authenticator, key and codes</button>
@@ -125,6 +139,13 @@
         <pre id="credOut" class="secret"></pre>
         <button type="button" id="credHide">Hide</button>
       </div>
+    </section>
+
+    <section class="card" id="lockCard">
+      <h2>Remote use while the laptop is locked</h2>
+      <div class="toggles"><label class="switch"><input type="checkbox" id="lockOn"><span><b>Allow remote sessions on the lock screen</b><small>Lets you sign in from the tablet while the laptop is locked. While this is on, locking the laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it on only when you need it.</small></span></label></div>
+      <label class="field">Your laptop password, to turn it on <input type="password" id="lockPassword" autocomplete="current-password"></label>
+      <p class="note" id="lockNote"></p>
     </section>
 
     <section class="card">

@@ -25,6 +25,15 @@ pub enum Approval {
     Ask,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoginMethod {
+    /// Linux password + authenticator code + Remote Access Key (or a trusted browser), through remote-hostd.
+    Hostd,
+    /// The one-time address with its token.
+    Token,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Indicator {
@@ -66,6 +75,8 @@ pub struct HostConfig {
     /// PipeWire output node whose sound is sent; `None` keeps `--audio-sink` or the default output.
     pub audio_sink: Option<String>,
     pub approval: Approval,
+    /// How clients sign in; `None` keeps the command-line choice. Needs a restart.
+    pub login: Option<LoginMethod>,
     pub indicator: Indicator,
     /// Plain-http address; `None` keeps `--listen`. Needs a restart.
     pub http_listen: Option<String>,
@@ -94,6 +105,7 @@ impl Default for HostConfig {
             allow_text: true,
             audio_sink: None,
             approval: Approval::Never,
+            login: None,
             indicator: Indicator::default(),
             http_listen: None,
             tls_listen: None,
@@ -424,6 +436,13 @@ mod tests {
         );
         assert!(serde_json::from_str::<HostConfig>(r#"{"unknown":1}"#).is_err());
         assert!(serde_json::from_str::<HostConfig>(r#"{"max_fps":-1}"#).is_err());
+        assert!(serde_json::from_str::<HostConfig>(r#"{"login":"password-only"}"#).is_err());
+        assert_eq!(
+            serde_json::from_str::<HostConfig>(r#"{"login":"hostd"}"#)
+                .unwrap()
+                .login,
+            Some(LoginMethod::Hostd)
+        );
     }
 
     #[test]

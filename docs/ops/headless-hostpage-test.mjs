@@ -116,6 +116,31 @@ check("the laptop ran the fixed command", /rotate-key --account \S+/.test(readFi
 await js("document.getElementById('credHide').click()");
 check("Hide removes the secret from the page", (await js("document.getElementById('credOut').textContent")) === "" && (await js("document.getElementById('secretBox').hidden")) === true);
 
+// Sign-in method: the page explains where things stand and refuses a method the laptop cannot serve yet.
+check("the page says how clients sign in now", /one-time address/.test(await js("document.getElementById('loginNote').textContent")) && /not running/.test(await js("document.getElementById('loginNote').textContent")));
+await set("login", "hostd");
+await js("document.getElementById('save').click()");
+await sleep(1000);
+check("hostd sign-in is refused until the login authority runs", /login authority/i.test(await js("document.getElementById('saveNote').textContent")));
+await set("login", "");
+await js("document.getElementById('credPassword').value = 'hostpass'; document.getElementById('loginSetup').click(); true");
+await sleep(1500);
+check("Set up the login authority runs setup first and shows its output once", /setup --state-dir/.test(readFileSync(`${stateDir}/cli-calls`, "utf8")) && (await js("document.getElementById('secretBox').hidden")) === false);
+await js("document.getElementById('credHide').click()");
+
+// Lock-screen access: the switch drives the extension, and turning it on needs the password.
+check("the lock-screen switch starts off", (await js("document.getElementById('lockOn').checked")) === false && (await js("document.getElementById('lockOn').disabled")) === false);
+await js("document.getElementById('lockOn').click()");
+await sleep(1000);
+check("turning it on without the password is refused", (await js("document.getElementById('lockOn').checked")) === false && !existsSync(`${stateDir}/ext-on`));
+await js("document.getElementById('lockPassword').value = 'hostpass'; document.getElementById('lockOn').click(); true");
+await sleep(1500);
+check("with the password it turns on", existsSync(`${stateDir}/ext-on`) && /enable blackroom-locked-remote/.test(readFileSync(`${stateDir}/ext-calls`, "utf8")));
+check("and the page says what that means", /On:/.test(await js("document.getElementById('lockNote').textContent")));
+await js("document.getElementById('lockOn').click()");
+await sleep(1500);
+check("turning it off needs no password", !existsSync(`${stateDir}/ext-on`) && /Off:/.test(await js("document.getElementById('lockNote').textContent")));
+
 await js("document.getElementById('logout').click()");
 await sleep(800);
 check("Sign out returns to the sign-in view", (await visible("loginView")) && !(await visible("appView")));

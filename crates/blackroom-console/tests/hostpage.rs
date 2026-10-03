@@ -34,6 +34,9 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
+    let tool = dir.path().join("gnome-extensions");
+    std::fs::write(&tool, format!("#!/bin/bash\necho \"$@\" >> '{d}/ext-calls'\nU=blackroom-locked-remote@blackroom.local\ncase \"$1 $2\" in\n  \"list \") echo $U ;;\n  \"list --enabled\"|\"list --active\") [ -f '{d}/ext-on' ] && echo $U ;;\n  enable*) touch '{d}/ext-on' ;;\n  disable*) rm -f '{d}/ext-on' ;;\nesac\nexit 0\n", d = dir.path().display())).unwrap();
+    std::fs::set_permissions(&tool, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
     let cli = dir.path().join("blackroom");
     std::fs::write(&cli, format!("#!/bin/bash\necho \"$@\" >> '{}/cli-calls'\necho 'secret: S3CRET-ONCE'\necho 'note on stderr' >&2\n[ \"$3\" = status ] && echo not-a-secret\nexit 0\n", dir.path().display())).unwrap();
     std::fs::set_permissions(&cli, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
@@ -56,6 +59,8 @@ fn fixture() -> Fixture {
         home: dir.path().to_path_buf(),
         cli,
         state_dir: dir.path().join("hostd"),
+        hostd_runtime: dir.path().join("runtime"),
+        gnome_extensions: tool,
     };
     let check: PasswordFactory = Arc::new(|| Box::new(Fake) as Box<dyn PasswordCheck>);
     Fixture {
@@ -649,4 +654,158 @@ async fn credential_changes_need_the_password_again_and_use_fixed_arguments() {
     .await;
     assert_eq!(reset.status(), StatusCode::OK);
     assert!(calls().contains("reset security --yes --state-dir"));
+}
+
+#[tokio::test]
+async fn lock_screen_access_is_the_extension_and_turning_it_on_needs_the_password() {
+    let fixture = fixture();
+    let cookie = signed_in(&fixture.app).await;
+    let post = |body: Value| {
+        request(
+            Method::POST,
+            "/host/lockscreen",
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            body,
+        )
+    };
+    let state = |app: Router| {
+        let request = request(
+            Method::GET,
+            "/host/state",
+            HOSTNAME,
+            None,
+            Some(&cookie),
+            Value::Null,
+        );
+        async move { json_of(send(&app, request).await).await }
+    };
+    let before = state(fixture.app.clone()).await;
+    assert_eq!(
+        before["lockscreen"],
+        json!({ "installed": true, "enabled": false, "active": false })
+    );
+    for body in [
+        json!({ "enabled": true }),
+        json!({ "enabled": true, "password": "wrong" }),
+    ] {
+        assert_eq!(
+            send(&fixture.app, post(body)).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert!(
+        !fixture.dir.path().join("ext-on").exists(),
+        "nothing was enabled without the password"
+    );
+    let on = send(
+        &fixture.app,
+        post(json!({ "enabled": true, "password": "correct horse" })),
+    )
+    .await;
+    assert_eq!(on.status(), StatusCode::OK);
+    assert_eq!(
+        json_of(on).await,
+        json!({ "installed": true, "enabled": true, "active": true })
+    );
+    assert_eq!(
+        state(fixture.app.clone()).await["lockscreen"]["enabled"],
+        true
+    );
+    let calls = std::fs::read_to_string(fixture.dir.path().join("ext-calls")).unwrap();
+    assert!(
+        calls.contains("enable blackroom-locked-remote@blackroom.local"),
+        "{calls}"
+    );
+    // Turning it off is always allowed without the password.
+    let off = send(&fixture.app, post(json!({ "enabled": false }))).await;
+    assert_eq!(json_of(off).await["enabled"], false);
+    assert_eq!(
+        send(&fixture.app, post(json!({ "enabled": true, "extra": 1 })))
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn the_sign_in_method_needs_a_running_login_authority_and_setup_needs_the_password() {
+    let fixture = fixture();
+    let cookie = signed_in(&fixture.app).await;
+    let state = json_of(
+        send(
+            &fixture.app,
+            request(
+                Method::GET,
+                "/host/state",
+                HOSTNAME,
+                None,
+                Some(&cookie),
+                Value::Null,
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(state["login"]["ready"], false);
+    let mut config = state["config"].clone();
+    config["login"] = json!("hostd");
+    let save = |config: Value| {
+        request(
+            Method::POST,
+            "/host/config",
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            config,
+        )
+    };
+    let refused = send(&fixture.app, save(config.clone())).await;
+    assert_eq!(
+        refused.status(),
+        StatusCode::CONFLICT,
+        "no login authority yet"
+    );
+    assert!(!fixture.dir.path().join("host.json").exists());
+    let setup = |password: &str| {
+        request(
+            Method::POST,
+            "/host/credentials",
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            json!({ "action": "setup", "password": password }),
+        )
+    };
+    assert_eq!(
+        send(&fixture.app, setup("")).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let done = send(&fixture.app, setup("correct horse")).await;
+    assert_eq!(done.status(), StatusCode::OK);
+    let calls = std::fs::read_to_string(fixture.dir.path().join("cli-calls")).unwrap();
+    assert!(
+        calls.starts_with("setup --state-dir"),
+        "setup is the first argument: {calls}"
+    );
+    // The authority is now running (its sockets exist): the choice can be saved.
+    let runtime = fixture.dir.path().join("runtime");
+    std::fs::create_dir_all(&runtime).unwrap();
+    std::fs::write(runtime.join("auth.sock"), "").unwrap();
+    std::fs::write(runtime.join("admin.sock"), "").unwrap();
+    assert_eq!(
+        send(&fixture.app, save(config.clone())).await.status(),
+        StatusCode::OK
+    );
+    config["login"] = json!("token");
+    assert_eq!(
+        send(&fixture.app, save(config.clone())).await.status(),
+        StatusCode::OK
+    );
+    config["login"] = json!("password-only");
+    assert_eq!(
+        send(&fixture.app, save(config)).await.status(),
+        StatusCode::BAD_REQUEST
+    );
 }

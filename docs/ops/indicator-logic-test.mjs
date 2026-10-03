@@ -1,9 +1,9 @@
 // Tests the indicator's pure logic: node docs/ops/indicator-logic-test.mjs
 import assert from 'node:assert/strict';
-import {formatDuration, pageUrl, parseStatus, pendingNotice, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
+import {formatDuration, parseStatus, pendingNotice, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
 
 const idle = {phase: 'idle', mode: 'private', session_secs: 0, blank_panel: true, block_local_input: true, audio: 'off',
-    version: '0.1.0', local_url: 'https://localhost:8443/', last_stop: null};
+    version: '0.1.0', last_stop: null};
 const running = {...idle, phase: 'running', session_secs: 754, audio: 'on'};
 const shared = {...running, mode: 'shared', blank_panel: false, block_local_input: false, audio: 'off'};
 
@@ -13,13 +13,6 @@ assert.equal(formatDuration(3725), '1:02:05');
 assert.equal(formatDuration(-5), '0:00');
 assert.equal(formatDuration('x'), '0:00');
 
-const local = 'https://localhost:8443/';
-assert.equal(pageUrl(local, 'https://192.168.1.50:8443/?t=0123456789abcdef0123\nhttp://127.0.0.1:8080/?t=0123456789abcdef0123'), `${local}?t=0123456789abcdef0123`);
-assert.equal(pageUrl(local, 'https://192.168.1.50:8443/\n'), local, 'no token with a hostd login');
-assert.equal(pageUrl(local, ''), local);
-assert.equal(pageUrl(local, undefined), local);
-assert.equal(pageUrl(local, '?t=short'), local, 'a short value is not a token');
-assert.equal(pageUrl(null, '?t=0123456789abcdef0123'), null);
 assert.equal(parseStatus('{"phase":"idle"}').phase, 'idle');
 for (const bad of ['', 'nope', '[1]', 'null', '3']) assert.equal(parseStatus(bad), null, bad);
 
@@ -27,16 +20,15 @@ assert.deepEqual([null, idle, {phase: 'starting'}, running, {phase: 'stopping'},
     ['off', 'idle', 'starting', 'running', 'stopping', 'idle']);
 
 const off = view(null);
-assert.ok(off.canStart && !off.canStop && !off.canDisconnect && !off.canOpen);
+assert.ok(off.canStart && !off.canStop && !off.canDisconnect);
 const ready = view(idle);
-assert.ok(ready.canStop && ready.canOpen && !ready.canDisconnect && ready.badge === '');
+assert.ok(ready.canStop && !ready.canDisconnect && ready.badge === '');
 const live = view(running);
 assert.ok(live.canDisconnect && live.canStop && live.badge === '12:34');
 assert.match(live.lines[0], /^Private mode: screen blank, laptop keyboard and touchpad blocked$/);
 assert.ok(live.lines.some(line => /sound/.test(line)));
 assert.match(view(shared).lines[0], /^Shared mode: screen visible, laptop keyboard and touchpad usable$/);
 assert.ok(!view(shared).lines.some(line => /sound/.test(line)));
-assert.ok(!view({...idle, local_url: null}).canOpen);
 assert.ok(view({...idle, host_url: 'http://localhost:8090/'}).canHost && !view(idle).canHost && !view(null).canHost);
 
 assert.equal(transitionNotice(undefined, running), null, 'no message for the first reading');

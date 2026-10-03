@@ -18,10 +18,26 @@ case "\$*" in
   *" status") echo "stub status: remote access enabled" ;;
   *devices*) echo "device dev-1 (Chrome on tablet)" ;;
   *rotate-key*) echo "remote access key: ABCD-EFGH-IJKL" ;;
+  setup*) echo "authenticator secret: STUB-SECRET" ;;
 esac
 STUB
 chmod 700 "$state/blackroom-stub"
-"$BIN" --headless --listen 127.0.0.1:18095 --host-listen 127.0.0.1:18096 --pam-helper "$state/pam-stub" --blackroom-cli "$state/blackroom-stub" --hostd-state-dir "$state/hostd" --state-dir "$state" > "$log" 2>&1 &
+# A stand-in for gnome-extensions that keeps its state in a file (the real extensions are never touched).
+cat > "$state/ext-stub" <<STUB
+#!/bin/bash
+echo "\$@" >> "$state/ext-calls"
+U=blackroom-locked-remote@blackroom.local
+case "\$1 \$2" in
+  "list ") echo \$U ;;
+  "list --enabled"|"list --active") [ -f "$state/ext-on" ] && echo \$U ;;
+  enable*) touch "$state/ext-on" ;;
+  disable*) rm -f "$state/ext-on" ;;
+esac
+exit 0
+STUB
+chmod 700 "$state/ext-stub"
+mkdir -p "$state/run"
+XDG_RUNTIME_DIR="$state/run" "$BIN" --headless --no-control --gnome-extensions "$state/ext-stub" --listen 127.0.0.1:18095 --host-listen 127.0.0.1:18096 --pam-helper "$state/pam-stub" --blackroom-cli "$state/blackroom-stub" --hostd-state-dir "$state/hostd" --state-dir "$state" > "$log" 2>&1 &
 srv=$!
 trap 'kill "$srv" 2>/dev/null' EXIT
 for _ in $(seq 1 50); do grep -q "Host settings" "$log" && break; sleep 0.2; done

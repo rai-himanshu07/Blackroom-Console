@@ -11,7 +11,8 @@ if [ "${BR_INDICATOR_INNER:-}" != 1 ]; then
   data=$(mktemp -d /tmp/br-ext-data.XXXXXX)
   mkdir -p "$data/gnome-shell/extensions" "$data/config/glib-2.0/settings"
   cp -r "docs/ops/gnome-extension/$UUID" "$data/gnome-shell/extensions/"
-  printf "[org/gnome/shell]\nenabled-extensions=['%s']\n" "$UUID" > "$data/config/glib-2.0/settings/keyfile"
+  cp -r "docs/ops/gnome-extension/blackroom-locked-remote@blackroom.local" "$data/gnome-shell/extensions/"
+  printf "[org/gnome/shell]\nenabled-extensions=['%s'${BR_SEED_EXTRA:-}]\n" "$UUID" > "$data/config/glib-2.0/settings/keyfile"
   BR_INDICATOR_INNER=1 BR_SHELL_DATA_DIR="$data" BR_SHELL_CONFIG_DIR="$data/config" BR_BIN="$0" BR_TIMEOUT=150 \
     docs/ops/headless-repro.sh
   rc=$?; rm -rf "$data"; exit $rc
@@ -39,13 +40,14 @@ curl -s -c "$jar" -o /dev/null "$url"
 echo "== D-Bus service"
 st=$(dstatus)
 check "idle at first" "$(echo "$st" | jq -r .phase)" idle
-check "local page address" "$(echo "$st" | jq -r .local_url)" "http://localhost:$PORT/"
+check "no client page address is offered on the laptop" "$(echo "$st" | jq -r 'has("local_url")')" false
 check "nothing to disconnect" "$(bus Disconnect | jq -r '.data[0]')" idle
 check "no secrets in the reply" "$(echo "$st" | jq -r 'keys | map(select(test("token|secret|cookie|password"))) | length')" 0
 
 echo "== indicator extension (enabled at Shell start through its private settings)"
 sleep 3
 check "indicator saw the idle console" "$(shell_log 'Blackroom indicator: idle')" 1
+check "the tray sees the lock-screen extension, switched off" "$(shell_log 'Blackroom indicator: lock-screen access off')" 1
 
 echo "== a shared session seen from both sides"
 json=(-H 'Content-Type: application/json')
@@ -101,6 +103,14 @@ PY
     curl -s -b "$jar" "${json[@]}" -X POST -d '[{"t":"move","x":0.8656,"y":0.0139},{"t":"button","code":272,"down":true},{"t":"button","code":272,"down":false}]' -o /dev/null "$base/input"
     sleep 2
     shot "$BR_INDICATOR_MENU_SHOT"
+    # The lock-screen switch (about 1872,266). The throwaway Shell keeps its settings in a key file, which can undo a change a
+    # moment later (a real desktop uses dconf), so only the first switch-on is asserted and it is switched back afterwards.
+    curl -s -b "$jar" "${json[@]}" -X POST -d '[{"t":"move","x":0.975,"y":0.246},{"t":"button","code":272,"down":true},{"t":"button","code":272,"down":false}]' -o /dev/null "$base/input"
+    sleep 3
+    check "the tray switch enabled the lock-screen extension" "$([ "$(shell_log 'Blackroom: remote sessions are allowed')" -ge 1 ] && echo yes)" yes
+    shot "${BR_INDICATOR_MENU_SHOT%.jpg}-lock.jpg"
+    curl -s -b "$jar" "${json[@]}" -X POST -d '[{"t":"button","code":272,"down":true},{"t":"button","code":272,"down":false}]' -o /dev/null "$base/input"
+    sleep 2
     # "Disconnect the remote user" is the first action row (about 1540,189 with the menu open).
     curl -s -b "$jar" "${json[@]}" -X POST -d '[{"t":"move","x":0.802,"y":0.175},{"t":"button","code":272,"down":true},{"t":"button","code":272,"down":false}]' -o /dev/null "$base/input"
     clicked=1

@@ -36,7 +36,8 @@ Locked screen: GNOME refuses remote sessions while locked. `gnome-extension/blac
 lifts that so the console can show the lock screen and the account password is typed remotely (no unlock bypass).
 Install once: copy the directory to `~/.local/share/gnome-shell/extensions/`, log out and in, then
 `gnome-extensions enable blackroom-locked-remote@blackroom.local` while using the console and `disable` afterwards.
-While the extension is enabled, locking no longer ends remote sessions: the lock screen is not a kill switch, and
+You can switch it from the tray menu (**Remote use on the lock screen**) or the host settings page (asks for your password to
+turn it on); the console's own hint when the screen is locked points there. While the extension is enabled, locking no longer ends remote sessions: the lock screen is not a kill switch, and
 any local process of your user may open a remote session on the locked screen. The kill switches above are the
 real ones. Enabling it on an already locked screen lifts the existing block (new code, not yet observed live);
 disabling it while locked brings the block back only once the remote sessions have ended (after Stop).
@@ -68,7 +69,8 @@ this directory holds the project's own dev-workstation procedures.
 `gnome-extension/blackroom-indicator@blackroom.local` puts an icon in the GNOME top bar: dim when the console is off, normal
 when it is ready, orange with a timer while a remote session runs. Its menu shows the mode (private or shared), how long the
 session has run and whether laptop sound is sent, and offers **Disconnect the remote user**, **Lock this screen now**,
-**Open the console page** (it adds the one-time token from the console's `url` file when the console runs in token mode), and **Start/Stop the console** (`systemctl --user start|stop blackroom-console.service`, so the
+**Host settings...** (the laptop-only settings page; the client page is deliberately not offered on the laptop),
+a **Remote use on the lock screen** switch (turns the lock-screen extension below on or off), and **Start/Stop the console** (`systemctl --user start|stop blackroom-console.service`, so the
 user unit must be installed). A notification appears when a session starts and when it ends. Install like the other
 extension (copy the directory to `~/.local/share/gnome-shell/extensions/`, log out and in; the `.deb` installs it under
 `/usr/share/gnome-shell/extensions/`), then `gnome-extensions enable blackroom-indicator@blackroom.local`. Unlike the

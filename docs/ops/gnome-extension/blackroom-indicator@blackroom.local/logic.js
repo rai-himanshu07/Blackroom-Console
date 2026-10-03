@@ -9,15 +9,6 @@ export function parseStatus(text) {
     }
 }
 
-// A console started with the one-time URL token (no hostd login) refuses a page opened without it: take the token from
-// the console's own `url` file (owner-only) and add it to the local address. With a hostd or TOTP login there is none.
-export function pageUrl(localUrl, urlFileText) {
-    if (!localUrl)
-        return null;
-    const token = /[?&]t=([0-9a-f]{16,})/.exec(urlFileText ?? '');
-    return token ? `${localUrl}?t=${token[1]}` : localUrl;
-}
-
 export function formatDuration(secs) {
     const total = Math.max(0, Math.floor(Number(secs) || 0));
     const pad = n => String(n).padStart(2, '0');
@@ -76,7 +67,6 @@ function viewOf(status) {
         title: '',
         lines: [],
         canDisconnect: false,
-        canOpen: false,
         canHost: Boolean(status && status.host_url),
         canStart: false,
         canStop: false,
@@ -85,7 +75,7 @@ function viewOf(status) {
     case 'off':
         return {...base, title: 'Console is not running', canStart: true};
     case 'idle':
-        return {...base, title: 'Ready: nobody is connected', canOpen: Boolean(status.local_url), canStop: true,
+        return {...base, title: 'Ready: nobody is connected', canStop: true,
             lines: [`Version ${status.version}`]};
     case 'starting':
         return {...base, badge: '…', title: 'A remote session is starting', canDisconnect: true};
@@ -99,7 +89,7 @@ function viewOf(status) {
         if (status.audio === 'on')
             lines.push('Laptop sound is sent to the remote device');
         return {...base, badge: formatDuration(status.session_secs), title: 'A remote session is active',
-            lines, canDisconnect: true, canOpen: Boolean(status.local_url), canStop: true};
+            lines, canDisconnect: true, canStop: true};
     }
     }
 }

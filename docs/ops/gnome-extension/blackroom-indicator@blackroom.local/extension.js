@@ -9,12 +9,13 @@ import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import {pageUrl, parseStatus, pendingNotice, stateOf, transitionNotice, view} from './logic.js';
+import {parseStatus, pendingNotice, stateOf, transitionNotice, view} from './logic.js';
 
 const BUS_NAME = 'org.blackroom.Console';
 const OBJECT_PATH = '/org/blackroom/Console';
 const INTERFACE = 'org.blackroom.Console1';
 const UNIT = 'blackroom-console.service';
+const LOCK_EXTENSION = 'blackroom-locked-remote@blackroom.local';
 const POLL_SECONDS = 2;
 
 const Indicator = GObject.registerClass(
@@ -23,7 +24,6 @@ class BlackroomIndicator extends PanelMenu.Button {
         super._init(0.0, 'Blackroom Console', false);
         this._cancellable = new Gio.Cancellable();
         this._status = undefined;
-        this._url = null;
 
         const box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this._icon = new St.Icon({icon_name: 'video-display-symbolic', style_class: 'system-status-icon'});
@@ -44,11 +44,13 @@ class BlackroomIndicator extends PanelMenu.Button {
         this._deny = this._action('Deny the connection', () => this._answer('Deny'));
         this._disconnect = this._action('Disconnect the remote user', () => this._call('Disconnect'));
         this._lock = this._action('Lock this screen now', () => Main.screenShield.lock(true));
-        this._open = this._action('Open the console page', () => this._openPage());
         this._host = this._action('Host settings...', () => {
             if (this._status?.host_url)
                 Gio.AppInfo.launch_default_for_uri(this._status.host_url, global.create_app_launch_context(0, -1));
         });
+        this._lockSwitch = new PopupMenu.PopupSwitchMenuItem('Remote use on the lock screen', false);
+        this._lockSwitch.connect('toggled', (_item, on) => this._setLockAccess(on));
+        this.menu.addMenuItem(this._lockSwitch);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._start = this._action('Start the console', () => this._systemctl('start'));
         this._stop = this._action('Stop the console', () => this._systemctl('stop'));
@@ -156,17 +158,37 @@ class BlackroomIndicator extends PanelMenu.Button {
         });
     }
 
-    _openPage() {
-        let urlFile = '';
+    // The lock-screen extension is a separate extension: this switch enables or disables it.
+    _lockAccess() {
+        const extension = Main.extensionManager.lookup(LOCK_EXTENSION);
+        // 1 = active, 8 = being switched on.
+        return extension ? extension.state === 1 || extension.state === 8 : null;
+    }
+
+    _setLockAccess(on) {
         try {
-            const [, bytes] = GLib.file_get_contents(GLib.build_filenamev([GLib.get_user_runtime_dir(), 'blackroom-console', 'url']));
-            urlFile = new TextDecoder().decode(bytes);
-        } catch (_error) {
-            // No url file (another state directory): open the plain address.
+            if (on) {
+                Main.extensionManager.enableExtension(LOCK_EXTENSION);
+                Main.notify('Remote use on the lock screen is on',
+                    'Locking this laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it off when you are done.');
+            } else {
+                Main.extensionManager.disableExtension(LOCK_EXTENSION);
+            }
+        } catch (error) {
+            Main.notify('Blackroom Console', `Could not change lock-screen access: ${error.message}`);
         }
-        const url = pageUrl(this._url, urlFile);
-        if (url)
-            Gio.AppInfo.launch_default_for_uri(url, global.create_app_launch_context(0, -1));
+        this._showLock();
+    }
+
+    _showLock() {
+        const on = this._lockAccess();
+        this._lockSwitch.visible = on !== null;
+        if (on !== null)
+            this._lockSwitch.setToggleState(on);
+        if (on !== this._lockOn) {
+            this._lockOn = on;
+            console.log(`Blackroom indicator: lock-screen access ${on === null ? 'not installed' : on ? 'on' : 'off'} (state ${Main.extensionManager.lookup(LOCK_EXTENSION)?.state})`);
+        }
     }
 
     _apply(status) {
@@ -175,7 +197,7 @@ class BlackroomIndicator extends PanelMenu.Button {
         if (stateOf(this._status) !== stateOf(status) || this._status === undefined)
             console.log(`Blackroom indicator: ${stateOf(status)}${status ? ` mode=${status.mode}` : ''}`);
         this._status = status;
-        this._url = status ? status.local_url : null;
+        this._showLock();
         if (notice)
             Main.notify(notice.title, notice.body);
         if (ask) {
@@ -194,7 +216,6 @@ class BlackroomIndicator extends PanelMenu.Button {
         this._accept.visible = shown.canApprove;
         this._deny.visible = shown.canApprove;
         this._disconnect.visible = shown.canDisconnect;
-        this._open.visible = shown.canOpen;
         this._host.visible = shown.canHost;
         this._start.visible = shown.canStart;
         this._stop.visible = shown.canStop;

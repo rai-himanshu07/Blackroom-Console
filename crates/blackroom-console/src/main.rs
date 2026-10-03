@@ -109,6 +109,13 @@ struct Args {
     blackroom_cli: Option<PathBuf>,
     #[arg(long)]
     hostd_state_dir: Option<PathBuf>,
+    /// The `gnome-extensions` command the settings page uses for the lock-screen extension (default: from PATH). For tests.
+    #[arg(long)]
+    gnome_extensions: Option<PathBuf>,
+    /// Do not offer the laptop's D-Bus service (the top-bar indicator then shows the console as off). For tests that must
+    /// not touch the real session bus.
+    #[arg(long)]
+    no_control: bool,
     /// The PAM helper that checks that password (default: `pam-auth-helper` next to this binary).
     #[arg(long)]
     pam_helper: Option<PathBuf>,
@@ -224,6 +231,8 @@ struct HostPageArgs {
     cli: Option<PathBuf>,
     state_dir: Option<PathBuf>,
     effective: serde_json::Value,
+    hostd_runtime: PathBuf,
+    gnome_extensions: Option<PathBuf>,
 }
 
 /// True when systemd says this process is the unit's main process (a console started by hand is not).
@@ -287,6 +296,11 @@ async fn start_host_page(args: &HostPageArgs, console: &RemoteConsole) -> Option
                 }
             }
         },
+        hostd_runtime: args.hostd_runtime.clone(),
+        gnome_extensions: args
+            .gnome_extensions
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("gnome-extensions")),
         state_dir: args
             .state_dir
             .clone()
@@ -402,7 +416,36 @@ async fn main() -> anyhow::Result<()> {
     if host.audio_sink.is_some() {
         args.audio_sink.clone_from(&host.audio_sink);
     }
+    // How clients sign in: the owner's choice wins; a login authority that is not running falls back to the token address.
+    let default_hostd = runtime.join("blackroom-hostd");
+    let mut login_note = None::<String>;
+    match host.login {
+        Some(blackroom_console::host::LoginMethod::Hostd) => {
+            args.auth_dir = None;
+            let dir = args
+                .hostd_dir
+                .clone()
+                .unwrap_or_else(|| default_hostd.clone());
+            if sockets_present(&dir) {
+                args.hostd_dir = Some(dir);
+            } else {
+                args.hostd_dir = None;
+                login_note = Some(
+                    "the login authority (remote-hostd) is not running, so the one-time address is used: set it up in the host settings"
+                        .into(),
+                );
+                tracing::warn!("{}", login_note.as_deref().unwrap_or_default());
+            }
+        }
+        Some(blackroom_console::host::LoginMethod::Token) => {
+            args.hostd_dir = None;
+            args.auth_dir = None;
+        }
+        None => {}
+    }
     let args_for_host_page = HostPageArgs {
+        hostd_runtime: args.hostd_dir.clone().unwrap_or(default_hostd),
+        gnome_extensions: args.gnome_extensions.clone(),
         listen: args
             .host_listen
             .or_else(|| (!args.headless).then(|| SocketAddr::from(([127, 0, 0, 1], 8090)))),
@@ -418,6 +461,8 @@ async fn main() -> anyhow::Result<()> {
             "clipboard": args.clipboard,
             "audio_sink": args.audio_sink,
             "hostd_login": args.hostd_dir.is_some(),
+            "login_method": if args.hostd_dir.is_some() { "hostd" } else if args.auth_dir.is_some() { "totp" } else { "token" },
+            "login_note": login_note,
         }),
     };
     let ice_config = ice_config_from(&args)?;
@@ -596,23 +641,17 @@ async fn main() -> anyhow::Result<()> {
         state_dir.display()
     );
 
-    let local_url = match args.tls_listen {
-        Some(addr) => format!("https://localhost:{}/", addr.port()),
-        None => format!("http://localhost:{}/", http.local_addr()?.port()),
-    };
     let host_url = start_host_page(&args_for_host_page, &console).await;
     // Held until exit; the indicator shows "off" without it, so a failure here is only a warning.
-    let _control = match blackroom_console::control::serve(
-        console.clone(),
-        blackroom_console::control::Urls {
-            page: Some(local_url),
-            host: host_url,
-        },
-    ) {
-        Ok(connection) => Some(connection),
-        Err(error) => {
-            tracing::warn!(%error, "the laptop indicator service is not available");
-            None
+    let _control = if args.no_control {
+        None
+    } else {
+        match blackroom_console::control::serve(console.clone(), host_url) {
+            Ok(connection) => Some(connection),
+            Err(error) => {
+                tracing::warn!(%error, "the laptop indicator service is not available");
+                None
+            }
         }
     };
 

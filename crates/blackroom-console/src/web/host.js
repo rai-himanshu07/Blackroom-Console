@@ -96,6 +96,25 @@ function renderForm(snapshot) {
   updateDirty();
 }
 
+function renderLogin(snapshot) {
+  const names = { hostd: "Linux password + authenticator code + key", totp: "authenticator code", token: "the one-time address" };
+  const parts = [`Right now clients sign in with ${names[snapshot.effective.login_method] ?? snapshot.effective.login_method}.`,
+    snapshot.login.ready ? "The login authority is running." : "The login authority is not running (not set up yet, or stopped)."];
+  if (snapshot.effective.login_note) parts.push(snapshot.effective.login_note + ".");
+  $("loginNote").textContent = parts.join(" ");
+}
+
+function renderLock(snapshot) {
+  const lock = snapshot.lockscreen;
+  if (document.activeElement === $("lockOn")) return;
+  $("lockOn").checked = lock.enabled && lock.active;
+  $("lockOn").disabled = !lock.installed;
+  $("lockNote").textContent = !lock.installed
+    ? "The lock-screen extension is not installed (the .deb installs it; log out and in once so GNOME finds it)."
+    : lock.enabled && !lock.active ? "It is switched on but GNOME has not loaded it yet: log out and in once."
+    : lock.enabled ? "On: a remote session can be opened on the lock screen." : "Off: locking the laptop ends remote sessions.";
+}
+
 function renderStatus(snapshot) {
   const status = snapshot.status;
   const lines = { idle: "Ready: nobody is connected", starting: "A remote session is starting", running: `A ${status.mode} session is running`, stopping: "A session is ending" };
@@ -126,6 +145,8 @@ async function load(first) {
   show("app");
   if (first || !dirty()) renderForm(data);
   renderStatus(data);
+  renderLogin(data);
+  renderLock(data);
   return true;
 }
 
@@ -200,6 +221,16 @@ for (const [id, accept] of [["askAccept", true], ["askDeny", false]]) {
   });
 }
 
+$("lockOn").addEventListener("change", async () => {
+  const wanted = $("lockOn").checked;
+  if (wanted && !window.confirm("Allow remote sessions on the lock screen? While this is on, locking the laptop no longer ends a remote session.")) { $("lockOn").checked = false; return; }
+  const reply = await api("POST", "/host/lockscreen", { enabled: wanted, password: $("lockPassword").value });
+  $("lockPassword").value = "";
+  if (!reply.ok) { $("lockOn").checked = !wanted; $("saveNote").textContent = reply.data.error ?? "That did not work."; return; }
+  $("saveNote").textContent = wanted ? "Remote use on the lock screen is on." : "Remote use on the lock screen is off.";
+  await load(false);
+});
+
 // ---- credentials: the laptop's own `blackroom` command does the work; secrets are shown once and not kept ----
 let hideTimer = 0;
 function hideSecret() {
@@ -241,6 +272,7 @@ async function change(action, extra, question) {
   await loadCredentials();
 }
 
+$("loginSetup").addEventListener("click", () => change("setup", {}, "Set up the login authority? It creates an authenticator, a Remote Access Key and recovery codes (shown once) if you do not have them yet, and starts remote-hostd."));
 $("credKey").addEventListener("click", () => change("rotate_key", { revoke_devices: $("credForget").checked }, "Make a new Remote Access Key? The old one stops working."));
 $("credCodes").addEventListener("click", () => change("recovery_codes", {}, "Make new recovery codes? The old ones stop working."));
 $("credReset").addEventListener("click", () => change("reset_security", {}, "New authenticator, key and recovery codes? Every old secret, trusted browser and remote login stops working."));
