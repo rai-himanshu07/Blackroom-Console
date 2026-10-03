@@ -6,58 +6,211 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<meta name="theme-color" content="#181818">
+<meta name="theme-color" content="#0f1115">
 <title>Blackroom Console</title>
 <link rel="stylesheet" href="/app.css">
 </head>
-<body>
-<div id="bar">
-  <div class="row">
-    <button id="start">Start</button>
-    <button id="stop">Stop</button>
-    <select id="quality" title="Quality" aria-label="Video quality">
-      <option value="low">Low</option>
-      <option value="medium">Medium</option>
-      <option value="high">High</option>
-    </select>
-    <select id="transport" title="Video transport" aria-label="Video transport">
-      <option value="auto">Video: auto</option>
-      <option value="mjpeg">Video: MJPEG</option>
-    </select>
-    <button id="full" aria-label="Toggle fullscreen">Fullscreen</button><!--LOGOUT-->
-    <span id="chip" role="button" tabindex="0" aria-live="polite" aria-label="Connection status; press for diagnostics" title="Status: press for diagnostics">idle</span>
+<body data-view="home">
+
+<main id="home">
+  <header class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#1d5fb4"/><rect x="6" y="8" width="20" height="13" rx="2" fill="none" stroke="#fff" stroke-width="2"/><path d="M11 25h10" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+    <div><h1>Blackroom Console</h1><p id="hostline">Remote control for this laptop</p></div>
+    <!--LOGOUT-->
+  </header>
+
+  <section class="card" aria-labelledby="hostname">
+    <div class="hostrow">
+      <div class="hosticon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+      <div class="hosttext"><strong id="hostname">This laptop</strong><span id="hoststate" class="pill" role="status">Checking...</span></div>
+    </div>
+    <p id="hostnote" class="note" hidden></p>
+
+    <div class="modes" role="radiogroup" aria-label="Connection mode">
+      <button type="button" class="mode" role="radio" data-preset="private" aria-checked="true">
+        <b>Private</b><span>Blank this laptop's screen and lock its keyboard and touchpad while you are connected.</span>
+      </button>
+      <button type="button" class="mode" role="radio" data-preset="shared" aria-checked="false">
+        <b>Shared</b><span>Leave the laptop as it is. Watch and control together with whoever is sitting at it.</span>
+      </button>
+    </div>
+    <p id="modenote" class="note"></p>
+
+    <div class="toggles">
+      <label class="switch"><input type="checkbox" id="homeAudio"><span>Sound from the laptop</span></label>
+      <label class="switch"><input type="checkbox" id="homeLock"><span>Lock the laptop when I disconnect</span></label>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="connect" class="primary">Connect</button>
+      <button type="button" id="openSettings" class="ghost">Settings</button>
+    </div>
+  </section>
+
+  <section class="card" id="installCard" hidden>
+    <strong>Install as an app</strong>
+    <p class="note">Open Blackroom Console in its own window, like an app on this device.</p>
+    <button type="button" id="installBtn" class="ghost">Install</button>
+  </section>
+
+  <footer><span id="version">Blackroom Console</span></footer>
+</main>
+
+<main id="session" aria-label="Remote desktop">
+  <div id="stage" class="scale-fit">
+    <img id="mjpeg" class="media" alt="remote desktop" draggable="false">
+    <video id="rtc" class="media" autoplay muted playsinline webkit-playsinline aria-label="Remote desktop video" disablepictureinpicture></video>
+    <div id="msg" role="status" aria-live="polite"></div>
   </div>
-  <div class="row" id="mods">
-    <button data-mod="ControlLeft">Ctrl</button>
-    <button data-mod="AltLeft">Alt</button>
-    <button data-mod="ShiftLeft">Shift</button>
-    <button data-mod="MetaLeft">Super</button>
-    <button data-tap="Escape">Esc</button>
-    <button data-tap="Tab">Tab</button>
-    <button data-tap="ArrowLeft">&larr;</button>
-    <button data-tap="ArrowUp">&uarr;</button>
-    <button data-tap="ArrowDown">&darr;</button>
-    <button data-tap="ArrowRight">&rarr;</button>
-    <button id="mode" aria-label="Pointer mode: trackpad or direct touch">Trackpad</button>
-    <button id="rclick" aria-label="Right-click the next tap" aria-pressed="false">Right-click</button>
-    <button id="kbbtn" aria-label="Open the on-screen keyboard">Keyboard</button>
+  <button type="button" id="menuBtn" aria-label="Open the menu" aria-expanded="false" aria-controls="menu">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <span id="timer">00:00</span>
+  </button>
+
+  <div id="menu" role="dialog" aria-label="Session menu" hidden>
+    <div class="menuhead">
+      <span id="chip" role="button" tabindex="0" aria-live="polite" aria-label="Connection status; press for diagnostics" title="Status: press for diagnostics">idle</span>
+      <button type="button" id="stop" class="danger">Disconnect</button>
+      <button type="button" id="menuClose" class="ghost" aria-label="Close the menu">Close</button>
+    </div>
+    <pre id="diag" aria-live="off"></pre>
+
+    <div class="row">
+      <button type="button" id="full" aria-label="Toggle fullscreen">Fullscreen</button>
+      <button type="button" id="kbbtn" aria-label="Open the on-screen keyboard">Keyboard</button>
+      <button type="button" id="mode" aria-label="Pointer mode: trackpad or direct touch">Trackpad</button>
+      <button type="button" id="rclick" aria-label="Right-click the next tap" aria-pressed="false">Right-click</button>
+    </div>
+
+    <div class="row">
+      <label class="field">Scale
+        <select id="scale" aria-label="Picture scale">
+          <option value="fit">Fit</option><option value="stretch">Stretch</option><option value="actual">1:1</option>
+        </select>
+      </label>
+      <label class="field">Quality
+        <select id="quality" title="Quality" aria-label="Video quality">
+          <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+        </select>
+      </label>
+      <label class="field">Transport
+        <select id="transport" title="Video transport" aria-label="Video transport">
+          <option value="auto">Auto</option><option value="mjpeg">MJPEG</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row" id="soundrow">
+      <button type="button" id="soundBtn" aria-pressed="false">Sound off</button>
+      <label class="field grow">Volume <input type="range" id="volume" min="0" max="100" aria-label="Volume"></label>
+      <span id="soundnote" class="note"></span>
+    </div>
+
+    <div class="row" id="mods">
+      <button type="button" data-mod="ControlLeft">Ctrl</button>
+      <button type="button" data-mod="AltLeft">Alt</button>
+      <button type="button" data-mod="ShiftLeft">Shift</button>
+      <button type="button" data-mod="MetaLeft">Super</button>
+      <button type="button" data-tap="Escape">Esc</button>
+      <button type="button" data-tap="Tab">Tab</button>
+      <button type="button" data-tap="ArrowLeft">&larr;</button>
+      <button type="button" data-tap="ArrowUp">&uarr;</button>
+      <button type="button" data-tap="ArrowDown">&darr;</button>
+      <button type="button" data-tap="ArrowRight">&rarr;</button>
+    </div>
+
+    <div class="row" id="clip">
+      <textarea id="cliptext" placeholder="Clipboard text" aria-label="Clipboard text" spellcheck="false" autocomplete="off"></textarea>
+      <button type="button" id="clipsend" title="Put this text on the laptop clipboard">Send to laptop</button>
+      <button type="button" id="clipget" title="Show the laptop clipboard text here and copy it on this device">Get from laptop</button>
+      <span id="clipmsg" role="status"></span>
+    </div>
+
+    <div class="row"><button type="button" id="menuSettings" class="ghost">Settings</button></div>
   </div>
-  <div class="row" id="clip">
-    <textarea id="cliptext" placeholder="Clipboard text" aria-label="Clipboard text" spellcheck="false" autocomplete="off"></textarea>
-    <button id="clipsend" title="Put this text on the laptop clipboard">Send to laptop</button>
-    <button id="clipget" title="Show the laptop clipboard text here and copy it on this device">Get from laptop</button>
-    <span id="clipmsg" role="status"></span>
+</main>
+
+<div id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheettitle" hidden>
+  <div class="sheetbox">
+    <header class="sheethead"><h2 id="sheettitle">Settings</h2><button type="button" id="sheetClose" class="ghost" aria-label="Close settings">Done</button></header>
+    <nav class="tabs" role="tablist" aria-label="Settings sections">
+      <button type="button" role="tab" data-tab="conn" aria-selected="true">Connection</button>
+      <button type="button" role="tab" data-tab="display" aria-selected="false">Display</button>
+      <button type="button" role="tab" data-tab="sound" aria-selected="false">Sound</button>
+      <button type="button" role="tab" data-tab="input" aria-selected="false">Input</button>
+      <button type="button" role="tab" data-tab="limits" aria-selected="false">Session</button>
+    </nav>
+
+    <div class="pane" data-pane="conn" role="tabpanel">
+      <label class="switch"><input type="checkbox" data-key="session.blank_panel"><span><b>Blank this laptop's screen</b><small>Hides the desktop from anyone in the room. The screen is restored when you disconnect.</small></span></label>
+      <label class="switch"><input type="checkbox" data-key="session.block_local_input"><span><b>Block this laptop's keyboard and touchpad</b><small>Only you can type. Holding Ctrl+Shift+Alt+Esc on the laptop for 2 seconds always ends the session.</small></span></label>
+      <label class="switch"><input type="checkbox" data-key="session.lock_on_stop"><span><b>Lock the laptop when I disconnect</b><small>Recommended when the screen was blanked.</small></span></label>
+    </div>
+
+    <div class="pane" data-pane="display" role="tabpanel" hidden>
+      <label class="field">Quality
+        <select data-key="client.quality"><option value="low">Low (saves data)</option><option value="medium">Medium</option><option value="high">High</option></select>
+      </label>
+      <label class="field">Resolution (when the screen is blanked)
+        <select data-key="ui.resolution">
+          <option value="native">The laptop's own</option>
+          <option value="fit">Match this device</option>
+          <option value="1280x720">1280 x 720</option>
+          <option value="1920x1080">1920 x 1080</option>
+          <option value="2560x1440">2560 x 1440</option>
+        </select>
+      </label>
+      <label class="field">Scale in this window
+        <select data-key="client.scale"><option value="fit">Fit (whole screen)</option><option value="stretch">Stretch to the window</option><option value="actual">1:1 (scroll to follow the pointer)</option></select>
+      </label>
+      <label class="field">Frame rate limit
+        <select data-key="session.fps_cap" data-type="number"><option value="0">Automatic</option><option value="10">10</option><option value="15">15</option><option value="24">24</option><option value="30">30</option><option value="60">60</option></select>
+      </label>
+      <label class="field">Bitrate limit
+        <select data-key="session.bitrate_kbps" data-type="number"><option value="0">Automatic</option><option value="1000">1 Mbit/s</option><option value="2500">2.5 Mbit/s</option><option value="5000">5 Mbit/s</option><option value="8000">8 Mbit/s</option><option value="12000">12 Mbit/s</option><option value="20000">20 Mbit/s</option></select>
+      </label>
+      <label class="switch"><input type="checkbox" data-key="session.cursor_in_video"><span><b>Show the laptop's pointer in the picture</b><small>Off keeps the picture clean and uses the on-screen pointer marker.</small></span></label>
+      <label class="switch"><input type="checkbox" data-key="client.show_local_cursor"><span><b>Show this device's pointer over the picture</b><small>For mouse users.</small></span></label>
+    </div>
+
+    <div class="pane" data-pane="sound" role="tabpanel" hidden>
+      <label class="switch"><input type="checkbox" data-key="session.audio"><span><b>Play the laptop's sound here</b><small>Needs the WebRTC video transport. Whatever the laptop plays, you hear.</small></span></label>
+      <label class="field">Volume <input type="range" min="0" max="100" data-key="client.volume" data-type="number"></label>
+    </div>
+
+    <div class="pane" data-pane="input" role="tabpanel" hidden>
+      <label class="field">Touch screen
+        <select data-key="client.touch_mode"><option value="trackpad">Trackpad (drag moves the pointer)</option><option value="touch">Direct touch</option></select>
+      </label>
+      <label class="field">On-screen keyboard typing
+        <select data-key="client.text_mode"><option value="keys">Key presses (US layout)</option><option value="text">Characters (any laptop layout)</option></select>
+      </label>
+      <label class="switch"><input type="checkbox" data-key="client.mac_keys"><span><b>Command acts as Control</b><small>For Mac and iPad keyboards: Command+C copies on the laptop.</small></span></label>
+    </div>
+
+    <div class="pane" data-pane="limits" role="tabpanel" hidden>
+      <label class="field">Disconnect when this device goes silent for
+        <select data-key="session.heartbeat_secs" data-type="number-or-null"><option value="">The laptop's default</option><option value="10">10 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option></select>
+      </label>
+      <label class="field">Disconnect after no input for
+        <select data-key="session.idle_minutes" data-type="number"><option value="0">Never</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="240">4 hours</option></select>
+      </label>
+      <label class="field">Longest session
+        <select data-key="session.max_hours" data-type="number"><option value="0">No limit</option><option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="24">24 hours</option></select>
+      </label>
+    </div>
+
+    <footer class="sheetfoot">
+      <span id="sheetnote" class="note" role="status">Saved on the laptop: every device starts the same way.</span>
+      <button type="button" id="settingsReset" class="ghost">Reset to defaults</button>
+    </footer>
   </div>
 </div>
-<button id="barToggle" title="Hide or show the controls" aria-label="Hide or show the controls" aria-expanded="true">&#9650;</button>
-<pre id="diag" aria-live="off"></pre>
-<div id="stage">
-  <img id="mjpeg" class="media" alt="remote desktop" draggable="false">
-  <video id="rtc" class="media" autoplay muted playsinline webkit-playsinline aria-label="Remote desktop video" disablepictureinpicture></video>
-  <div id="msg" role="status" aria-live="polite">Press Start. The laptop screen goes blank and its keyboard and touchpad stop working until you press Stop.</div>
-</div>
+
+<div id="toasts" role="status" aria-live="polite"></div>
 <div id="dot"></div>
 <input id="kb" aria-label="Keyboard input for the laptop" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
 <script src="/app.js"></script>
+<script src="/ui.js"></script>
 </body>
 </html>

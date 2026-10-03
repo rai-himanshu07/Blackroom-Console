@@ -27,7 +27,6 @@ const CHARS = (() => {
   return map;
 })();
 const BTN = { 0: 0x110, 1: 0x112, 2: 0x111 };
-const IDLE_TEXT = "Press Start. The laptop screen goes blank and its keyboard and touchpad stop working until you press Stop.";
 
 const $ = (id) => document.getElementById(id);
 // Safari with blocked site data throws on localStorage; settings are then simply not remembered.
@@ -56,12 +55,17 @@ async function post(path, body) {
 }
 
 // ---- video: WebRTC H.264 first, MJPEG as the fallback ----
+let audioBlocked = false;
 let pc = null, inputChannel = null, usingRtc = false, videoStarted = false, statsTimer = null, lastStats = null, statsText = "", transportNote = "";
 
 function surface() { return usingRtc ? rtcVideo : mjpeg; }
 
+// How the picture sits in the window: "fit" letterboxes, "stretch" fills, "actual" is one remote pixel per page pixel.
+let stageScale = "fit";
+
 function contentRect() {
   const r = surface().getBoundingClientRect();
+  if (stageScale !== "fit") return { left: r.left, top: r.top, width: r.width, height: r.height };
   const aspect = remote.w / remote.h;
   let w = r.width, h = r.height;
   if (w / h > aspect) w = h * aspect; else h = w / aspect;
@@ -117,6 +121,7 @@ async function startWebRtc() {
   const wantAudio = !!(lastState && lastState.session && lastState.session.audio);
   if (wantAudio) peer.addTransceiver("audio", { direction: "recvonly" });
   rtcVideo.muted = !wantAudio;
+  if (typeof settings !== "undefined") rtcVideo.volume = settings.client.volume / 100;
   const channel = peer.createDataChannel("input");
   channel.onopen = () => { if (pc === peer) inputChannel = channel; };
   channel.onclose = () => { if (inputChannel === channel) inputChannel = null; };
@@ -136,7 +141,8 @@ async function startWebRtc() {
   usingRtc = true;
   mjpeg.removeAttribute("src"); mjpeg.style.display = "none";
   rtcVideo.style.display = "block";
-  rtcVideo.play().catch(() => {});
+  // A browser may refuse sound before a tap: play silently and let the sound button unmute.
+  rtcVideo.play().catch(() => { if (!rtcVideo.muted) { rtcVideo.muted = true; audioBlocked = true; rtcVideo.play().catch(() => {}); } });
   rtcBackoff = 10000;
   peer.onconnectionstatechange = () => {
     if (pc === peer && (peer.connectionState === "failed" || peer.connectionState === "closed") && running) {
@@ -259,6 +265,15 @@ function setCursor(x, y) {
   cursor.x = clamp01(x); cursor.y = clamp01(y);
   send({ t: "move", x: cursor.x, y: cursor.y });
   placeDot();
+  if (stageScale === "actual") followCursor();
+}
+
+// At 1:1 the picture is larger than the window: keep the pointer marker in view.
+function followCursor() {
+  const stage = $("stage"), r = surface().getBoundingClientRect(), s = stage.getBoundingClientRect(), m = 80;
+  const x = r.left + cursor.x * r.width, y = r.top + cursor.y * r.height;
+  if (x < s.left + m) stage.scrollLeft -= s.left + m - x; else if (x > s.right - m) stage.scrollLeft += x - (s.right - m);
+  if (y < s.top + m) stage.scrollTop -= s.top + m - y; else if (y > s.bottom - m) stage.scrollTop += y - (s.bottom - m);
 }
 function click(code) { send({ t: "button", code, down: true }); send({ t: "button", code, down: false }); }
 function press(code) { heldButtons.add(code); send({ t: "button", code, down: true }); }
@@ -361,15 +376,21 @@ onSurface("wheel", (event) => {
 }, { passive: false });
 
 // Hardware keyboard: everything goes to the laptop while a session runs.
+// Typing in the menu's or settings' own fields stays in the page; Command acts as Control when the setting says so.
+function forThePage(event) { return !!event.target.closest && !!event.target.closest("textarea, select, input:not(#kb)"); }
+function physical(code) {
+  if (typeof settings === "undefined" || !settings.client.mac_keys) return code;
+  return code === "MetaLeft" ? "ControlLeft" : code === "MetaRight" ? "ControlRight" : code;
+}
 window.addEventListener("keydown", (event) => {
-  if (!running || CODES[event.code] === undefined) return;
+  if (!running || forThePage(event) || CODES[event.code] === undefined) return;
   event.preventDefault();
-  if (!event.repeat) keyEvent(event.code, true);
+  if (!event.repeat) keyEvent(physical(event.code), true);
 });
 window.addEventListener("keyup", (event) => {
-  if (!running || CODES[event.code] === undefined) return;
+  if (!running || forThePage(event) || CODES[event.code] === undefined) return;
   event.preventDefault();
-  keyEvent(event.code, false);
+  keyEvent(physical(event.code), false);
 });
 
 // Soft keyboard (tablets): characters arrive as text input, not as key events.
@@ -379,7 +400,9 @@ kb.addEventListener("beforeinput", (event) => {
   event.preventDefault();
   if (event.inputType === "deleteContentBackward") tap("Backspace");
   else if (event.inputType === "insertLineBreak" || event.inputType === "insertParagraph") tap("Enter");
-  else if (event.data) {
+  else if (event.data && typeof settings !== "undefined" && settings.client.text_mode === "text") {
+    send({ t: "text", s: event.data });
+  } else if (event.data) {
     for (const ch of event.data) {
       const entry = CHARS[ch];
       if (!entry) continue;
@@ -422,8 +445,8 @@ $("clipget").addEventListener("click", async () => {
   } catch (error) { clipSay("Not received: " + error); }
 });
 // A focused button would swallow Space and Enter meant for the laptop.
-$("bar").addEventListener("click", (event) => { if (event.target.tagName === "BUTTON" && event.target.id !== "kbbtn") event.target.blur(); });
-$("bar").addEventListener("change", (event) => event.target.blur());
+$("menu").addEventListener("click", (event) => { if (event.target.tagName === "BUTTON" && event.target.id !== "kbbtn") event.target.blur(); });
+$("menu").addEventListener("change", (event) => event.target.blur());
 
 mods.querySelectorAll("[data-mod]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -445,12 +468,6 @@ window.addEventListener("blur", releaseAll);
 document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
 
 // ---- controls ----
-$("barToggle").addEventListener("click", () => {
-  const hidden = document.body.classList.toggle("nobar");
-  $("barToggle").innerHTML = hidden ? "&#9660;" : "&#9650;";
-  $("barToggle").setAttribute("aria-expanded", String(!hidden));
-  setTimeout(placeDot, 50);
-});
 
 // Fullscreen: the standard API, then Safari's prefixed one. iPhone Safari has neither for pages (it is hidden there).
 const fsRoot = document.documentElement;
@@ -533,10 +550,7 @@ function show(state) {
   lastState = state;
   running = state.phase === "running";
   remote = { w: state.width || remote.w, h: state.height || remote.h };
-  $("start").style.display = running ? "none" : "";
-  $("stop").style.display = running ? "inline-block" : "none";
-  mods.style.display = running ? "flex" : "none";
-  $("clip").style.display = running && state.clipboard ? "flex" : "none";
+  $("clip").hidden = !state.clipboard;
   chip.classList.toggle("live", running);
   if (document.activeElement !== $("quality")) $("quality").value = state.quality;
   if (running) {
@@ -555,10 +569,8 @@ function show(state) {
     if (videoStarted) { videoStarted = false; stopVideo(); }
     chip.textContent = state.phase;
     placeDot();
-    const stop = state.last_stop;
-    if (stop) say(`Stopped: ${stop.reason}\nDisplay restored: ${stop.topology_restored}. Session locked: ${stop.locked}.` + (stop.errors.length ? "\nProblems: " + stop.errors.join("; ") : ""));
-    else if (state.phase === "idle") say(IDLE_TEXT);
   }
+  if (typeof onState === "function") onState(state);
 }
 
 // Link supervision: two failed status polls in a row mean the link is down; when a poll succeeds again the video is
@@ -586,19 +598,6 @@ async function refresh() {
 }
 window.addEventListener("online", () => { refresh(); });
 mjpeg.addEventListener("error", () => { if (running && videoStarted && !usingRtc) { videoStarted = false; stopVideo(); } });
-
-$("start").addEventListener("click", async () => {
-  say("Starting...");
-  $("start").disabled = true;
-  try {
-    await post("/quality", { level: $("quality").value });
-    const response = await post("/start");
-    const body = await response.json();
-    if (!response.ok) say("Could not start: " + (body.error || response.status));
-    else show(body);
-  } catch (error) { say("Could not start: " + error); }
-  $("start").disabled = false;
-});
 
 $("stop").addEventListener("click", async () => {
   releaseAll();

@@ -133,6 +133,12 @@ pub struct Resources {
     pub sessions_stopped: u64,
 }
 
+fn hostname() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .map(|name| name.trim().chars().take(64).collect())
+        .unwrap_or_default()
+}
+
 fn effective_fps(quality: Quality, cap: u32) -> u32 {
     if cap == 0 { quality.max_fps() } else { cap }
 }
@@ -177,6 +183,8 @@ pub struct Status {
     pub audio: &'static str,
     pub audio_note: Option<String>,
     pub session_secs: u64,
+    pub host: String,
+    pub version: &'static str,
 }
 
 /// One input event from the browser. Pointer positions are fractions of the screen.
@@ -651,6 +659,8 @@ impl RemoteConsole {
             audio: audio_state,
             audio_note,
             session,
+            host: hostname(),
+            version: env!("CARGO_PKG_VERSION"),
             session_secs: lock_ok(&self.shared.session_started)
                 .map_or(0, |at| at.elapsed().as_secs()),
         }

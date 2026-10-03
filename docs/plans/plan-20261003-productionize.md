@@ -34,7 +34,7 @@ launcher, multi-monitor selection UI, file transfer, remote power control, mutin
 - [x] **N. Display, rate and cursor options.** (done 2026-10-03; cursor-mode, fps and bitrate caps, `/tuning`; headless modes test) fps cap, bitrate cap, embedded cursor, live apply. Check: headless.
 - [x] **M. Audio.** (done 2026-10-03; Opus branch, `/audio`, `--audio-sink`; headless Chrome decodes a 440 Hz tone from a silent test sink) Opus branch, offer parsing, setting, page control. Check: headless Chrome receives audio from a test tone.
 - [x] **O. Input options.** (done 2026-10-03 server side: keysym text typing proven in the headless Shell; Mac key mapping and text mode switch land in the page, chunk P) keysym text injection, Mac key mapping. Check: unit tests, headless browser.
-- [ ] **P. App shell and UI.** connect screen, in-session menu, settings sheet, toasts, timer, scale modes (fit, stretch,
+- [x] **P. App shell and UI.** (done 2026-10-03; connect screen, menu, settings sheet, toasts, timer, scale modes; headless Chrome walkthrough passes; fixed the logout button blocked by the CSP) connect screen, in-session menu, settings sheet, toasts, timer, scale modes (fit, stretch,
   1:1 with follow-cursor). Check: headless Chrome walkthrough.
 - [ ] **Q. Installable web app.** manifest, icons, service worker, offline page, install button. Check: headless Chrome
   manifest and worker checks, curl.

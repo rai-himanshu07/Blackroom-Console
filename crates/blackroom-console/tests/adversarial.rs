@@ -26,7 +26,7 @@ const POSTS: [&str; 11] = [
     "/tuning",
     "/audio",
 ];
-const GETS: [&str; 8] = [
+const GETS: [&str; 9] = [
     "/",
     "/video",
     "/status",
@@ -35,6 +35,7 @@ const GETS: [&str; 8] = [
     "/settings",
     "/app.js",
     "/app.css",
+    "/ui.js",
 ];
 
 fn app(hardening: Hardening) -> Router {

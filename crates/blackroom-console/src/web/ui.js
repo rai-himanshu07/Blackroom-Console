@@ -1,0 +1,298 @@
+"use strict";
+// The app shell around the remote-desktop engine in app.js: the connect screen, the in-session menu, the settings
+// sheet (saved on the laptop) and toasts.
+
+// ---- settings: the laptop's profile.json, mirrored here ----
+const PRESETS = {
+  private: { blank_panel: true, block_local_input: true, lock_on_stop: true, cursor_in_video: false },
+  shared: { blank_panel: false, block_local_input: false, lock_on_stop: false, cursor_in_video: true },
+};
+const PRESET_NOTES = {
+  private: "The laptop's screen goes dark and its keyboard and touchpad stop until you disconnect.",
+  shared: "The laptop keeps its screen and input. You and the person at the laptop both see and move the pointer.",
+  custom: "A custom mix: change it under Settings > Connection.",
+};
+let settings = {
+  version: 1,
+  session: { blank_panel: true, block_local_input: true, lock_on_stop: true, resolution: null, cursor_in_video: false, audio: false,
+    fps_cap: 0, bitrate_kbps: 0, heartbeat_secs: null, idle_minutes: 0, max_hours: 0 },
+  client: { quality: "medium", scale: "fit", show_local_cursor: false, volume: 80, text_mode: "keys", mac_keys: false,
+    touch_mode: "trackpad", fit_resolution: false },
+};
+
+function toast(text, kind) {
+  const box = document.createElement("div");
+  box.className = "toast" + (kind ? " " + kind : "");
+  box.textContent = text;
+  $("toasts").appendChild(box);
+  setTimeout(() => box.remove(), kind === "bad" ? 8000 : 4000);
+}
+
+function dig(path) { return path.split(".").reduce((o, k) => (o ? o[k] : undefined), settings); }
+function put(path, value) {
+  const keys = path.split("."), last = keys.pop();
+  keys.reduce((o, k) => o[k], settings)[last] = value;
+}
+
+function resolutionChoice() {
+  if (settings.client.fit_resolution) return "fit";
+  const size = settings.session.resolution;
+  return size ? `${size.width}x${size.height}` : "native";
+}
+
+function currentPreset() {
+  const s = settings.session;
+  if (s.blank_panel && s.block_local_input) return "private";
+  if (!s.blank_panel && !s.block_local_input) return "shared";
+  return "custom";
+}
+
+let saveTimer = null;
+function saveSoon(note) {
+  clearTimeout(saveTimer);
+  $("sheetnote").textContent = "Saving...";
+  saveTimer = setTimeout(async () => {
+    try {
+      const response = await post("/settings", settings);
+      const body = await response.json();
+      if (!response.ok) { toast("Settings not saved: " + (body.error || response.status), "bad"); $("sheetnote").textContent = "Not saved."; return; }
+      $("sheetnote").textContent = note || "Saved on the laptop: every device starts the same way.";
+    } catch (error) { toast("Settings not saved: " + error, "bad"); $("sheetnote").textContent = "Not saved."; }
+  }, 350);
+}
+
+// ---- applying settings to the page ----
+function applyClient() {
+  const c = settings.client;
+  stageScale = c.scale;
+  $("stage").className = "scale-" + c.scale;
+  $("scale").value = c.scale;
+  document.body.classList.toggle("localcursor", c.show_local_cursor);
+  rtcVideo.volume = c.volume / 100;
+  $("volume").value = c.volume;
+  if (c.touch_mode !== touchMode) setMode(c.touch_mode);
+  if (document.activeElement !== $("quality")) $("quality").value = c.quality;
+  placeDot();
+}
+
+function applyHome() {
+  const preset = currentPreset();
+  document.querySelectorAll(".mode").forEach((button) => button.setAttribute("aria-checked", String(button.dataset.preset === preset)));
+  $("modenote").textContent = PRESET_NOTES[preset];
+  $("homeAudio").checked = settings.session.audio;
+  $("homeLock").checked = settings.session.lock_on_stop;
+}
+
+function fillSheet() {
+  document.querySelectorAll("[data-key]").forEach((el) => {
+    const key = el.dataset.key;
+    const value = key === "ui.resolution" ? resolutionChoice() : dig(key);
+    if (el.type === "checkbox") el.checked = !!value;
+    else el.value = value === null || value === undefined ? "" : String(value);
+  });
+}
+
+function applyAll() { applyClient(); applyHome(); fillSheet(); }
+
+async function loadSettings() {
+  try {
+    const response = await fetch("/settings", { credentials: "same-origin" });
+    if (response.ok) settings = await response.json();
+  } catch (_) { toast("Could not load the saved settings; using defaults.", "bad"); }
+  applyAll();
+}
+
+function readControl(el) {
+  if (el.type === "checkbox") return el.checked;
+  const type = el.dataset.type;
+  if (type === "number") return Number(el.value);
+  if (type === "number-or-null") return el.value === "" ? null : Number(el.value);
+  return el.value;
+}
+
+function setResolution(choice) {
+  settings.client.fit_resolution = choice === "fit";
+  if (choice === "native" || choice === "fit") settings.session.resolution = null;
+  else { const [width, height] = choice.split("x").map(Number); settings.session.resolution = { width, height }; }
+}
+
+async function liveAudio(enabled) {
+  const response = await post("/audio", { enabled });
+  const state = await response.json();
+  // The sound is part of the WebRTC offer: a new connection carries it.
+  if (videoStarted) { videoStarted = false; stopVideo(); }
+  show(state);
+}
+
+async function liveTuning() {
+  if (!running) return;
+  const response = await post("/tuning", { fps_cap: settings.session.fps_cap, bitrate_kbps: settings.session.bitrate_kbps });
+  if (!response.ok) toast("Could not change the rate limits.", "bad");
+}
+
+document.querySelectorAll("[data-key]").forEach((el) => {
+  const handler = async () => {
+    const key = el.dataset.key;
+    if (key === "ui.resolution") setResolution(el.value); else put(key, readControl(el));
+    applyAll();
+    saveSoon(key.startsWith("session.") ? "Saved. Connection options apply the next time you connect." : undefined);
+    if (key === "client.quality") post("/quality", { level: settings.client.quality }).catch(() => {});
+    if (key === "session.audio" && running) liveAudio(settings.session.audio).catch((e) => toast("Sound: " + e, "bad"));
+    if (key === "session.fps_cap" || key === "session.bitrate_kbps") liveTuning();
+  };
+  el.addEventListener(el.type === "range" ? "input" : "change", handler);
+});
+
+// ---- connect screen ----
+document.querySelectorAll(".mode").forEach((button) => button.addEventListener("click", () => {
+  Object.assign(settings.session, PRESETS[button.dataset.preset]);
+  applyAll(); saveSoon();
+}));
+$("homeAudio").addEventListener("change", () => { settings.session.audio = $("homeAudio").checked; applyAll(); saveSoon(); });
+$("homeLock").addEventListener("change", () => { settings.session.lock_on_stop = $("homeLock").checked; applyAll(); saveSoon(); });
+
+function fitSize() {
+  const ratio = window.devicePixelRatio || 1;
+  let w = window.innerWidth * ratio, h = window.innerHeight * ratio;
+  const k = Math.min(1, 2560 / w, 1440 / h);
+  w = Math.max(640, w * k); h = Math.max(360, h * k);
+  return { width: Math.round(w) & ~1, height: Math.round(h) & ~1 };
+}
+
+async function connect() {
+  $("connect").disabled = true;
+  setHostState("Connecting...", "warn");
+  const options = { ...settings.session };
+  if (settings.client.fit_resolution && options.blank_panel) options.resolution = fitSize();
+  try {
+    await post("/quality", { level: settings.client.quality });
+    const response = await post("/start", options);
+    const body = await response.json();
+    if (!response.ok) { toast("Could not connect: " + (body.error || response.status), "bad"); refresh(); }
+    else show(body);
+  } catch (error) { toast("Could not connect: " + error, "bad"); }
+  $("connect").disabled = false;
+}
+$("connect").addEventListener("click", connect);
+
+function setHostState(text, kind) {
+  const pill = $("hoststate");
+  pill.textContent = text;
+  pill.className = "pill" + (kind ? " " + kind : "");
+}
+
+function reasonText(stop) {
+  const reason = stop.reason.charAt(0).toUpperCase() + stop.reason.slice(1);
+  let text = `Last session ended: ${reason}.`;
+  if (stop.topology_restored === true) text += " The screen was restored.";
+  if (stop.locked === true) text += " The laptop was locked.";
+  if (stop.errors && stop.errors.length) text += " Problems: " + stop.errors.join("; ") + ".";
+  return text;
+}
+
+function fmtTime(total) {
+  const t = Math.max(0, Math.floor(total)), h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const two = (n) => String(n).padStart(2, "0");
+  return h ? `${h}:${two(m)}:${two(s)}` : `${two(m)}:${two(s)}`;
+}
+
+let sessionClock = { secs: 0, at: 0 };
+setInterval(() => { if (running) $("timer").textContent = fmtTime(sessionClock.secs + (performance.now() - sessionClock.at) / 1000); }, 1000);
+
+// Called by app.js after every status poll.
+function onState(state) {
+  $("hostname").textContent = state.host || "This laptop";
+  $("hostline").textContent = state.host ? `Remote control for ${state.host}` : "Remote control for this laptop";
+  $("version").textContent = "Blackroom Console " + (state.version || "");
+  const view = state.phase === "running" ? "session" : "home";
+  if (document.body.dataset.view !== view) {
+    document.body.dataset.view = view;
+    if (view === "home") { closeMenu(); placeDot(); }
+    else { $("diag").style.display = "none"; }
+  }
+  if (view === "session") {
+    sessionClock = { secs: state.session_secs || 0, at: performance.now() };
+    $("timer").textContent = fmtTime(state.session_secs || 0);
+    const audio = state.audio || "off";
+    const on = audio === "on";
+    $("soundBtn").textContent = on ? "Sound on" : audio === "off" ? "Sound off" : audio === "waiting" ? "Sound..." : "No sound";
+    $("soundBtn").setAttribute("aria-pressed", String(on));
+    $("soundnote").textContent = state.audio_note || (audioBlocked ? "Tap Sound to allow it in this browser." : "");
+    $("soundrow").hidden = false;
+    if (state.mode) document.body.dataset.mode = state.mode;
+    return;
+  }
+  const busy = state.phase === "starting" || state.phase === "stopping";
+  $("connect").disabled = busy;
+  if (linkLost) setHostState("No connection", "warn");
+  else if (busy) setHostState(state.phase === "starting" ? "Connecting..." : "Disconnecting...", "warn");
+  else setHostState("Ready", "live");
+  const stop = state.last_stop;
+  $("hostnote").hidden = !stop;
+  if (stop) $("hostnote").textContent = reasonText(stop);
+}
+
+// ---- in-session menu ----
+function openMenu() {
+  releaseAll();
+  $("menu").hidden = false;
+  $("menuBtn").setAttribute("aria-expanded", "true");
+  $("menuClose").focus();
+}
+function closeMenu() {
+  $("menu").hidden = true;
+  $("menuBtn").setAttribute("aria-expanded", "false");
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+$("menuBtn").addEventListener("click", () => ($("menu").hidden ? openMenu() : closeMenu()));
+$("menuClose").addEventListener("click", closeMenu);
+$("stop").addEventListener("click", closeMenu);
+
+$("scale").addEventListener("change", () => { settings.client.scale = $("scale").value; applyAll(); saveSoon(); });
+$("quality").addEventListener("change", () => { settings.client.quality = $("quality").value; fillSheet(); saveSoon(); });
+$("mode").addEventListener("click", () => { settings.client.touch_mode = touchMode; fillSheet(); saveSoon(); });
+$("volume").addEventListener("input", () => { settings.client.volume = Number($("volume").value); rtcVideo.volume = settings.client.volume / 100; fillSheet(); saveSoon(); });
+$("soundBtn").addEventListener("click", async () => {
+  if (audioBlocked) { rtcVideo.muted = false; audioBlocked = false; $("soundnote").textContent = ""; return; }
+  const enable = !(lastState && lastState.audio === "on");
+  settings.session.audio = enable; applyAll(); saveSoon();
+  try { await liveAudio(enable); } catch (error) { toast("Sound: " + error, "bad"); }
+});
+$("menuSettings").addEventListener("click", () => openSheet());
+
+// ---- settings sheet ----
+let sheetReturn = null;
+function openSheet() {
+  fillSheet();
+  sheetReturn = document.activeElement;
+  $("sheet").hidden = false;
+  $("sheetClose").focus();
+}
+function closeSheet() {
+  $("sheet").hidden = true;
+  if (sheetReturn && sheetReturn.focus) sheetReturn.focus();
+}
+$("openSettings").addEventListener("click", openSheet);
+$("sheetClose").addEventListener("click", closeSheet);
+$("sheet").addEventListener("click", (event) => { if (event.target === $("sheet")) closeSheet(); });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("sheet").hidden) { event.stopPropagation(); event.preventDefault(); closeSheet(); }
+}, true);
+document.querySelectorAll(".tabs [data-tab]").forEach((tab) => tab.addEventListener("click", () => {
+  document.querySelectorAll(".tabs [data-tab]").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
+  document.querySelectorAll(".pane").forEach((pane) => { pane.hidden = pane.dataset.pane !== tab.dataset.tab; });
+}));
+$("settingsReset").addEventListener("click", async () => {
+  if (!window.confirm("Reset every setting to its default?")) return;
+  try {
+    const response = await post("/settings/reset");
+    if (response.ok) { settings = await response.json(); applyAll(); toast("Settings reset."); }
+  } catch (error) { toast("Could not reset: " + error, "bad"); }
+});
+
+// ---- the rest ----
+const logout = $("logout");
+if (logout) logout.addEventListener("click", () => { fetch("/logout", { method: "POST", credentials: "same-origin" }).then(() => location.reload()); });
+
+applyAll();
+loadSettings();

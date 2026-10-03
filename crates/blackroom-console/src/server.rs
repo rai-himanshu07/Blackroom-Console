@@ -27,9 +27,11 @@ use crate::profile::Profile;
 const PAGE: &str = include_str!("web/index.html");
 const APP_JS: &str = include_str!("web/app.js");
 const APP_CSS: &str = include_str!("web/app.css");
+const UI_JS: &str = include_str!("web/ui.js");
 const LOGIN_PAGE: &str = include_str!("login.html");
 const LOGIN_FULL_PAGE: &str = include_str!("login_full.html");
-const LOGOUT_BUTTON: &str = r#"<button id="logout" onclick="fetch('/logout',{method:'POST',credentials:'same-origin'}).then(()=>location.reload())">Log out</button>"#;
+// No inline handler: the page's CSP allows only its own script files; ui.js wires this button by id.
+const LOGOUT_BUTTON: &str = r#"<button type="button" id="logout" class="ghost">Log out</button>"#;
 const SESSION_COOKIE: &str = "br_session";
 /// Start options and (later) settings: small JSON documents.
 const MAX_SETTINGS_BODY: usize = 16 * 1024;
@@ -209,6 +211,7 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
         .route("/", get(index))
         .route("/app.js", get(app_js))
         .route("/app.css", get(app_css))
+        .route("/ui.js", get(ui_js))
         .route("/video", get(video))
         .route("/status", get(status))
         .route(
@@ -837,6 +840,13 @@ async fn app_js(State(state): State<AppState>, headers: HeaderMap) -> Response {
         return refusal;
     }
     ([(CONTENT_TYPE, "text/javascript; charset=utf-8")], APP_JS).into_response()
+}
+
+async fn ui_js(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    ([(CONTENT_TYPE, "text/javascript; charset=utf-8")], UI_JS).into_response()
 }
 
 async fn app_css(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -1744,6 +1754,28 @@ mod tests {
             .unwrap();
         assert!(String::from_utf8_lossy(&body).contains("\"quality\":\"high\""));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn no_page_uses_an_inline_event_handler_the_policy_would_block() {
+        let handler = |text: &str| {
+            text.split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|word| {
+                    word.len() > 2 && word.starts_with("on") && text.contains(&format!(" {word}="))
+                })
+        };
+        for (name, text) in [
+            ("index", PAGE),
+            ("login", LOGIN_PAGE),
+            ("login_full", LOGIN_FULL_PAGE),
+            ("logout button", LOGOUT_BUTTON),
+        ] {
+            assert!(!handler(text), "{name} has an inline event handler");
+            assert!(
+                !text.contains("javascript:"),
+                "{name} has a javascript: URL"
+            );
+        }
     }
 
     #[tokio::test]

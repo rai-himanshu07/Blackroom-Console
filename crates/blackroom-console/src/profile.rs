@@ -55,6 +55,8 @@ pub struct ClientSettings {
     /// Command (Meta) acts as Control: for Mac and iPad keyboards.
     pub mac_keys: bool,
     pub touch_mode: TouchMode,
+    /// Size the blanked screen to this device's window at connect (the page computes it).
+    pub fit_resolution: bool,
 }
 
 impl Default for ClientSettings {
@@ -67,6 +69,7 @@ impl Default for ClientSettings {
             text_mode: TextMode::Keys,
             mac_keys: false,
             touch_mode: TouchMode::Trackpad,
+            fit_resolution: false,
         }
     }
 }

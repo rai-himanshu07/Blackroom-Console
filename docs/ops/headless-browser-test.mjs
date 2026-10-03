@@ -41,15 +41,36 @@ await cdp("Page.enable");
 await cdp("Runtime.enable");
 await cdp("Page.navigate", { url });
 await sleep(2500);
-check("page loaded", (await js("document.getElementById('start') !== null")) === true);
+check("page loaded on the connect screen", (await js("document.getElementById('connect') !== null && document.body.dataset.view")) === "home");
+await sleep(500);
+check("the connect screen names the laptop", (await js("document.getElementById('hostname').textContent.trim().length > 0")) === true);
+const unnamedHome = await js(`[...document.querySelectorAll("button, select, textarea, input, [role=button]")].filter((el) => el.getClientRects().length && !(el.getAttribute("aria-label") || el.textContent.trim() || el.getAttribute("title") || el.getAttribute("placeholder") || (el.closest("label") && el.closest("label").textContent.trim()))).map((el) => el.id || el.tagName)`);
+check("every connect-screen control has an accessible name", unnamedHome.length === 0, JSON.stringify(unnamedHome));
 
-await js("document.getElementById('quality').value = 'high'; document.getElementById('quality').dispatchEvent(new Event('change', {bubbles: true}))");
+// Presets and the settings sheet (saved on the laptop).
+await js("document.querySelector('.mode[data-preset=shared]').click()");
+check("the Shared preset leaves screen and input alone", (await js("!settings.session.blank_panel && !settings.session.block_local_input && currentPreset() === 'shared'")) === true);
+await js("document.querySelector('.mode[data-preset=private]').click()");
+check("the Private preset blanks and blocks", (await js("settings.session.blank_panel && settings.session.block_local_input && currentPreset() === 'private'")) === true);
+await js("document.getElementById('openSettings').click()");
+check("the settings sheet opens", (await js("!document.getElementById('sheet').hidden")) === true);
+await js("document.querySelector('.tabs [data-tab=display]').click()");
+check("tabs switch panes", (await js("!document.querySelector('[data-pane=display]').hidden && document.querySelector('[data-pane=conn]').hidden")) === true);
+await js("(() => { const el = document.querySelector('[data-key=\"client.scale\"]'); el.value = 'actual'; el.dispatchEvent(new Event('change', {bubbles: true})); })()");
+await sleep(900);
+const savedScale = await js("fetch('/settings', {credentials: 'same-origin'}).then((r) => r.json()).then((s) => s.client.scale)");
+check("a changed setting is saved on the laptop", savedScale === "actual" && (await js("stageScale")) === "actual");
+await js("(() => { const el = document.querySelector('[data-key=\"client.scale\"]'); el.value = 'fit'; el.dispatchEvent(new Event('change', {bubbles: true})); })()");
+await js("document.getElementById('sheetClose').click()");
+check("the settings sheet closes", (await js("document.getElementById('sheet').hidden")) === true);
+await sleep(600);
+
 const withAudio = process.env.BR_AUDIO_TEST === "1";
+await js("settings.client.quality = 'high'; applyAll()");
 if (withAudio) {
-  const saved = await js("fetch('/settings', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session: {audio: true}})}).then((r) => r.status)");
-  check("audio enabled in the saved settings", saved === 200, `(${saved})`);
+  await js("settings.session.audio = true; applyAll()");
 }
-await js("document.getElementById('start').click()");
+await js("document.getElementById('connect').click()");
 let state = {};
 for (let i = 0; i < 60; i++) {
   await sleep(500);
@@ -61,7 +82,8 @@ for (let i = 0; i < 60; i++) {
 console.log("state:", JSON.stringify(state));
 check("webrtc video decoded at 1920 wide", state.w === 1920, `(videoWidth ${state.w})`);
 check("webrtc element shown", state.shown === "block");
-check("Stop button is visible while running", (await js("getComputedStyle(document.getElementById('stop')).display")) !== "none");
+check("the view switched to the session", (await js("document.body.dataset.view")) === "session");
+check("the menu opens from its button", (await js("(() => { document.getElementById('menuBtn').click(); return !document.getElementById('menu').hidden; })()")) === true);
 await sleep(3000);
 const stats = await js(`(async () => { const r = await fetch('/status', {credentials: 'same-origin'}); const s = await r.json(); const q = document.getElementById('rtc'); return {s, frames: q.getVideoPlaybackQuality ? q.getVideoPlaybackQuality().totalVideoFrames : -1, chip: document.getElementById('chip').textContent}; })()`);
 console.log("status:", JSON.stringify(stats).slice(0, 400));
@@ -111,7 +133,7 @@ check("quality changed live", (await js("fetch('/status',{credentials:'same-orig
 const injected = await js(`(() => { const el = document.createElement("script"); el.textContent = "window.__injected = 1"; document.head.appendChild(el); return window.__injected === 1; })()`);
 check("an injected inline script is blocked by the CSP", injected === false);
 
-// Accessibility and diagnostics: every control has a name; the status chip opens a diagnostics panel.
+// Accessibility and diagnostics (the menu is open): every control has a name; the status chip opens a diagnostics panel.
 const unnamed = await js(`[...document.querySelectorAll("button, select, textarea, input, [role=button]")].filter((el) => el.getClientRects().length && !(el.getAttribute("aria-label") || el.textContent.trim() || el.getAttribute("title") || el.getAttribute("placeholder"))).map((el) => el.id || el.tagName)`);
 check("every visible control has an accessible name", unnamed.length === 0, JSON.stringify(unnamed));
 await js("document.getElementById('chip').click()");
@@ -162,9 +184,9 @@ check("MJPEG fallback shows frames", mj.shown === "block" && mj.w === 1920, JSON
 
 await js("document.getElementById('stop').click()");
 await sleep(4000);
-const end = await js("({chip: document.getElementById('chip').textContent, msg: document.getElementById('msg').textContent})");
-check("stopped", end.chip === "idle", JSON.stringify(end));
-check("display restored", /Display restored: true/.test(end.msg));
+const end = await js("({view: document.body.dataset.view, pill: document.getElementById('hoststate').textContent, note: document.getElementById('hostnote').textContent})");
+check("back on the connect screen after Disconnect", end.view === "home" && end.pill === "Ready", JSON.stringify(end));
+check("the screen was restored", /screen was restored/.test(end.note), JSON.stringify(end));
 check("no uncaught page errors", pageErrors.length === 0, JSON.stringify(pageErrors));
 console.log(failed ? "BROWSER TEST FAILED" : "BROWSER TEST OK");
 done(failed ? 1 : 0);
