@@ -232,6 +232,10 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
             post(quality).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
         )
         .route(
+            "/audio",
+            post(audio).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
+        )
+        .route(
             "/tuning",
             post(tuning).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
         )
@@ -758,6 +762,23 @@ async fn webrtc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) 
 #[derive(Deserialize)]
 struct QualityBody {
     level: Quality,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AudioBody {
+    enabled: bool,
+}
+
+async fn audio(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    let Some(body): Option<AudioBody> = parse_body(&body) else {
+        return malformed();
+    };
+    state.console.set_audio(body.enabled);
+    Json(state.console.status()).into_response()
 }
 
 #[derive(Deserialize)]

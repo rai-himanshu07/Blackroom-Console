@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 const [, , url, debugPort = "9333"] = process.argv;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const chrome = spawn("google-chrome", [
-  "--headless=new", "--no-sandbox", "--disable-gpu", "--ignore-certificate-errors",
+  "--headless=new", "--no-sandbox", "--disable-gpu", "--ignore-certificate-errors", "--autoplay-policy=no-user-gesture-required",
   `--remote-debugging-port=${debugPort}`, `--user-data-dir=/tmp/br-chrome-${process.pid}`, "about:blank",
 ], { stdio: "ignore" });
 const done = (code) => { chrome.kill("SIGKILL"); process.exit(code); };
@@ -44,6 +44,11 @@ await sleep(2500);
 check("page loaded", (await js("document.getElementById('start') !== null")) === true);
 
 await js("document.getElementById('quality').value = 'high'; document.getElementById('quality').dispatchEvent(new Event('change', {bubbles: true}))");
+const withAudio = process.env.BR_AUDIO_TEST === "1";
+if (withAudio) {
+  const saved = await js("fetch('/settings', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({session: {audio: true}})}).then((r) => r.status)");
+  check("audio enabled in the saved settings", saved === 200, `(${saved})`);
+}
 await js("document.getElementById('start').click()");
 let state = {};
 for (let i = 0; i < 60; i++) {
@@ -64,6 +69,29 @@ check("frames decoded", stats.frames > 5, `(${stats.frames})`);
 check("server reports the encoder", typeof stats.s.webrtc_encoder === "string", `(${stats.s.webrtc_encoder})`);
 check("quality applied", stats.s.quality === "high");
 check("no webrtc pipeline error", !stats.s.webrtc_error, `(${stats.s.webrtc_error})`);
+if (withAudio) {
+  await sleep(2000);
+  const audio = await js(`pc.getStats().then((r) => { let a = null; r.forEach((e) => { if (e.type === 'inbound-rtp' && e.kind === 'audio') a = e; }); return a && { bytes: a.bytesReceived, packets: a.packetsReceived, energy: a.totalAudioEnergy || 0 }; })`);
+  console.log("audio:", JSON.stringify(audio));
+  check("audio packets arrive", !!audio && audio.packets > 20, JSON.stringify(audio));
+  // Decode what arrived: a 440 Hz tone is played into the stand-in sound output.
+  const tone = await js(`(async () => {
+    const track = rtcVideo.srcObject && rtcVideo.srcObject.getAudioTracks()[0];
+    if (!track) return { error: "no audio track" };
+    const context = new AudioContext();
+    await context.resume();
+    const analyser = context.createAnalyser(); analyser.fftSize = 8192;
+    context.createMediaStreamSource(new MediaStream([track])).connect(analyser);
+    await new Promise((r) => setTimeout(r, 1500));
+    const bins = new Float32Array(analyser.frequencyBinCount); analyser.getFloatFrequencyData(bins);
+    let best = 0; for (let i = 1; i < bins.length; i++) if (bins[i] > bins[best]) best = i;
+    return { hz: Math.round(best * context.sampleRate / analyser.fftSize), db: Math.round(bins[best]), muted: rtcVideo.muted, state: context.state };
+  })()`);
+  console.log("tone:", JSON.stringify(tone));
+  check("the laptop's 440 Hz tone arrives and decodes", !tone.error && Math.abs(tone.hz - 440) < 20 && tone.db > -70, JSON.stringify(tone));
+  const live = await js("fetch('/status', {credentials: 'same-origin'}).then((r) => r.json())");
+  check("server reports audio on", live.audio === "on", `(${live.audio} ${live.audio_note})`);
+}
 
 // Input over the data channel: accepted by the server without a single HTTP /input batch.
 const statusJson = "fetch('/status',{credentials:'same-origin'}).then(r=>r.json())";

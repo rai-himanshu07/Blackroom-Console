@@ -13,7 +13,7 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
 const COOKIE_NAME: &str = "br_token";
-const POSTS: [&str; 10] = [
+const POSTS: [&str; 11] = [
     "/input",
     "/start",
     "/stop",
@@ -24,6 +24,7 @@ const POSTS: [&str; 10] = [
     "/settings",
     "/settings/reset",
     "/tuning",
+    "/audio",
 ];
 const GETS: [&str; 6] = ["/", "/video", "/status", "/ice", "/clipboard", "/settings"];
 

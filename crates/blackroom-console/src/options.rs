@@ -37,6 +37,8 @@ pub struct SessionOptions {
     pub resolution: Option<Size>,
     /// Draw the laptop's pointer into the picture (the page then hides its own pointer marker).
     pub cursor_in_video: bool,
+    /// Send the laptop's sound to the browser (needs the WebRTC video transport).
+    pub audio: bool,
     /// Frame-rate ceiling; 0 follows the quality level.
     pub fps_cap: u32,
     /// Video bitrate in kbit/s; 0 follows the quality level.
@@ -58,6 +60,7 @@ impl Default for SessionOptions {
             lock_on_stop: true,
             resolution: None,
             cursor_in_video: false,
+            audio: false,
             fps_cap: 0,
             bitrate_kbps: 0,
             heartbeat_secs: None,

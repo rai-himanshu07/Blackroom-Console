@@ -180,6 +180,52 @@ pub fn pick_h264(offer_sdp: &str) -> Option<H264Offer> {
         .cloned()
 }
 
+/// The Opus entry of a browser offer; `webrtcbin` needs the stream's payload type to equal it.
+pub fn pick_opus(offer_sdp: &str) -> Option<u8> {
+    offer_sdp.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("a=rtpmap:")?;
+        let (pt, codec) = rest.split_once(' ')?;
+        codec
+            .to_ascii_lowercase()
+            .starts_with("opus/48000")
+            .then(|| pt.parse().ok())
+            .flatten()
+    })
+}
+
+/// What the laptop plays: the monitor of the default sound output, or of the named one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioPlan {
+    pub payload: u8,
+    /// A PipeWire node name (`--audio-sink`); `None` follows the default output.
+    pub sink: Option<String>,
+}
+
+fn audio_source(sink: Option<&str>) -> String {
+    let target = sink.map_or_else(String::new, |name| {
+        let safe: String = name
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':'))
+            .collect();
+        format!(" target-object=\"{safe}\"")
+    });
+    format!(
+        "pipewiresrc do-timestamp=true{target} stream-properties=\"props,stream.capture.sink=true\""
+    )
+}
+
+/// Whether sound can be captured here right now; checked before the branch is added so a missing sound
+/// device cannot take the video down with it.
+pub fn audio_available(sink: Option<&str>) -> bool {
+    if gst::init().is_err() {
+        return false;
+    }
+    probe(&format!(
+        "{} num-buffers=3 ! audio/x-raw ! fakesink",
+        audio_source(sink)
+    ))
+}
+
 struct Pixels(Arc<RawFrame>);
 
 impl AsRef<[u8]> for Pixels {
@@ -252,6 +298,7 @@ pub struct WebRtcSession {
     payloader: gst::Element,
     payload: u8,
     encoder: Encoder,
+    audio: bool,
     failure: Arc<Mutex<Option<String>>>,
     frames: Arc<AtomicU64>,
     feeder_stop: Arc<AtomicBool>,
@@ -265,6 +312,7 @@ impl WebRtcSession {
         tuning: &Arc<VideoTuning>,
         bitrate_kbps: u32,
         h264: &H264Offer,
+        audio: Option<&AudioPlan>,
         input: InputSink,
     ) -> Result<Self, String> {
         let payload = h264.payload;
@@ -275,6 +323,16 @@ impl WebRtcSession {
             .tap()
             .next_after(0, FIRST_FRAME_TIMEOUT)
             .ok_or("the desktop has delivered no frame yet")?;
+        let audio_branch = audio.map_or_else(String::new, |plan| {
+            format!(
+                " {} ! audio/x-raw,rate=48000,channels=2 ! audioconvert ! audioresample \
+                 ! queue max-size-time=200000000 leaky=downstream \
+                 ! opusenc bitrate=96000 frame-size=20 inband-fec=true \
+                 ! rtpopuspay pt={pt} ! application/x-rtp,media=audio,encoding-name=OPUS,payload={pt} ! rtc.",
+                audio_source(plan.sink.as_deref()),
+                pt = plan.payload,
+            )
+        });
         let description = format!(
             "webrtcbin name=rtc bundle-policy=max-bundle \
              appsrc name=src is-live=true format=time do-timestamp=true block=false max-buffers=3 \
@@ -282,7 +340,7 @@ impl WebRtcSession {
              ! queue max-size-buffers=2 leaky=downstream ! videoconvert ! {} \
              ! video/x-h264,profile=constrained-baseline ! h264parse config-interval=-1 \
              ! rtph264pay name=pay config-interval=-1 pt={pt} aggregate-mode=zero-latency \
-             ! application/x-rtp,media=video,encoding-name=H264,payload={pt} ! rtc.",
+             ! application/x-rtp,media=video,encoding-name=H264,payload={pt} ! rtc.{audio_branch}",
             first.format.gst_name(),
             first.width,
             first.height,
@@ -350,6 +408,7 @@ impl WebRtcSession {
             payloader,
             payload,
             encoder,
+            audio: audio.is_some(),
             failure,
             frames,
             feeder_stop,
@@ -365,6 +424,11 @@ impl WebRtcSession {
 
     pub fn encoder(&self) -> Encoder {
         self.encoder
+    }
+
+    /// Whether this stream carries the laptop's sound.
+    pub fn has_audio(&self) -> bool {
+        self.audio
     }
 
     pub fn failure(&self) -> Option<String> {
@@ -530,6 +594,27 @@ a=fmtp:106 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01
             "a=fmtp:106 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01f\r\n"
         ));
         assert_eq!(out.lines().count(), CHROME_LIKE_OFFER.lines().count());
+    }
+
+    #[test]
+    fn the_offered_opus_payload_is_found() {
+        let offer = "m=audio 9 UDP/TLS/RTP/SAVPF 111 63\r\na=rtpmap:111 opus/48000/2\r\na=rtpmap:63 red/48000/2\r\n";
+        assert_eq!(pick_opus(offer), Some(111));
+        assert_eq!(pick_opus("a=rtpmap:0 PCMU/8000\r\n"), None);
+        assert_eq!(pick_opus(CHROME_LIKE_OFFER), None);
+    }
+
+    #[test]
+    fn the_audio_source_names_only_safe_sinks() {
+        assert!(audio_source(None).contains("stream.capture.sink=true"));
+        assert!(!audio_source(None).contains("target-object"));
+        let named = audio_source(Some("alsa_output.pci-0000_00_1f.3.analog-stereo"));
+        assert!(named.contains("target-object=\"alsa_output.pci-0000_00_1f.3.analog-stereo\""));
+        let hostile = audio_source(Some("a\" ! fakesink name=x"));
+        assert!(
+            hostile.contains("target-object=\"afakesinknamex\""),
+            "{hostile}"
+        );
     }
 
     #[test]

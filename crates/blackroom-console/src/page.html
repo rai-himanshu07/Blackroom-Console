@@ -202,6 +202,9 @@ async function startWebRtc() {
   const peer = new RTCPeerConnection({ iceServers: ice.iceServers });
   pc = peer;
   peer.addTransceiver("video", { direction: "recvonly" });
+  const wantAudio = !!(lastState && lastState.session && lastState.session.audio);
+  if (wantAudio) peer.addTransceiver("audio", { direction: "recvonly" });
+  rtcVideo.muted = !wantAudio;
   const channel = peer.createDataChannel("input");
   channel.onopen = () => { if (pc === peer) inputChannel = channel; };
   channel.onclose = () => { if (inputChannel === channel) inputChannel = null; };

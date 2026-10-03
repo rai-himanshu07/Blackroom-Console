@@ -31,6 +31,7 @@ use crate::display::{self, Watchdog};
 use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote_with};
 use crate::options::SessionOptions;
 use crate::profile::Profile;
+use crate::webrtc::{AudioPlan, audio_available, pick_opus};
 use crate::webrtc::{InputSink, WebRtcSession, pick_h264};
 
 const TICK: Duration = Duration::from_millis(25);
@@ -172,6 +173,9 @@ pub struct Status {
     pub session: SessionOptions,
     /// "private", "shared" or "custom".
     pub mode: &'static str,
+    /// "off", "waiting" (asked for, no WebRTC yet), "on" or "unavailable" (with `audio_note`).
+    pub audio: &'static str,
+    pub audio_note: Option<String>,
     pub session_secs: u64,
 }
 
@@ -237,6 +241,8 @@ struct Shared {
     options: Mutex<SessionOptions>,
     profile: Mutex<Profile>,
     profile_dir: Mutex<Option<PathBuf>>,
+    audio_sink: Mutex<Option<String>>,
+    audio_note: Mutex<Option<String>>,
     session_started: Mutex<Option<Instant>>,
     last_input: Mutex<Instant>,
     sessions_started: AtomicU64,
@@ -285,6 +291,8 @@ impl RemoteConsole {
             options: Mutex::new(SessionOptions::default()),
             profile: Mutex::new(Profile::default()),
             profile_dir: Mutex::new(None),
+            audio_sink: Mutex::new(None),
+            audio_note: Mutex::new(None),
             session_started: Mutex::new(None),
             last_input: Mutex::new(Instant::now()),
             sessions_started: AtomicU64::new(0),
@@ -311,6 +319,17 @@ impl RemoteConsole {
         *lock_ok(&self.shared.profile) = profile;
         *lock_ok(&self.shared.profile_dir) = Some(dir);
         note
+    }
+
+    /// The PipeWire output whose sound is sent (default: the system's default output).
+    pub fn set_audio_sink(&self, sink: Option<String>) {
+        *lock_ok(&self.shared.audio_sink) = sink;
+    }
+
+    /// Turns the laptop's sound on or off for the next WebRTC connection (the page reconnects its video).
+    pub fn set_audio(&self, enabled: bool) {
+        lock_ok(&self.shared.options).audio = enabled;
+        *lock_ok(&self.shared.audio_note) = None;
     }
 
     pub fn profile(&self) -> Profile {
@@ -523,7 +542,26 @@ impl RemoteConsole {
         let console = self.clone();
         let input: InputSink = Arc::new(move |text| console.input_json(text));
         let bitrate = effective_bitrate(quality, lock_ok(&self.shared.options).bitrate_kbps);
-        let session = WebRtcSession::start(&tuning, bitrate, &h264, input)?;
+        let (want_audio, sink) = (
+            lock_ok(&self.shared.options).audio,
+            lock_ok(&self.shared.audio_sink).clone(),
+        );
+        let (plan, note) = if !want_audio {
+            (None, None)
+        } else if let Some(payload) = pick_opus(offer_sdp) {
+            if audio_available(sink.as_deref()) {
+                (Some(AudioPlan { payload, sink }), None)
+            } else {
+                (
+                    None,
+                    Some("no laptop sound could be captured (no sound output?)".to_string()),
+                )
+            }
+        } else {
+            (None, Some("this browser offered no audio".to_string()))
+        };
+        *lock_ok(&self.shared.audio_note) = note;
+        let session = WebRtcSession::start(&tuning, bitrate, &h264, plan.as_ref(), input)?;
         let answer = session.answer(offer_sdp);
         let mut slot = lock_ok(&self.shared.webrtc);
         // Stop may have run while negotiating: its teardown has already passed.
@@ -551,6 +589,19 @@ impl RemoteConsole {
     pub fn status(&self) -> Status {
         let phase = *lock_ok(&self.shared.phase);
         let session = lock_ok(&self.shared.options).clone();
+        let audio_note = lock_ok(&self.shared.audio_note).clone();
+        let audio_state = if !session.audio {
+            "off"
+        } else if lock_ok(&self.shared.webrtc)
+            .as_ref()
+            .is_some_and(WebRtcSession::has_audio)
+        {
+            "on"
+        } else if audio_note.is_some() {
+            "unavailable"
+        } else {
+            "waiting"
+        };
         let (width, height) = *lock_ok(&self.shared.size);
         let (webrtc_encoder, webrtc_error, webrtc_frames) =
             match lock_ok(&self.shared.webrtc).as_ref() {
@@ -580,6 +631,8 @@ impl RemoteConsole {
             },
             resources: self.resources(),
             mode: session.label(),
+            audio: audio_state,
+            audio_note,
             session,
             session_secs: lock_ok(&self.shared.session_started)
                 .map_or(0, |at| at.elapsed().as_secs()),

@@ -80,6 +80,9 @@ struct Args {
     /// Starting quality; the page can change it while a session runs.
     #[arg(long, default_value = "medium", value_parser = ["low", "medium", "high"])]
     quality: String,
+    /// PipeWire node name of the sound output to send to the browser (default: the default output).
+    #[arg(long)]
+    audio_sink: Option<String>,
     /// Where the saved settings (profile.json) live; default ~/.local/share/blackroom-console, or the state
     /// directory with --headless so tests never touch the real profile.
     #[arg(long)]
@@ -289,6 +292,7 @@ async fn main() -> anyhow::Result<()> {
         restore_bin,
     });
     console.set_clipboard_enabled(args.clipboard);
+    console.set_audio_sink(args.audio_sink.clone());
     let profile_dir = args.profile_dir.clone().unwrap_or_else(|| {
         if args.headless {
             state_dir.clone()
