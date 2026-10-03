@@ -208,8 +208,10 @@ mod tests {
         let (fresh, note) = Profile::load(&dir);
         assert_eq!((fresh, note), (Profile::default(), None));
 
-        let mut profile = Profile::default();
-        profile.session = SessionOptions::shared();
+        let mut profile = Profile {
+            session: SessionOptions::shared(),
+            ..Profile::default()
+        };
         profile.client.scale = Scale::Actual;
         let path = profile.save(&dir).unwrap();
         assert_eq!(

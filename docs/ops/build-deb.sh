@@ -36,7 +36,7 @@ install -m 644 polkit/org.blackroom.console.policy "$root/usr/share/polkit-1/act
 cp -r docs/ops/gnome-extension/blackroom-locked-remote@blackroom.local "$root/usr/share/gnome-shell/extensions/"
 find "$root" -type d -exec chmod 755 {} +
 find "$root/usr/share/gnome-shell/extensions" -type f -exec chmod 644 {} +
-for d in docs/ops/README.md docs/ops/runbook.md docs/ops/internet-access.md docs/security/authentication.md docs/security/credential-lifecycle.md \
+for d in docs/ops/README.md docs/ops/runbook.md docs/ops/internet-access.md docs/ops/settings-guide.md docs/security/authentication.md docs/security/credential-lifecycle.md \
   docs/security/threat-model.md docs/security/emergency-daemon.md; do
   [ -f "$d" ] && install -m 644 "$d" "$root/usr/share/doc/$PKG/$(basename "$d")"
 done
@@ -48,7 +48,7 @@ mkdir -p "$stage/debian"
 printf 'Source: %s\n\nPackage: %s\nArchitecture: any\n' "$PKG" "$PKG" > "$stage/debian/control"
 shlibs=$(cd "$stage" && dpkg-shlibdeps -O -e"$root/usr/bin/blackroom" $(printf -- '-e%s ' "${BINS[@]/#/$root/usr/lib/blackroom/}") 2>/dev/null \
   | sed -n 's/^shlibs:Depends=//p')
-runtime="gnome-shell, systemd, acl, libpam-modules, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-good, gstreamer1.0-pipewire, gstreamer1.0-nice, pipewire"
+runtime="gnome-shell, systemd, acl, libpam-modules, gstreamer1.0-plugins-base, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-good, gstreamer1.0-pipewire, gstreamer1.0-nice, pipewire"
 (cd "$root" && find . -type f ! -path './DEBIAN/*' -printf '%P\n' | sort | xargs md5sum) > "$root/DEBIAN/md5sums"
 printf '/etc/pam.d/blackroom-console\n' > "$root/DEBIAN/conffiles"
 size=$(du -sk --exclude=DEBIAN "$root" | cut -f1)

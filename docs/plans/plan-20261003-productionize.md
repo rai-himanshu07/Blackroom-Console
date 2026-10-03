@@ -38,7 +38,7 @@ launcher, multi-monitor selection UI, file transfer, remote power control, mutin
   1:1 with follow-cursor). Check: headless Chrome walkthrough.
 - [x] **Q. Installable web app.** manifest, icons, service worker, offline page, install button. Check: headless Chrome
   manifest and worker checks, curl.
-- [ ] **R. Docs, gate, package, notes.** settings guide, runbook, release notes, compatibility matrix, workspace gate, `.deb`.
+- [x] **R. Docs, gate, package, notes.** settings guide, runbook, release notes, compatibility matrix, workspace gate, `.deb`.
 
 ## Owner live steps (new)
 Shared mode on the real screen; private mode with blank panel off/on; sound from the laptop to the tablet; install the web

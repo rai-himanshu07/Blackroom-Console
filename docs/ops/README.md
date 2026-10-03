@@ -63,6 +63,15 @@ Runbooks for the released product (incident response, recovery) live in
 `docs/plans/Detailed_Project_Plan/21_OPERATIONAL_RUNBOOK_RECOVERY_AND_INCIDENT_RESPONSE.md`;
 this directory holds the project's own dev-workstation procedures.
 
+### Modes, settings and the web app
+
+The page opens on a connect screen with Private and Shared modes and a settings sheet whose choices are saved on the
+laptop (`--profile-dir`, default `~/.local/share/blackroom-console`; `--audio-sink <name>` picks the sound source
+instead of the default output). The page can be installed as an app. See `docs/ops/settings-guide.md`. Proof without
+hardware: `BR_BIN=docs/ops/headless-modes-test.sh docs/ops/headless-repro.sh` (modes, options, audio, reset) and
+`BR_BIN=docs/ops/headless-browser-test.sh docs/ops/headless-repro.sh` (the whole page in Chrome, audio tone, install
+checks). Not observed live: Shared mode on the real screen, laptop sound from the real output, install on a tablet.
+
 ### Clipboard (text only)
 
 `console.sh` starts the console with `--clipboard` (set `BR_CLIPBOARD=0` to leave it out; the binary alone has it off).

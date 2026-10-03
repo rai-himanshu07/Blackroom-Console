@@ -7,6 +7,13 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
 
 - **Video and input:** WebRTC H.264 (NVENC, OpenH264 fallback) with an MJPEG fallback; pointer, keyboard, touch gestures,
   scroll; quality levels; automatic reconnect when the link drops (the session survives about 30 s of silence).
+- **Connect screen and settings (new):** a NoMachine-style home page with Private and Shared modes (Shared leaves the
+  laptop's screen and keyboard alone), a settings sheet saved on the laptop (blank screen, block laptop input, lock on
+  disconnect, virtual monitor size, laptop pointer, laptop sound, frame rate and bitrate limits, heartbeat, idle and
+  length limits, scale modes, Mac keys, text typing), in-session menu, toasts and a session timer. See
+  `docs/ops/settings-guide.md`.
+- **Laptop sound** to the tablet (Opus over WebRTC, off by default) and an **installable web app** (manifest, icons,
+  pass-through service worker; needs a trusted https address or localhost).
 - **Safety:** the display is restored and the screen locked on Stop, on heartbeat loss, on the emergency chord
   (Left Ctrl+Shift+Alt+Esc held 2 s), and by a 60 s dead-man restore timer; the physical input grab is released after the lock.
 - **Login:** Linux password (PAM) + authenticator code (or recovery code) + Remote Access Key or trusted browser; rate
@@ -26,7 +33,7 @@ only output, Chrome on the tablet. Everything else is in `docs/ops/compatibility
 
 ## Known limits
 
-- One display (the built-in panel; refuses to start if another output is connected), no audio, no file transfer, one
+- One display (the built-in panel; refuses to start if another output is connected), no file transfer, one
   controller at a time, GNOME on Wayland only, text-only clipboard.
 - Safari and iOS, Firefox, a phone on mobile data, a CGNAT client without TURN, AMD/Intel GPUs, the OpenH264 path in a
   live session, a second Unix user on the laptop, and a one-hour live soak have **not** been observed.
@@ -39,6 +46,10 @@ only output, Chrome on the tablet. Everything else is in `docs/ops/compatibility
   cache alone is ~7 GB); use `CARGO_INCREMENTAL=0` or clean it. Run one cargo command at a time.
 
 ## Your live steps
+
+0. New in this version: Shared mode on the real screen (check the pointer lands correctly with fractional scaling or an
+   external monitor), Private mode with the blank/block switches each off and on, sound from the laptop's real default
+   output, each setting on the tablet, installing the web app over a trusted https address.
 
 1. Rebuild and update the installed pieces: `cargo build --release --workspace`, `docs/ops/install-security.sh --update`
    (or install the new `.deb`: `sudo apt install ./target/deb/blackroom-console_0.1.0-1_amd64.deb`), restart the console.

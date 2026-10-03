@@ -26,6 +26,19 @@ second Unix user, or a real phone are listed at the end as untested.
 | A stalled half-request and a 64 KiB header-less blob do not stop other requests; a 100 KB request line is refused (414); 100 × 1 KB headers never give a 5xx | `adversarial-net-test.sh` | pass |
 | Package: no setuid/setgid, nothing group- or world-writable, units run only `/usr/lib/blackroom` binaries, no `[Install]` section | `docs/ops/build-deb.sh` | pass |
 
+## Added with the settings and web-app work (2026-10-03)
+
+- Start options and the saved profile are validated on the laptop with hard ranges and `deny_unknown_fields`; invalid
+  start options get 400, a body that is not a JSON object is refused (a bare array used to deserialize into a struct).
+- The web-app files (`/manifest.webmanifest`, `/sw.js`, icons) are public next to the login page: static, no secrets, GET only,
+  with the usual security headers (`install_files_are_public_static_and_still_hardened`). The service worker caches
+  nothing and only answers failed page loads.
+- Found by the browser walkthrough: the logout button's inline handler was silently blocked by the hash-based CSP, and
+  typing in page text fields was swallowed by the global key handler. Both fixed; a unit test refuses inline handlers.
+- New settings can lower the safety margin on purpose (Shared mode, no lock on disconnect, longer or unlimited timeouts):
+  they are the owner's choices and the defaults stay safe. The emergency chord, the Stop button and heartbeat loss
+  still end the session; with "lock on disconnect" off the screen is left unlocked afterwards.
+
 ## Findings and fixes
 
 1. **Invalid clipboard text was answered 502 (a server error) instead of 400.** Found by the hostile-body test (a body of
