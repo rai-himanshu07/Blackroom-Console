@@ -26,10 +26,11 @@ use remote_emergency_client::client::{Client, Outcome};
 use serde::{Deserialize, Serialize};
 use zbus::blocking::Connection;
 
+use crate::approval::{Approvals, PendingView};
 use crate::clipboard::{self, ClipboardError};
 use crate::display::{self, Watchdog};
 use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote_with};
-use crate::host::HostConfig;
+use crate::host::{Approval, HostConfig};
 use crate::options::SessionOptions;
 use crate::profile::Profile;
 use crate::webrtc::{AudioPlan, audio_available, pick_opus};
@@ -191,6 +192,8 @@ pub struct Status {
     pub session: SessionOptions,
     /// What the laptop owner allows; the page greys out the rest.
     pub policy: crate::host::Policy,
+    /// A connection waiting for the laptop owner's Accept or Deny.
+    pub pending: Option<PendingView>,
     /// "private", "shared" or "custom".
     pub mode: &'static str,
     /// "off", "waiting" (asked for, no WebRTC yet), "on" or "unavailable" (with `audio_note`).
@@ -281,6 +284,7 @@ struct Shared {
     profile: Mutex<Profile>,
     profile_dir: Mutex<Option<PathBuf>>,
     host: Mutex<HostConfig>,
+    approvals: Approvals,
     audio_sink: Mutex<Option<String>>,
     audio_note: Mutex<Option<String>>,
     session_started: Mutex<Option<Instant>>,
@@ -332,6 +336,7 @@ impl RemoteConsole {
             profile: Mutex::new(Profile::default()),
             profile_dir: Mutex::new(None),
             host: Mutex::new(HostConfig::default()),
+            approvals: Approvals::default(),
             audio_sink: Mutex::new(None),
             audio_note: Mutex::new(None),
             session_started: Mutex::new(None),
@@ -380,6 +385,25 @@ impl RemoteConsole {
     /// What a client may ask for, after the owner's limits.
     pub fn apply_policy(&self, options: SessionOptions) -> Result<SessionOptions, String> {
         lock_ok(&self.shared.host).apply(options.validated()?)
+    }
+
+    /// Waits for the laptop owner when the host setting is Ask; a start without it is refused by the caller.
+    pub fn ask_approval(&self, mode: &str, device: &str) -> Result<(), String> {
+        if lock_ok(&self.shared.host).approval != Approval::Ask {
+            return Ok(());
+        }
+        self.shared
+            .approvals
+            .ask(mode, device, crate::approval::WAIT)
+    }
+
+    /// An answer from the laptop's own interfaces; false when `id` is not the request that waits.
+    pub fn decide_approval(&self, id: u64, accept: bool) -> bool {
+        self.shared.approvals.decide(id, accept)
+    }
+
+    pub fn pending_approval(&self) -> Option<PendingView> {
+        self.shared.approvals.pending()
     }
 
     fn host_caps(&self) -> (u32, u32) {
@@ -720,6 +744,7 @@ impl RemoteConsole {
             },
             resources: self.resources(),
             policy: lock_ok(&self.shared.host).policy(),
+            pending: self.shared.approvals.pending(),
             mode: session.label(),
             audio: audio_state,
             audio_note,

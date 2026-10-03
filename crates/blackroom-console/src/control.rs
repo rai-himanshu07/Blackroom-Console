@@ -1,19 +1,21 @@
 //! The laptop's own control channel: a D-Bus service on the user's session bus that the top-bar indicator
 //! (`docs/ops/gnome-extension/blackroom-indicator@blackroom.local`) reads and uses.
 //!
-//! It can only show state and end a session; it cannot start one, change a setting or read a credential. Any process of
-//! the same user may call it, which is no more than that user can already do with `pkill` or `systemctl --user stop`.
+//! It can show state, end a session and answer a connection that waits for the owner's approval; it cannot start a session,
+//! change a setting or read a credential. Any process of the same user may call it: that user can already stop the console
+//! with `pkill`, and a request only exists while a client that has logged in is waiting.
 
 use serde_json::{Value, json};
 use zbus::blocking::{Connection, connection::Builder};
 
 use crate::console::{Phase, RemoteConsole, Status};
+use crate::host::Indicator;
 
 pub const BUS_NAME: &str = "org.blackroom.Console";
 pub const OBJECT_PATH: &str = "/org/blackroom/Console";
 
 /// The few facts the indicator shows; everything else stays inside the console.
-pub fn summary(status: &Status, local_url: Option<&str>) -> Value {
+pub fn summary(status: &Status, local_url: Option<&str>, indicator: &Indicator) -> Value {
     json!({
         "phase": status.phase,
         "mode": status.mode,
@@ -30,6 +32,8 @@ pub fn summary(status: &Status, local_url: Option<&str>) -> Value {
             "restored": report.topology_restored,
         })),
         "local_url": local_url,
+        "pending": status.pending,
+        "indicator": indicator,
     })
 }
 
@@ -42,7 +46,21 @@ struct Control {
 impl Control {
     /// JSON text: see `summary`.
     fn status(&self) -> String {
-        summary(&self.console.status(), self.local_url.as_deref()).to_string()
+        summary(
+            &self.console.status(),
+            self.local_url.as_deref(),
+            &self.console.host_config().indicator,
+        )
+        .to_string()
+    }
+
+    /// Accepts the connection that waits for the owner (`pending.id` in the status); false when it is gone.
+    fn approve(&self, id: u64) -> bool {
+        self.console.decide_approval(id, true)
+    }
+
+    fn deny(&self, id: u64) -> bool {
+        self.console.decide_approval(id, false)
     }
 
     /// Ends the running session (restore the display, lock, release the input grab). Returns at once:
@@ -87,7 +105,11 @@ mod tests {
 
     #[test]
     fn the_summary_names_only_what_the_indicator_shows() {
-        let value = summary(&console().status(), Some("https://localhost:8443/"));
+        let value = summary(
+            &console().status(),
+            Some("https://localhost:8443/"),
+            &Indicator::default(),
+        );
         let mut keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
         keys.sort();
         assert_eq!(
@@ -97,10 +119,12 @@ mod tests {
                 "blank_panel",
                 "block_local_input",
                 "host",
+                "indicator",
                 "input_accepted",
                 "last_stop",
                 "local_url",
                 "mode",
+                "pending",
                 "phase",
                 "session_secs",
                 "version"

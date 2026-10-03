@@ -25,7 +25,9 @@ shell_env=()
 # BR_SHELL_CONFIG_DIR is a private config dir whose glib-2.0/settings/keyfile holds its settings (for example
 # enabled-extensions), instead of the empty in-memory settings.
 if [ -n "${BR_SHELL_DATA_DIR:-}${BR_SHELL_CONFIG_DIR:-}" ]; then
+  # XDG_DATA_HOME too: an extension installed in the user's own directory would otherwise hide the one under test.
   shell_env=(env -u JOURNAL_STREAM "XDG_DATA_DIRS=${BR_SHELL_DATA_DIR:-/nonexistent}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}")
+  [ -n "${BR_SHELL_DATA_DIR:-}" ] && shell_env+=("XDG_DATA_HOME=$BR_SHELL_DATA_DIR")
   [ -n "${BR_SHELL_CONFIG_DIR:-}" ] && shell_env+=(GSETTINGS_BACKEND=keyfile "XDG_CONFIG_HOME=$BR_SHELL_CONFIG_DIR")
 fi
 timeout -k 3 "${BR_SHELL_TIMEOUT:-150}" "${runner[@]}" "${shell_env[@]}" gnome-shell --headless --wayland --no-x11 --wayland-display=blackroom-repro \

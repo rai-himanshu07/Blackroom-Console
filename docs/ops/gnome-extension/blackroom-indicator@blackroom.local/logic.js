@@ -41,7 +41,34 @@ export function stateOf(status) {
     }
 }
 
+const timerShown = status => !status || !status.indicator || status.indicator.show_timer !== false;
+const noticesWanted = status => !status || !status.indicator || status.indicator.notify !== false;
+
+export function pendingOf(status) {
+    return status && status.pending && typeof status.pending.id === 'number' ? status.pending : null;
+}
+
+// A connection that waits for the owner: shown whatever the notification setting says, since it needs an answer.
+export function pendingNotice(previous, next) {
+    const now = pendingOf(next);
+    if (!now || (pendingOf(previous) && pendingOf(previous).id === now.id))
+        return null;
+    return {id: now.id, title: 'Connection request',
+        body: `A ${now.mode} session from ${now.device} is waiting for you. It is denied automatically in ${now.secs_left} seconds.`};
+}
+
 export function view(status) {
+    const shown = viewOf(status);
+    const pending = pendingOf(status);
+    if (pending) {
+        return {...shown, title: 'A connection is waiting for your approval', canApprove: true, pendingId: pending.id,
+            badge: '?', lines: [`${capital(pending.mode)} session from ${pending.device}`,
+                `Denied automatically in ${pending.secs_left} seconds`]};
+    }
+    return {...shown, canApprove: false, pendingId: null, badge: timerShown(status) || shown.badge === '…' ? shown.badge : ''};
+}
+
+function viewOf(status) {
     const state = stateOf(status);
     const base = {
         state,
@@ -82,7 +109,7 @@ export function transitionNotice(previous, next) {
         return null;
     const before = stateOf(previous);
     const after = stateOf(next);
-    if (before === after)
+    if (before === after || !noticesWanted(next ?? previous))
         return null;
     const inSession = state => state === 'running' || state === 'starting' || state === 'stopping';
     if (!inSession(before) && (after === 'running' || after === 'starting')) {

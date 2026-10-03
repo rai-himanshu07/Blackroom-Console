@@ -1,6 +1,7 @@
 //! Blackroom Console: see and drive this laptop's desktop from a browser while the local panel is
 //! blank and the local keyboard and touchpad are grabbed.
 
+pub mod approval;
 pub mod clipboard;
 pub mod compat;
 pub mod console;

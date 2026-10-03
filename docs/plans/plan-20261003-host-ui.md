@@ -20,7 +20,7 @@ the client can only choose inside them; the client keeps device choices on the d
 - [x] **T1. Host config and policy.** `host.rs` (`host.json` beside `profile.json`, 0600, atomic, validated), enforced in
   `start`, rates, audio, clipboard and text typing; `Status.policy` for the client. Check: unit tests, adversarial test,
   headless modes test with a restrictive policy.
-- [ ] **T2. Approval.** pending request, 30 s timeout deny, D-Bus `Pending`/`Approve`/`Deny`, indicator notice and menu rows,
+- [x] **T2. Approval.** pending request, 30 s timeout deny, D-Bus `Pending`/`Approve`/`Deny`, indicator notice and menu rows,
   client "waiting for the laptop owner". Check: unit tests, headless Shell test.
 - [ ] **T3. Host page.** loopback listener, PAM login, settings form (policy, sound device, network, indicator, approval),
   save and restart. Check: adversarial tests (origin, no anonymous access, loopback only), headless Chrome walkthrough.

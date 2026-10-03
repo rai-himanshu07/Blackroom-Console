@@ -1,6 +1,6 @@
 // Tests the indicator's pure logic: node docs/ops/indicator-logic-test.mjs
 import assert from 'node:assert/strict';
-import {formatDuration, pageUrl, parseStatus, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
+import {formatDuration, pageUrl, parseStatus, pendingNotice, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
 
 const idle = {phase: 'idle', mode: 'private', session_secs: 0, blank_panel: true, block_local_input: true, audio: 'off',
     version: '0.1.0', local_url: 'https://localhost:8443/', last_stop: null};
@@ -52,4 +52,22 @@ assert.equal(ended.title, 'Remote session ended');
 assert.equal(ended.body, 'The screen was restored and the laptop was locked.');
 assert.equal(transitionNotice(running, idle).body, 'The remote device is disconnected.');
 assert.match(transitionNotice(running, null).title, /stopped during a remote session/);
+
+const waiting = {...idle, pending: {id: 4, mode: 'private', device: '192.168.1.52 (Chrome)', secs_left: 28}};
+const asking = view(waiting);
+assert.ok(asking.canApprove && asking.pendingId === 4 && asking.badge === '?');
+assert.match(asking.title, /waiting for your approval/);
+assert.match(asking.lines[0], /^Private session from 192\.168\.1\.9 \(Chrome\)$/);
+assert.ok(!view(idle).canApprove);
+assert.equal(pendingNotice(idle, waiting).id, 4);
+assert.equal(pendingNotice(waiting, waiting), null, 'one notice per request');
+assert.equal(pendingNotice(waiting, idle), null);
+assert.equal(pendingNotice(undefined, waiting).id, 4);
+assert.equal(pendingNotice(waiting, {...waiting, pending: {...waiting.pending, id: 5}}).id, 5);
+const quiet = {...idle, indicator: {notify: false, show_timer: false}};
+assert.equal(pendingNotice(quiet, {...waiting, indicator: quiet.indicator}).id, 4, 'a request is never silenced');
+assert.equal(transitionNotice(quiet, {...running, indicator: quiet.indicator}), null, 'notices can be switched off');
+assert.equal(view({...running, indicator: quiet.indicator}).badge, '', 'the timer can be hidden');
+assert.equal(view({...running, indicator: {notify: true, show_timer: true}}).badge, '12:34');
+assert.equal(view({phase: 'starting', indicator: quiet.indicator}).badge, '…', 'progress dots stay');
 console.log('INDICATOR LOGIC OK');

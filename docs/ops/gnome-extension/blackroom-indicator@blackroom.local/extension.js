@@ -5,10 +5,11 @@ import GObject from 'gi://GObject';
 import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import {pageUrl, parseStatus, stateOf, transitionNotice, view} from './logic.js';
+import {pageUrl, parseStatus, pendingNotice, stateOf, transitionNotice, view} from './logic.js';
 
 const BUS_NAME = 'org.blackroom.Console';
 const OBJECT_PATH = '/org/blackroom/Console';
@@ -39,6 +40,8 @@ class BlackroomIndicator extends PanelMenu.Button {
             this.menu.addMenuItem(line);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
+        this._accept = this._action('Accept the connection', () => this._answer('Approve'));
+        this._deny = this._action('Deny the connection', () => this._answer('Deny'));
         this._disconnect = this._action('Disconnect the remote user', () => this._call('Disconnect'));
         this._lock = this._action('Lock this screen now', () => Main.screenShield.lock(true));
         this._open = this._action('Open the console page', () => this._openPage());
@@ -77,6 +80,46 @@ class BlackroomIndicator extends PanelMenu.Button {
                 }
                 this._apply(status);
             });
+    }
+
+    _answer(method) {
+        const id = this._status?.pending?.id;
+        if (id === undefined)
+            return;
+        Gio.DBus.session.call(BUS_NAME, OBJECT_PATH, INTERFACE, method, new GLib.Variant('(t)', [id]),
+            new GLib.VariantType('(b)'), Gio.DBusCallFlags.NONE, 5000, this._cancellable, (connection, result) => {
+                try {
+                    connection.call_finish(result);
+                } catch (error) {
+                    if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                        Main.notify('Blackroom Console', `${method} failed: ${error.message}`);
+                    return;
+                }
+                this._refresh();
+            });
+    }
+
+    _askNotice(notice) {
+        this._dropAsk();
+        try {
+            this._source = new MessageTray.Source({title: 'Blackroom Console', iconName: 'video-display-symbolic'});
+            Main.messageTray.add(this._source);
+            this._ask = new MessageTray.Notification({source: this._source, title: notice.title, body: notice.body,
+                urgency: MessageTray.Urgency.CRITICAL});
+            this._ask.addAction('Accept', () => this._answer('Approve'));
+            this._ask.addAction('Deny', () => this._answer('Deny'));
+            this._source.addNotification(this._ask);
+        } catch (error) {
+            console.log(`Blackroom indicator: notification with buttons failed (${error.message}); plain notice`);
+            Main.notify(notice.title, notice.body);
+        }
+    }
+
+    _dropAsk() {
+        this._ask?.destroy();
+        this._ask = null;
+        this._source?.destroy();
+        this._source = null;
     }
 
     _call(method) {
@@ -124,12 +167,19 @@ class BlackroomIndicator extends PanelMenu.Button {
 
     _apply(status) {
         const notice = transitionNotice(this._status, status);
+        const ask = pendingNotice(this._status, status);
         if (stateOf(this._status) !== stateOf(status) || this._status === undefined)
             console.log(`Blackroom indicator: ${stateOf(status)}${status ? ` mode=${status.mode}` : ''}`);
         this._status = status;
         this._url = status ? status.local_url : null;
         if (notice)
             Main.notify(notice.title, notice.body);
+        if (ask) {
+            console.log(`Blackroom indicator: connection request ${ask.id}`);
+            this._askNotice(ask);
+        } else if (!status?.pending) {
+            this._dropAsk();
+        }
 
         const shown = view(status);
         this._title.label.text = shown.title;
@@ -137,6 +187,8 @@ class BlackroomIndicator extends PanelMenu.Button {
             item.visible = index < shown.lines.length;
             item.label.text = shown.lines[index] ?? '';
         });
+        this._accept.visible = shown.canApprove;
+        this._deny.visible = shown.canApprove;
         this._disconnect.visible = shown.canDisconnect;
         this._open.visible = shown.canOpen;
         this._start.visible = shown.canStart;
@@ -152,6 +204,7 @@ class BlackroomIndicator extends PanelMenu.Button {
 
     destroy() {
         this._cancellable.cancel();
+        this._dropAsk();
         if (this._timer) {
             GLib.source_remove(this._timer);
             this._timer = 0;

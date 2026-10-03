@@ -758,7 +758,12 @@ async fn clipboard_get(State(state): State<AppState>, headers: HeaderMap) -> Res
     }
 }
 
-async fn start(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn start(
+    State(state): State<AppState>,
+    peer: Peer,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     if let Some(refusal) = guard(&state, &headers) {
         return refusal;
     }
@@ -787,13 +792,35 @@ async fn start(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -
         }
     };
     let console = state.console.clone();
-    match tokio::task::spawn_blocking(move || console.start(options)).await {
-        Ok(Ok(status)) => Json(status).into_response(),
-        Ok(Err(message)) => (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": message })),
+    let device = format!(
+        "{} ({})",
+        peer.0.map_or_else(
+            || "unknown address".to_string(),
+            |address| address.ip().to_string()
+        ),
+        crate::approval::clean(
+            headers
+                .get("user-agent")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("unknown browser"),
+            60
         )
-            .into_response(),
+    );
+    let mode = options.label();
+    let started = tokio::task::spawn_blocking(move || {
+        if let Err(message) = console.ask_approval(mode, &device) {
+            return Err((StatusCode::FORBIDDEN, message));
+        }
+        console
+            .start(options)
+            .map_err(|message| (StatusCode::CONFLICT, message))
+    })
+    .await;
+    match started {
+        Ok(Err((code, message))) => {
+            (code, Json(serde_json::json!({ "error": message }))).into_response()
+        }
+        Ok(Ok(status)) => Json(status).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
