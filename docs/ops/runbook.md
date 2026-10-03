@@ -18,9 +18,13 @@ Linux password, an authenticator code and the key. Tick "trust this browser" to 
 
 ## Daily use
 
-1. Phone or tablet: open the address, log in, press **Start**. The laptop panel goes blank and its keyboard and touchpad stop.
-2. **Stop** in the page restores the display, locks the screen and releases the grab. Closing the page or losing the
-   connection does the same within about 30 seconds (a lost client must not leave the panel blank).
+1. Phone or tablet: open the address, log in, pick Private or Shared and press **Connect**. In Private mode the laptop panel goes
+   blank and its keyboard and touchpad stop; in Shared mode they stay as they are.
+2. **Disconnect** in the page's menu ends the session: a blanked screen is restored, blocked input is released, and the laptop
+   is locked when the session's lock setting is on (the default for Private, off for Shared; the owner can force it either way
+   in Host settings). Closing the page or losing the connection does the same after the configured silence timeout (30 seconds
+   by default), so a lost client does not leave a blank panel. After a crash of the console the restore timer acts within about
+   60 seconds and locks the screen.
 3. On the laptop itself, hold Left Ctrl + Left Shift + Left Alt + Esc for 2 seconds: the emergency chord ends the session
    and every browser login.
 

@@ -27,6 +27,25 @@ roadmap). Release notes: `docs/RELEASE_NOTES.md`.
 - Not covered by a test: the data-channel gate itself (only the gate type and the unchanged data-channel path in headless Chrome),
   the negotiation check (R6), `pointercancel` (R28) and the teardown order against a real lock (R4: only the decision function).
 
+## One UI/UX review (GPT-6.1 Sol, once, read-only, on request)
+30 findings (U1-U30) on the client page, host page, tray and docs; none was run on a device.
+- **Fixed (23):** a failed restore, lock or input release is shown as a warning on the page and in the tray instead of being
+  left out (U1); the owner's forced lock choice survives a preset click (U2); a hand-set limit with no dropdown entry shows as
+  itself and an unrelated save keeps it (U3); Restart sends `confirm` only after the owner agreed (U4); the tray says
+  "starting" until isolation is done and describes screen and input separately (U5); the tray tells a silent console from an
+  absent one and Exit keeps the icon when unsure (U6); lock-screen off wording and a note under the tray switch (U7, U28);
+  runbook, release notes and README no longer promise an unconditional lock (U8); Disconnect failure and stale status are
+  reported (U9, U10); the host page shows the damaged-`host.json` warning (U12); secrets and passwords are cleared on sign-out
+  and the authenticator QR expires on screen (U13); browser zoom allowed and 44 px targets (U16, U17); gesture hint, short
+  two-finger scroll, pointer marker, right-click flag and clipboard text cleared between sessions (U20-U24); login page label,
+  one-time-code autocomplete and a real Forget button (U25, U26); settings notes tell live from next-connect (U30).
+- **Deferred:** U11 (action-level error handling on every host call), U14 (in-flight guards), U15 (unsaved-change prompts),
+  U18 and U19 (focus trap, tab roles), U27 (branded token error page), U29 (owner-limit text inside the sheet).
+- **Checked by:** `indicator-logic-test.mjs` (new notices), the headless indicator, browser and host page suites (three new host
+  page checks). **Not exercised:** gestures (U21, U23), the pointer marker (U22) and touch target sizes on a real tablet.
+- U28 differs from the finding: the tray shows the lock-screen consequence in an always-visible line under the switch instead
+  of a confirmation dialog.
+
 ## Still the owner's
 Live checks listed in `docs/RELEASE_NOTES.md` and the final report of this round: Shared mode on the real screen, Private blank and
 block toggles, laptop sound, tray lock-screen switch and Exit, the applications-menu launcher, real PAM and credential commands

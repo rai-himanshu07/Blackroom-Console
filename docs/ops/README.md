@@ -70,7 +70,7 @@ this directory holds the project's own dev-workstation procedures.
 The `.deb` adds **Blackroom Console** to the applications menu (`/usr/bin/blackroom-app`, a desktop entry and an icon). Opening
 it turns the top-bar icon on, starts `blackroom-console.service` and opens the host settings page (`http://localhost:8090/`);
 its right-click actions are **Host settings** and **Exit Blackroom Console**. `blackroom-app exit` (and **Exit** in the tray menu)
-stops the console, ending any remote session the normal way (display restored, screen locked), and removes the top-bar icon;
+stops the console, ending any remote session the normal way (display restored, screen locked when the session's lock setting is on), and removes the top-bar icon;
 a console that was started by hand is not touched and keeps its icon. Proof without touching the real desktop:
 `docs/ops/launcher-test.sh`. Not observed: the entry in the real applications menu and the real **Exit** click.
 

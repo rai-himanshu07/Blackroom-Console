@@ -25,8 +25,10 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
   stop the console. The client page is not offered on the laptop. See `docs/ops/README.md`.
 - **Laptop sound** to the tablet (Opus over WebRTC, off by default) and an **installable web app** (manifest, icons,
   pass-through service worker; needs a trusted https address or localhost).
-- **Safety:** the display is restored and the screen locked on Stop, on heartbeat loss, on the emergency chord
-  (Left Ctrl+Shift+Alt+Esc held 2 s), and by a 60 s dead-man restore timer; the physical input grab is released after the lock.
+- **Safety:** when a session ends (Disconnect, heartbeat loss, the emergency chord, an owner limit) the display is restored,
+  the input grab released and, when the session's lock setting is on (default for Private, off for Shared, forceable by the
+  owner), the screen locked; the grab is released after the lock. After a crash a 60 s dead-man restore timer restores the
+  display and locks. A step that fails is reported as a warning on the page and in the tray, not as success.
 - **Login:** Linux password (PAM) + authenticator code (or recovery code) + Remote Access Key or trusted browser; rate
   limits; server-side sessions that die with the emergency chord; remote access can be switched off from the CLI.
 - **Outside the home network:** real certificate files (reloaded without restart), `Secure` cookies, STUN/TURN,
@@ -77,4 +79,5 @@ only output, Chrome on the tablet. Everything else is in `docs/ops/compatibility
 
 Internal tests and one internal red-team pass, plus **one independent read-only review (GPT-6.1 Sol, 2026-10-04)**: 30
 findings, 16 fixed, 3 disputed with a reason, the rest deferred (`docs/plans/plan-20261004-status.md`). The fixes were checked
-by tests and the headless suites, not by a second review, and not on the real desktop.
+by tests and the headless suites, not by a second review, and not on the real desktop. A separate read-only UI/UX review
+(same date, 30 findings, 23 fixed) covered the client page, host page and tray; nothing was tried on a device.
