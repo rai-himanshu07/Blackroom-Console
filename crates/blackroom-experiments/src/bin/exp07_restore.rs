@@ -52,8 +52,9 @@ struct Args {
     /// the owner is gone, so nothing may be left unlocked). Never unlocks.
     #[arg(long)]
     lock_after: bool,
-    /// Guard mode: wait until this process (the console) is gone, then lock the session at once and
-    /// restore, so a crashed console never leaves the desktop visible and unlocked until a timer fires.
+    /// Guard mode: wait until this process (the console) is gone, then lock the session at once and exit
+    /// WITHOUT touching the display: an ApplyMonitorsConfig right after the owner vanished crashed the
+    /// Shell (2026-10-03 13:52, libmutter apply_monitors_config); the dead-man timers restore later.
     #[arg(long)]
     after_pid: Option<u32>,
 }
@@ -616,6 +617,7 @@ fn main() -> anyhow::Result<()> {
     verify_live_identity(&conn, &backup)?;
     if args.after_pid.is_some() {
         print_lock(&backup.session_id);
+        return Ok(());
     }
 
     let (_serial0, monitors0, _logical0) = read_state(&conn)?;

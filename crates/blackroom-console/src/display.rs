@@ -253,8 +253,8 @@ pub struct Watchdog {
     cwd: PathBuf,
     sequence: u32,
     current: Option<String>,
-    /// A service that waits for this process to vanish, then locks at once and restores; the timers
-    /// stay as the backstop if the guard itself dies.
+    /// A service that waits for this process to vanish, then only locks the session at once; the
+    /// timers restore the display (a restore that early crashed the Shell).
     guard: Option<String>,
 }
 

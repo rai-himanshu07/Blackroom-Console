@@ -17,9 +17,7 @@ Mutter 50.1, built-in eDP-1 at scale 1.0, built-in input nodes event2-5, one uid
 
 ## Risks that remain
 
-- Mutter instability: the Shell survived every owner loss since the fix, but owner loss still produces NULL-pointer
-  assertions and cursor-update errors in the Shell journal (2026-10-03 01:43). One real crash was root-caused to a
-  missing NULL check; the invariant "never apply a config without the virtual monitor while a consumer streams" stays.
+- Mutter instability: a second real Shell crash happened on 2026-10-03 13:52 (run 19): applying a monitors config 0.4 s after a killed console's virtual monitor vanished crashed libmutter (`apply_monitors_config` -> `rebuild` -> NULL deref); the session was lost. The first crash (2026-10-01) was the same bug class. Both came from applying a display config while a virtual monitor was being torn down. The rule is now: after an owner dies, never touch the display for the first seconds; only the 60 s timers restore. Owner loss alone (no config applied) has not crashed the Shell in four observed kills, but it still logs NULL-pointer assertions.
 - Single uid: any process of the user can use the console's authority surfaces (see `docs/security/poc-findings.md`).
 - The only recovery for the built-in panel is software (watchdog, SSH); there is no unplug fallback.
 
