@@ -27,6 +27,35 @@ const OWNER: &str = "owner";
 const PASSWORD: &str = "correct horse battery";
 const START: u64 = 1_800_000_000;
 
+// A child forked by the SIGKILL test briefly holds copies of other tests' directory descriptors, and with
+// them their flock; tests therefore run one at a time (reentrant within a thread, so two fixtures are fine).
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+thread_local! {
+    static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+struct Serial(Option<std::sync::MutexGuard<'static, ()>>);
+
+fn serial() -> Serial {
+    if HELD.get() {
+        return Serial(None);
+    }
+    let guard = SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    HELD.set(true);
+    Serial(Some(guard))
+}
+
+impl Drop for Serial {
+    fn drop(&mut self) {
+        if self.0.is_some() {
+            HELD.set(false);
+        }
+    }
+}
+
 struct FakePam(Arc<AtomicUsize>);
 
 impl PasswordCheck for FakePam {
@@ -48,6 +77,7 @@ struct Fixture {
     calls: Arc<AtomicUsize>,
     totp_secret: Vec<u8>,
     key: Zeroizing<String>,
+    _serial: Serial,
 }
 
 fn open_daemon(
@@ -67,6 +97,7 @@ fn open_daemon(
 
 impl Fixture {
     fn new() -> Self {
+        let serial = serial();
         let dir = tempfile::tempdir().unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let fd = File::open(dir.path()).unwrap();
@@ -83,6 +114,7 @@ impl Fixture {
             calls: Arc::new(AtomicUsize::new(0)),
             totp_secret: base32_decode(&secret).unwrap(),
             key,
+            _serial: serial,
         }
     }
 
@@ -1193,6 +1225,7 @@ fn doc12_authentication_flow_matrix() {
 #[test]
 fn crash_a_real_sigkill_during_key_rotation_and_epoch_increments_never_corrupts_state() {
     const CHILD: &str = "BLACKROOM_CRASH_CHILD_DIR";
+    let _serial = std::env::var_os(CHILD).is_none().then(serial);
     if let Some(dir) = std::env::var_os(CHILD) {
         // Child: rotate and bump forever until the parent kills it.
         let fd = File::open(&dir).unwrap();
