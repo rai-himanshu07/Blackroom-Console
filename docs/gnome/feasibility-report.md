@@ -38,4 +38,4 @@ Status words in the table are proposals; only the owner's decision below counts.
 - **Fit:** a Go for single-owner use on this laptop over a trusted LAN looks supported by the evidence; a Go for
   anything wider does not.
 
-**Decision (Go / No-Go / Modify), date and reason: to be recorded by the owner.**
+**Decision: GO**, stated by the owner in chat on 2026-10-03, recorded here at the owner's instruction. Scope as proposed above (single owner, this laptop, trusted LAN); no further reason was given. Not stated, so still open: Architecture Review #2 (roadmap) and the independent release review.
