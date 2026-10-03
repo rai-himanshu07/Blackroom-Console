@@ -634,6 +634,7 @@ a=fmtp:106 level-asymmetry-allowed=1;packetization-mode=0;profile-level-id=42e01
             payload: 96,
             rtc,
             encoder: Encoder::OpenH264,
+            audio: false,
             failure: Arc::new(Mutex::new(None)),
             frames: Arc::new(AtomicU64::new(0)),
             feeder_stop: Arc::new(AtomicBool::new(false)),
