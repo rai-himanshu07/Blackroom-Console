@@ -30,7 +30,7 @@ launcher, multi-monitor selection UI, file transfer, remote power control, mutin
 - [x] **K. Session options and modes.** (done 2026-10-03; `headless-modes-test.sh` MODES OK) `SessionOptions` (mode, blank_panel, block_local_input, lock_on_stop, resolution,
   heartbeat, idle and max minutes), `POST /start` body, shared-mode capture and pointer mapping, status shows the mode.
   Check: headless Shell session in shared mode (video frames, no topology change, input accepted), private unchanged.
-- [ ] **L. Settings profile.** `profile.rs`, `GET/POST /settings`, defaults and validation. Check: unit and adversarial tests.
+- [x] **L. Settings profile.** (done 2026-10-03; `profile.rs`, `/settings`, modes test saves and follows a profile) `profile.rs`, `GET/POST /settings`, defaults and validation. Check: unit and adversarial tests.
 - [ ] **N. Display, rate and cursor options.** fps cap, bitrate cap, embedded cursor, live apply. Check: headless.
 - [ ] **M. Audio.** Opus branch, offer parsing, setting, page control. Check: headless Chrome receives audio from a test tone.
 - [ ] **O. Input options.** keysym text injection, Mac key mapping. Check: unit tests, headless browser.

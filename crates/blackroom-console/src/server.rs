@@ -22,6 +22,7 @@ use crate::console::{InputEvent, Quality, RemoteConsole};
 use crate::hostd_auth::{HostdAuth, LoginForm, LoginOutcome};
 use crate::login::{Login, LoginError};
 use crate::options::SessionOptions;
+use crate::profile::Profile;
 
 const PAGE: &str = include_str!("page.html");
 const LOGIN_PAGE: &str = include_str!("login.html");
@@ -210,6 +211,13 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
             "/input",
             post(input).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
         )
+        .route(
+            "/settings",
+            get(settings_get)
+                .post(settings_set)
+                .layer(DefaultBodyLimit::max(MAX_SETTINGS_BODY)),
+        )
+        .route("/settings/reset", post(settings_reset))
         .route(
             "/start",
             post(start).layer(DefaultBodyLimit::max(MAX_SETTINGS_BODY)),
@@ -582,6 +590,53 @@ async fn input(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -
     }
 }
 
+/// A JSON object only: serde would also read a bare array as a struct's fields in order.
+fn json_object<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|error| error.to_string())?;
+    if !value.is_object() {
+        return Err("expected a JSON object".into());
+    }
+    serde_json::from_value(value).map_err(|error| error.to_string())
+}
+
+async fn settings_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    Json(state.console.profile()).into_response()
+}
+
+async fn settings_set(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    let result =
+        json_object::<Profile>(&body).and_then(|profile| state.console.set_profile(profile));
+    match result {
+        Ok(profile) => Json(profile).into_response(),
+        Err(error) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response(),
+    }
+}
+
+async fn settings_reset(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    match state.console.set_profile(Profile::default()) {
+        Ok(profile) => Json(profile).into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response(),
+    }
+}
+
 fn clipboard_refusal(error: &ClipboardError) -> Response {
     let status = match error {
         ClipboardError::Disabled => StatusCode::FORBIDDEN,
@@ -638,10 +693,7 @@ async fn start(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -
     let options = if body.iter().all(u8::is_ascii_whitespace) {
         state.console.default_options()
     } else {
-        match serde_json::from_slice::<SessionOptions>(&body)
-            .map_err(|error| error.to_string())
-            .and_then(SessionOptions::validated)
-        {
+        match json_object::<SessionOptions>(&body).and_then(SessionOptions::validated) {
             Ok(options) => options,
             Err(error) => {
                 return (
@@ -1528,6 +1580,102 @@ mod tests {
             .await
             .unwrap();
         assert!(String::from_utf8_lossy(&body).contains("\"clipboard\":true"));
+    }
+
+    #[tokio::test]
+    async fn settings_round_trip_validate_and_reset() {
+        let app = app();
+        let anonymous = Request::builder()
+            .uri("/settings")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            call(&app, anonymous).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let read = async |app: &Router| {
+            let response = call(app, with_cookie("GET", "/settings", "")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = axum::body::to_bytes(response.into_body(), 1 << 16)
+                .await
+                .unwrap();
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()
+        };
+        let first = read(&app).await;
+        assert_eq!(first["session"]["blank_panel"], true);
+        assert_eq!(first["client"]["scale"], "fit");
+
+        let shared = r#"{"session":{"blank_panel":false,"block_local_input":false,"lock_on_stop":false},"client":{"scale":"actual","volume":40}}"#;
+        let saved = call(&app, with_cookie("POST", "/settings", shared)).await;
+        assert_eq!(saved.status(), StatusCode::OK);
+        let now = read(&app).await;
+        assert_eq!(now["session"]["blank_panel"], false);
+        assert_eq!(now["client"]["scale"], "actual");
+        assert_eq!(now["client"]["volume"], 40);
+
+        for bad in [
+            r#"{"client":{"volume":101}}"#,
+            r#"{"client":{"scale":"huge"}}"#,
+            r#"{"session":{"heartbeat_secs":1}}"#,
+            r#"{"version":9}"#,
+            r#"{"unknown":1}"#,
+            "[1]",
+        ] {
+            let refused = call(&app, with_cookie("POST", "/settings", bad)).await;
+            assert_eq!(refused.status(), StatusCode::BAD_REQUEST, "{bad}");
+        }
+        assert_eq!(
+            read(&app).await["client"]["volume"],
+            40,
+            "a refused save changes nothing"
+        );
+
+        let reset = call(&app, with_cookie("POST", "/settings/reset", "")).await;
+        assert_eq!(reset.status(), StatusCode::OK);
+        assert_eq!(read(&app).await["session"]["blank_panel"], true);
+    }
+
+    #[tokio::test]
+    async fn saved_settings_survive_a_restart() {
+        let dir = std::env::temp_dir().join(format!("br-profile-server-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let make = |dir: &std::path::Path| {
+            let console = RemoteConsole::spawn(ConsoleConfig {
+                grab_socket: None,
+                state_dir: std::env::temp_dir().join("br-console-server-test-profile"),
+                headless: true,
+                quality: crate::console::Quality::Medium,
+                heartbeat_timeout: Duration::from_secs(15),
+                restore_bin: std::path::PathBuf::new(),
+            });
+            assert_eq!(console.load_profile(dir.to_path_buf()), None);
+            router(console, TOKEN)
+        };
+        let app = make(&dir);
+        let saved = call(
+            &app,
+            with_cookie(
+                "POST",
+                "/settings",
+                r#"{"client":{"quality":"high","mac_keys":true}}"#,
+            ),
+        )
+        .await;
+        assert_eq!(saved.status(), StatusCode::OK);
+        let again = make(&dir);
+        let response = call(&again, with_cookie("GET", "/settings", "")).await;
+        let body = axum::body::to_bytes(response.into_body(), 1 << 16)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["client"]["quality"], "high");
+        assert_eq!(json["client"]["mac_keys"], true);
+        let status = call(&again, with_cookie("GET", "/status", "")).await;
+        let body = axum::body::to_bytes(status.into_body(), 1 << 16)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("\"quality\":\"high\""));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

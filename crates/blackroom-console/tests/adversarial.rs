@@ -13,7 +13,7 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
 const COOKIE_NAME: &str = "br_token";
-const POSTS: [&str; 7] = [
+const POSTS: [&str; 9] = [
     "/input",
     "/start",
     "/stop",
@@ -21,8 +21,10 @@ const POSTS: [&str; 7] = [
     "/quality",
     "/clipboard",
     "/logout",
+    "/settings",
+    "/settings/reset",
 ];
-const GETS: [&str; 5] = ["/", "/video", "/status", "/ice", "/clipboard"];
+const GETS: [&str; 6] = ["/", "/video", "/status", "/ice", "/clipboard", "/settings"];
 
 fn app(hardening: Hardening) -> Router {
     let console = RemoteConsole::spawn(ConsoleConfig {
@@ -406,7 +408,7 @@ async fn hostile_bodies_never_cause_a_server_error() {
         );
     }
     for body in bodies {
-        for uri in ["/input", "/quality", "/webrtc", "/clipboard"] {
+        for uri in ["/input", "/quality", "/webrtc", "/clipboard", "/settings"] {
             let response = send(
                 &app,
                 request(
@@ -424,11 +426,14 @@ async fn hostile_bodies_never_cause_a_server_error() {
                 body.len(),
                 response.status()
             );
-            assert_ne!(
-                response.status(),
-                StatusCode::OK,
-                "POST {uri} accepted hostile input"
-            );
+            // An empty object is a valid (all defaults) settings document.
+            if uri != "/settings" {
+                assert_ne!(
+                    response.status(),
+                    StatusCode::OK,
+                    "POST {uri} accepted hostile input"
+                );
+            }
         }
     }
 }

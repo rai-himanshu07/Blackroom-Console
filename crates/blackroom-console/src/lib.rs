@@ -11,6 +11,7 @@ pub mod hostd_auth;
 pub mod ice;
 pub mod login;
 pub mod options;
+pub mod profile;
 pub mod server;
 pub mod tls;
 pub mod webrtc;

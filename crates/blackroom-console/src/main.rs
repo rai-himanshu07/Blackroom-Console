@@ -80,6 +80,10 @@ struct Args {
     /// Starting quality; the page can change it while a session runs.
     #[arg(long, default_value = "medium", value_parser = ["low", "medium", "high"])]
     quality: String,
+    /// Where the saved settings (profile.json) live; default ~/.local/share/blackroom-console, or the state
+    /// directory with --headless so tests never touch the real profile.
+    #[arg(long)]
+    profile_dir: Option<PathBuf>,
     /// Start even when this GNOME/PipeWire combination has not been tested (docs/ops/compatibility-matrix.md). Setups
     /// that cannot work (no GNOME Shell, an X11 session) are refused regardless.
     #[arg(long)]
@@ -285,6 +289,19 @@ async fn main() -> anyhow::Result<()> {
         restore_bin,
     });
     console.set_clipboard_enabled(args.clipboard);
+    let profile_dir = args.profile_dir.clone().unwrap_or_else(|| {
+        if args.headless {
+            state_dir.clone()
+        } else {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+                .join(".local/share/blackroom-console")
+        }
+    });
+    if let Some(note) = console.load_profile(profile_dir) {
+        tracing::warn!("{note}");
+    }
 
     enum Mode {
         Hostd(std::sync::Arc<HostdAuth>),

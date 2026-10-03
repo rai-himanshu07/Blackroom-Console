@@ -30,6 +30,7 @@ use crate::clipboard::{self, ClipboardError};
 use crate::display::{self, Watchdog};
 use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote_with};
 use crate::options::SessionOptions;
+use crate::profile::Profile;
 use crate::webrtc::{InputSink, WebRtcSession, pick_h264};
 
 const TICK: Duration = Duration::from_millis(25);
@@ -222,6 +223,8 @@ struct Shared {
     clipboard_live: AtomicBool,
     started_at: Instant,
     options: Mutex<SessionOptions>,
+    profile: Mutex<Profile>,
+    profile_dir: Mutex<Option<PathBuf>>,
     session_started: Mutex<Option<Instant>>,
     last_input: Mutex<Instant>,
     sessions_started: AtomicU64,
@@ -268,6 +271,8 @@ impl RemoteConsole {
             clipboard_live: AtomicBool::new(false),
             started_at: Instant::now(),
             options: Mutex::new(SessionOptions::default()),
+            profile: Mutex::new(Profile::default()),
+            profile_dir: Mutex::new(None),
             session_started: Mutex::new(None),
             last_input: Mutex::new(Instant::now()),
             sessions_started: AtomicU64::new(0),
@@ -284,7 +289,33 @@ impl RemoteConsole {
 
     /// What a Start without a body uses: private until a saved profile says otherwise.
     pub fn default_options(&self) -> SessionOptions {
-        SessionOptions::default()
+        lock_ok(&self.shared.profile).session.clone()
+    }
+
+    /// Reads the saved settings from `dir` (and keeps writing there). Returns a note when the file was unusable.
+    pub fn load_profile(&self, dir: PathBuf) -> Option<String> {
+        let (profile, note) = Profile::load(&dir);
+        *lock_ok(&self.shared.quality) = profile.client.quality;
+        *lock_ok(&self.shared.profile) = profile;
+        *lock_ok(&self.shared.profile_dir) = Some(dir);
+        note
+    }
+
+    pub fn profile(&self) -> Profile {
+        lock_ok(&self.shared.profile).clone()
+    }
+
+    /// Validates, saves (when a settings directory is set) and applies the new settings to the next session.
+    pub fn set_profile(&self, profile: Profile) -> Result<Profile, String> {
+        let profile = profile.validated()?;
+        if let Some(dir) = lock_ok(&self.shared.profile_dir).as_ref() {
+            profile
+                .save(dir)
+                .map_err(|error| format!("the settings could not be saved: {error}"))?;
+        }
+        self.set_quality(profile.client.quality);
+        *lock_ok(&self.shared.profile) = profile.clone();
+        Ok(profile)
     }
 
     /// Blocks until the session runs or setup failed (everything already undone).

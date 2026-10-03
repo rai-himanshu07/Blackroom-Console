@@ -8,7 +8,8 @@ BIN=target/debug/blackroom-console
 [ -x "$BIN" ] || { echo "build first: cargo build -p blackroom-console"; exit 2; }
 PORT=18083
 log=$(mktemp /tmp/br-modes.XXXXXX)
-"$BIN" --headless --listen "127.0.0.1:$PORT" --heartbeat-secs 60 --state-dir "$(mktemp -d /tmp/br-modes-state.XXXXXX)" > "$log" 2>&1 &
+state=$(mktemp -d /tmp/br-modes-state.XXXXXX)
+"$BIN" --headless --listen "127.0.0.1:$PORT" --heartbeat-secs 60 --state-dir "$state" > "$log" 2>&1 &
 srv=$!
 trap 'kill "$srv" 2>/dev/null' EXIT
 url=""
@@ -81,5 +82,12 @@ echo "== defaults without a body are private"
 check "start without a body" "$(curl -s -b "$jar" -X POST -o /dev/null -w '%{http_code}' "$base/start")" 200
 check "mode" "$(status | jq -r .mode)" private
 check "stop" "$(stop)" 200
+echo "== a saved profile decides what a bare Start does"
+check "save a shared profile" "$(curl -s -b "$jar" "${json[@]}" -X POST -d '{"session":{"blank_panel":false,"block_local_input":false,"lock_on_stop":false}}' -o /dev/null -w '%{http_code}' "$base/settings")" 200
+check "bare start follows the profile" "$(curl -s -b "$jar" -X POST -o /dev/null -w '%{http_code}' "$base/start")" 200
+check "mode" "$(status | jq -r .mode)" shared
+check "stop" "$(stop)" 200
+check "reset settings" "$(curl -s -b "$jar" -X POST -o /dev/null -w '%{http_code}' "$base/settings/reset")" 200
+check "profile file is private" "$(stat -c %a "$state/profile.json")" 600
 [ "$fail" = 0 ] && echo "MODES OK" || echo "SOME FAILED; server log: $log"
 exit "$fail"
