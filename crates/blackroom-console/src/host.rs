@@ -247,14 +247,20 @@ impl HostConfig {
         }
     }
 
+    /// A missing file means the defaults. A file that exists but cannot be used also gives the defaults, except that
+    /// every connection waits for the owner (Ask): a damaged policy must not silently open the laptop.
     pub fn load(dir: &Path) -> (Self, Option<String>) {
+        let unusable = || Self {
+            approval: Approval::Ask,
+            ..Self::default()
+        };
         let path = dir.join(HOST_FILE);
         let text = match std::fs::metadata(&path) {
             Err(_) => return (Self::default(), None),
             Ok(meta) if meta.len() > MAX_BYTES => {
                 return (
-                    Self::default(),
-                    Some("the host settings file is too large: defaults used".into()),
+                    unusable(),
+                    Some("the host settings file is too large: defaults used, every connection asks the owner".into()),
                 );
             }
             Ok(_) => std::fs::read_to_string(&path),
@@ -266,9 +272,9 @@ impl HostConfig {
         {
             Ok(config) => (config, None),
             Err(error) => (
-                Self::default(),
+                unusable(),
                 Some(format!(
-                    "the host settings file was not used ({error}): defaults in effect"
+                    "the host settings file was not used ({error}): defaults in effect, every connection asks the owner"
                 )),
             ),
         }
@@ -278,21 +284,30 @@ impl HostConfig {
     pub fn save(&self, dir: &Path) -> anyhow::Result<PathBuf> {
         use std::io::Write;
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SAVES: AtomicU64 = AtomicU64::new(0);
         std::fs::DirBuilder::new()
             .recursive(true)
             .mode(0o700)
             .create(dir)?;
-        let temp = dir.join(format!(".{HOST_FILE}.tmp"));
+        // One temp file per save: two requests at once never write into the same file.
+        let temp = dir.join(format!(
+            ".{HOST_FILE}.{}.{}.tmp",
+            std::process::id(),
+            SAVES.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut file = std::fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(&temp)?;
         file.write_all(serde_json::to_string_pretty(self)?.as_bytes())?;
         file.sync_all()?;
         let path = dir.join(HOST_FILE);
-        std::fs::rename(&temp, &path)?;
+        if let Err(error) = std::fs::rename(&temp, &path) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(error.into());
+        }
         Ok(path)
     }
 }
@@ -464,7 +479,47 @@ mod tests {
         assert_eq!(HostConfig::load(dir.path()), (config, None));
         std::fs::write(dir.path().join(HOST_FILE), "{ nope").unwrap();
         let (fallback, note) = HostConfig::load(dir.path());
-        assert_eq!(fallback, HostConfig::default());
+        assert_eq!(
+            fallback,
+            HostConfig {
+                approval: Approval::Ask,
+                ..HostConfig::default()
+            },
+            "a damaged policy must not open the laptop"
+        );
         assert!(note.unwrap().contains("defaults in effect"));
+        std::fs::write(dir.path().join(HOST_FILE), vec![b' '; 20_000]).unwrap();
+        let (oversized, note) = HostConfig::load(dir.path());
+        assert_eq!(oversized.approval, Approval::Ask);
+        assert!(note.unwrap().contains("too large"));
+    }
+
+    #[test]
+    fn concurrent_saves_each_use_their_own_temp_file_and_leave_a_valid_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::thread::scope(|scope| {
+            for fps in [10, 20, 30, 40] {
+                let path = dir.path();
+                scope.spawn(move || {
+                    for _ in 0..25 {
+                        HostConfig {
+                            max_fps: fps,
+                            ..HostConfig::default()
+                        }
+                        .save(path)
+                        .unwrap();
+                    }
+                });
+            }
+        });
+        let (loaded, note) = HostConfig::load(dir.path());
+        assert_eq!(note, None);
+        assert!([10, 20, 30, 40].contains(&loaded.max_fps));
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 }

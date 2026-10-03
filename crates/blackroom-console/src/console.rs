@@ -8,7 +8,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
@@ -49,6 +49,8 @@ const SETTLE: Duration = Duration::from_secs(10);
 const SESSION_TTL: Duration = Duration::from_secs(24 * 3600);
 /// Same cap as the `POST /input` body.
 const MAX_INPUT_MESSAGE: usize = 64 * 1024;
+/// Input batches waiting for the actor; more are dropped so Stop and housekeeping never queue behind a flood.
+const MAX_QUEUED_INPUT: usize = 64;
 const HEADLESS_SESSION: &str = "headless";
 /// GNOME refuses remote sessions on a locked screen unless the Blackroom extension lifts that.
 const LOCKED_HINT: &str = " (the screen is locked: switch on \"Remote use on the lock screen\" in the tray menu or Host settings, or unlock locally)";
@@ -292,10 +294,29 @@ struct Shared {
     sessions_started: AtomicU64,
     sessions_stopped: AtomicU64,
     last_clipboard: Mutex<Option<Instant>>,
+    input_queued: AtomicUsize,
 }
 
 fn lock_ok<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Takes one place in the input queue; false when it is full (the caller must not enqueue).
+fn reserve_input_slot(queued: &AtomicUsize) -> bool {
+    queued
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n < MAX_QUEUED_INPUT).then_some(n + 1)
+        })
+        .is_ok()
+}
+
+/// The restore timer may be cancelled only once the display is back and the lock was not asked for or took.
+fn may_disarm_watchdog(
+    topology_restored: Option<bool>,
+    lock_wanted: bool,
+    locked: Option<bool>,
+) -> bool {
+    topology_restored != Some(false) && (!lock_wanted || locked == Some(true))
 }
 
 enum Command {
@@ -344,6 +365,7 @@ impl RemoteConsole {
             sessions_started: AtomicU64::new(0),
             sessions_stopped: AtomicU64::new(0),
             last_clipboard: Mutex::new(None),
+            input_queued: AtomicUsize::new(0),
         });
         let actor_shared = Arc::clone(&shared);
         thread::Builder::new()
@@ -496,9 +518,13 @@ impl RemoteConsole {
             return Ok(());
         }
         *lock_ok(&self.shared.last_input) = Instant::now();
-        self.commands
-            .send(Command::Input(events))
-            .map_err(|_| "console actor is gone".to_string())
+        if !reserve_input_slot(&self.shared.input_queued) {
+            return Err("too much input is waiting".into());
+        }
+        self.commands.send(Command::Input(events)).map_err(|_| {
+            self.shared.input_queued.fetch_sub(1, Ordering::AcqRel);
+            "console actor is gone".to_string()
+        })
     }
 
     /// One data-channel message: the same JSON array as `POST /input`; bad messages are dropped.
@@ -636,7 +662,11 @@ impl RemoteConsole {
 
     /// Answers a browser's WebRTC offer with the live desktop as H.264; replaces any earlier peer.
     /// Blocks while ICE gathers, so call it from a blocking context.
-    pub fn webrtc_answer(&self, offer_sdp: &str) -> Result<String, String> {
+    pub fn webrtc_answer(
+        &self,
+        offer_sdp: &str,
+        allowed: Arc<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<String, String> {
         if *lock_ok(&self.shared.phase) != Phase::Running {
             return Err("not running".into());
         }
@@ -649,7 +679,12 @@ impl RemoteConsole {
         let quality = *lock_ok(&self.shared.quality);
         let h264 = pick_h264(offer_sdp).ok_or("the browser offers no usable H.264")?;
         let console = self.clone();
-        let input: InputSink = Arc::new(move |text| console.input_json(text));
+        let input: InputSink = Arc::new(move |text| {
+            // The channel outlives the HTTP request: input stops (and the heartbeat with it) when the login ends.
+            if allowed() {
+                console.input_json(text);
+            }
+        });
         let bitrate = effective_bitrate(
             quality,
             lock_ok(&self.shared.options).bitrate_kbps,
@@ -677,8 +712,11 @@ impl RemoteConsole {
         let session = WebRtcSession::start(&tuning, bitrate, &h264, plan.as_ref(), input)?;
         let answer = session.answer(offer_sdp);
         let mut slot = lock_ok(&self.shared.webrtc);
-        // Stop may have run while negotiating: its teardown has already passed.
-        if answer.is_err() || *lock_ok(&self.shared.phase) != Phase::Running {
+        // Stop (and even a new Start) may have run while negotiating: only the session whose tuning we took may keep it.
+        let same_session = lock_ok(&self.shared.tuning)
+            .as_ref()
+            .is_some_and(|now| Arc::ptr_eq(now, &tuning));
+        if answer.is_err() || !same_session || *lock_ok(&self.shared.phase) != Phase::Running {
             session.close();
             return answer.and(Err("stopped while negotiating".into()));
         }
@@ -875,6 +913,7 @@ fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<Co
                 let _ = reply.send(report);
             }
             Ok(Command::Input(events)) => {
+                shared.input_queued.fetch_sub(1, Ordering::AcqRel);
                 if let Some(running) = active.as_mut() {
                     running.apply_input(events);
                 }
@@ -1380,7 +1419,7 @@ impl<'c> Active<'c> {
         };
         if let Err(error) = result {
             self.shared.input_refused.fetch_add(1, Ordering::Relaxed);
-            tracing::debug!(%error, ?event, "input event refused");
+            tracing::debug!(%error, "input event refused");
         } else {
             self.shared.input_accepted.fetch_add(1, Ordering::Relaxed);
         }
@@ -1541,18 +1580,22 @@ impl<'c> Active<'c> {
         }
         stage("topology verified");
 
-        if report.topology_restored != Some(false)
-            && let Some(mut watchdog) = self.watchdog.take()
-        {
-            watchdog.disarm();
-        }
-        stage("watchdog handled");
-
         self.renew_grab();
-        if self.options.lock_on_stop && !self.config.headless {
+        let lock_wanted = self.options.lock_on_stop && !self.config.headless;
+        if lock_wanted {
             report.locked = Some(display::lock_session(&self.session.session_id));
         }
         stage("lock requested");
+
+        // A failed lock leaves the restore timer pending: it restores and locks again within 60 s.
+        if let Some(mut watchdog) = self.watchdog.take() {
+            if may_disarm_watchdog(report.topology_restored, lock_wanted, report.locked) {
+                watchdog.disarm();
+            } else if report.topology_restored != Some(false) {
+                watchdog.disarm_guard();
+            }
+        }
+        stage("watchdog handled");
 
         if let Some(mut client) = self.grab.take() {
             self.released_early.extend(client.take_released());
@@ -1787,6 +1830,28 @@ mod tests {
         for event in bad {
             assert!(event.clone().validate().is_err(), "{event:?}");
         }
+    }
+
+    #[test]
+    fn input_queue_is_capped_and_freed_one_by_one() {
+        let queued = AtomicUsize::new(0);
+        for _ in 0..MAX_QUEUED_INPUT {
+            assert!(reserve_input_slot(&queued));
+        }
+        assert!(!reserve_input_slot(&queued));
+        queued.fetch_sub(1, Ordering::AcqRel);
+        assert!(reserve_input_slot(&queued));
+        assert!(!reserve_input_slot(&queued));
+    }
+
+    #[test]
+    fn the_restore_timer_stays_when_the_lock_failed_or_the_display_is_not_back() {
+        assert!(may_disarm_watchdog(Some(true), true, Some(true)));
+        assert!(may_disarm_watchdog(None, false, None));
+        assert!(may_disarm_watchdog(Some(true), false, None));
+        assert!(!may_disarm_watchdog(Some(true), true, Some(false)));
+        assert!(!may_disarm_watchdog(Some(false), true, Some(true)));
+        assert!(!may_disarm_watchdog(Some(false), false, None));
     }
 
     #[test]

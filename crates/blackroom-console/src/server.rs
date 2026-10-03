@@ -4,7 +4,8 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
@@ -46,6 +47,8 @@ const COOKIE_NAME: &str = "br_token";
 const BOUNDARY: &str = "frame";
 /// A frame is resent at least this often so a still desktop does not look like a dead stream.
 const KEEPALIVE: Duration = Duration::from_secs(1);
+/// How often a running stream or data channel asks again whether its login still stands.
+const GATE_EVERY: Duration = Duration::from_secs(1);
 const MAX_INPUT_BODY: usize = 64 * 1024;
 
 #[derive(Clone)]
@@ -151,6 +154,69 @@ fn authorized(state: &AppState, headers: &HeaderMap) -> bool {
         Auth::Hostd(hostd) => cookie_value(headers, SESSION_COOKIE)
             .is_some_and(|token| hostd.check(token, state.console.emergency_count())),
     }
+}
+
+/// Re-asks the login behind a long-lived transport (the video stream, the WebRTC input channel) at most once per
+/// `every`, so a logout, revocation or expiry ends it. Once lost it is never regained: a new login needs a new connection.
+pub(crate) struct AuthGate {
+    check: Box<dyn Fn() -> bool + Send + Sync>,
+    every: Duration,
+    value: AtomicBool,
+    at: Mutex<Instant>,
+}
+
+impl AuthGate {
+    fn new(check: Box<dyn Fn() -> bool + Send + Sync>, every: Duration) -> Self {
+        Self {
+            check,
+            every,
+            value: AtomicBool::new(true),
+            at: Mutex::new(Instant::now()),
+        }
+    }
+
+    /// The cached answer; a caller that finds another one refreshing it takes the cache instead of waiting.
+    pub(crate) fn still_ok(&self) -> bool {
+        if !self.value.load(Ordering::Acquire) {
+            return false;
+        }
+        if let Ok(mut at) = self.at.try_lock()
+            && at.elapsed() >= self.every
+        {
+            self.value.store((self.check)(), Ordering::Release);
+            *at = Instant::now();
+        }
+        self.value.load(Ordering::Acquire)
+    }
+
+    /// An uncached answer, for the moment something irreversible is about to happen.
+    fn recheck(&self) -> bool {
+        let ok = (self.check)();
+        if !ok {
+            self.value.store(false, Ordering::Release);
+        }
+        ok
+    }
+}
+
+fn auth_gate(state: &AppState, headers: &HeaderMap) -> Arc<AuthGate> {
+    let session = cookie_value(headers, SESSION_COOKIE)
+        .unwrap_or_default()
+        .to_string();
+    let console = state.console.clone();
+    let check: Box<dyn Fn() -> bool + Send + Sync> = match &state.auth {
+        // The URL token never expires.
+        Auth::Token(_) => Box::new(|| true),
+        Auth::Totp(login) => {
+            let login = Arc::clone(login);
+            Box::new(move || login.check(&session, console.emergency_count(), Instant::now()))
+        }
+        Auth::Hostd(hostd) => {
+            let hostd = Arc::clone(hostd);
+            Box::new(move || hostd.check(&session, console.emergency_count()))
+        }
+    };
+    Arc::new(AuthGate::new(check, GATE_EVERY))
 }
 
 /// A browser sends `Origin` on cross-site posts; it must name this host. Plain clients send none.
@@ -807,9 +873,17 @@ async fn start(
         )
     );
     let mode = options.label();
+    let gate = auth_gate(&state, &headers);
     let started = tokio::task::spawn_blocking(move || {
         if let Err(message) = console.ask_approval(mode, &device) {
             return Err((StatusCode::FORBIDDEN, message));
+        }
+        // The owner may take a while to answer: the login must still stand when the session would begin.
+        if !gate.recheck() {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                "the login ended while waiting".to_string(),
+            ));
         }
         console
             .start(options)
@@ -849,7 +923,9 @@ async fn webrtc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) 
         return malformed();
     };
     let console = state.console.clone();
-    match tokio::task::spawn_blocking(move || console.webrtc_answer(&offer.sdp)).await {
+    let gate = auth_gate(&state, &headers);
+    let allowed: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || gate.still_ok());
+    match tokio::task::spawn_blocking(move || console.webrtc_answer(&offer.sdp, allowed)).await {
         Ok(Ok(sdp)) => Json(serde_json::json!({ "sdp": sdp })).into_response(),
         Ok(Err(message)) => (
             StatusCode::CONFLICT,
@@ -985,9 +1061,13 @@ async fn video(State(state): State<AppState>, headers: HeaderMap) -> Response {
     };
     // A full channel blocks the reader thread, so a slow client skips frames instead of lagging.
     let (parts, mut receiver) = tokio::sync::mpsc::channel::<Bytes>(2);
+    let gate = auth_gate(&state, &headers);
     tokio::task::spawn_blocking(move || {
         let (mut seen, mut newest) = (0, None);
         loop {
+            if !gate.still_ok() {
+                break;
+            }
             match slot.next_after(seen, KEEPALIVE) {
                 Some((seq, frame)) => {
                     seen = seq;
@@ -1024,6 +1104,35 @@ mod tests {
     use crate::console::ConsoleConfig;
 
     const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn toggled_gate(every: Duration) -> (Arc<std::sync::atomic::AtomicBool>, AuthGate) {
+        let live = Arc::new(AtomicBool::new(true));
+        let seen = Arc::clone(&live);
+        let gate = AuthGate::new(Box::new(move || seen.load(Ordering::SeqCst)), every);
+        (live, gate)
+    }
+
+    #[test]
+    fn a_gate_notices_a_lost_login_and_never_regains_it() {
+        let (live, gate) = toggled_gate(Duration::ZERO);
+        assert!(gate.still_ok());
+        live.store(false, Ordering::SeqCst);
+        assert!(!gate.still_ok());
+        live.store(true, Ordering::SeqCst);
+        assert!(!gate.still_ok());
+    }
+
+    #[test]
+    fn a_gate_asks_again_only_after_its_interval_but_recheck_always_asks() {
+        let (live, gate) = toggled_gate(Duration::from_secs(3600));
+        live.store(false, Ordering::SeqCst);
+        assert!(
+            gate.still_ok(),
+            "inside the interval the cached answer holds"
+        );
+        assert!(!gate.recheck());
+        assert!(!gate.still_ok());
+    }
 
     #[test]
     fn a_token_file_keeps_one_private_token_across_calls_and_replaces_garbage() {

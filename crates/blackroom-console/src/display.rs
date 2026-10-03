@@ -190,6 +190,34 @@ pub fn write_backup(dir: &Path, backup: &DisplayBackup, shell_pid: u32) -> anyho
     )
 }
 
+/// Creates `dir` (0700) when it is missing and refuses one that is a symbolic link, belongs to someone else or is
+/// open to other users: the state directory holds the backup and recovery marker the next start acts on.
+pub fn ensure_private_dir(dir: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+        .with_context(|| format!("create {}", dir.display()))?;
+    let meta = std::fs::symlink_metadata(dir)?;
+    anyhow::ensure!(
+        meta.is_dir(),
+        "{} must be a real directory (a symbolic link is refused)",
+        dir.display()
+    );
+    anyhow::ensure!(
+        meta.uid() == rustix::process::geteuid().as_raw(),
+        "{} belongs to another user",
+        dir.display()
+    );
+    anyhow::ensure!(
+        meta.permissions().mode() & 0o077 == 0,
+        "{} is open to other users: run chmod 700 on it",
+        dir.display()
+    );
+    Ok(())
+}
+
 /// Writes `name` (mode 0600) into `dir` (created 0700) and returns its absolute path.
 pub fn write_private(dir: &Path, name: &str, contents: &[u8]) -> anyhow::Result<PathBuf> {
     use std::io::Write;
@@ -329,6 +357,11 @@ impl Watchdog {
         if let Some(unit) = self.current.take() {
             stop_timer(&unit);
         }
+        self.disarm_guard();
+    }
+
+    /// Stops only the crash guard; the pending restore timer is left to fire.
+    pub fn disarm_guard(&mut self) {
         if let Some(unit) = self.guard.take() {
             let _ = quiet(Command::new("systemctl").args([
                 "--user",
@@ -751,5 +784,27 @@ mod tests {
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_state_dir_must_be_ours_private_and_no_symlink() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let root = tempfile::tempdir().unwrap();
+        let fresh = root.path().join("fresh");
+        ensure_private_dir(&fresh).unwrap();
+        assert_eq!(
+            std::fs::metadata(&fresh).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        ensure_private_dir(&fresh).unwrap();
+
+        let open = root.path().join("open");
+        std::fs::create_dir(&open).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(ensure_private_dir(&open).is_err());
+
+        let link = root.path().join("link");
+        symlink(&fresh, &link).unwrap();
+        assert!(ensure_private_dir(&link).is_err());
     }
 }

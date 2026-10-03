@@ -382,11 +382,15 @@ async fn main() -> anyhow::Result<()> {
     }
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    let state_dir = args
-        .state_dir
-        .clone()
-        .unwrap_or_else(|| runtime.join("blackroom-console"));
+        .filter(|path| path.is_absolute());
+    let state_dir = match (&args.state_dir, &runtime) {
+        (Some(dir), _) => dir.clone(),
+        (None, Some(runtime)) => runtime.join("blackroom-console"),
+        (None, None) => anyhow::bail!(
+            "XDG_RUNTIME_DIR is not set: pass --state-dir <a private directory> (there is no shared /tmp fallback)"
+        ),
+    };
+    blackroom_console::display::ensure_private_dir(&state_dir)?;
     let profile_dir = args.profile_dir.clone().unwrap_or_else(|| {
         if args.headless {
             state_dir.clone()
@@ -425,7 +429,10 @@ async fn main() -> anyhow::Result<()> {
         args.audio_sink.clone_from(&host.audio_sink);
     }
     // How clients sign in: the owner's choice wins; a login authority that is not running falls back to the token address.
-    let default_hostd = runtime.join("blackroom-hostd");
+    let default_hostd = runtime
+        .as_ref()
+        .map_or_else(|| state_dir.clone(), Clone::clone)
+        .join("blackroom-hostd");
     let mut login_note = None::<String>;
     match host.login {
         Some(blackroom_console::host::LoginMethod::Hostd) => {
