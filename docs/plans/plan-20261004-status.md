@@ -1,0 +1,34 @@
+# Status and review round (2026-10-04)
+
+Tier: mini (status note). Delivery: MVP fast path.
+
+## Where the project stands
+The MVP console is built end to end: client page (Private and Shared sessions, WebRTC H.264 + Opus, MJPEG fallback, clipboard,
+per-device settings), owner limits and approve-each-connection, the laptop-only host page, the `blackroom` credential CLI, the
+top-bar indicator, the lock-screen switch, the launcher and the `.deb`. Roadmap Phases 0-8 are done; Phase 5 steps 7-10 and 13-14
+stay deferred; the Phase 9 and 10 formal gates are open; Phases 11-20 are largely superseded by the console (annotated in the
+roadmap). Release notes: `docs/RELEASE_NOTES.md`.
+
+## One independent review (GPT-6.1 Sol, once, read-only)
+30 findings (8 High, 20 Medium, 2 Low), all read against the code before triage.
+- **Fixed:** the video stream and the WebRTC input channel now stop when their login ends (R1); the login is re-checked after the
+  owner answers an approval (R5); a negotiation cannot attach to a later session (R6); input queued for the actor is capped (R7);
+  the restore timer stays when the lock failed (R4); the restore helper locks before its verification poll and fails when the
+  lock fails (R11); a private state directory is required, no `/tmp` fallback (R12); a damaged `host.json` makes every
+  connection ask the owner (R13); unique temp file per `host.json` save (R14); rejected input text no longer reaches the debug
+  log (R19); authenticator note (R21); the CLI no longer says "no live sessions" when hostd merely did not answer (R22);
+  compatibility wording (R27); a cancelled touch never clicks (R28); device reset keeps the laptop's defaults (R29); host
+  sign-in recovers from a network error (R30).
+- **Disagreed, with reason:** R2 (startup recovery runs about 5 s after a crash, far beyond the roughly 50 ms Mutter teardown that
+  crashed in run 19), R3 (the retry that drops `--keep-live-virtual` is deliberate and commented), R9 (the marker is written
+  before the display is touched and the 60 s timers remain the backstop).
+- **Deferred:** R8 (`--lock-on-emergency` in the packaged unit: a lock during teardown is an unobserved composition, needs a live
+  run first), R10, R15-R18 (need an authenticated or same-user caller), R20, R23-R26 (documented behaviour or product choice).
+- Not covered by a test: the data-channel gate itself (only the gate type and the unchanged data-channel path in headless Chrome),
+  the negotiation check (R6), `pointercancel` (R28) and the teardown order against a real lock (R4: only the decision function).
+
+## Still the owner's
+Live checks listed in `docs/RELEASE_NOTES.md` and the final report of this round: Shared mode on the real screen, Private blank and
+block toggles, laptop sound, tray lock-screen switch and Exit, the applications-menu launcher, real PAM and credential commands
+from the host page, an authenticator app scanning the QR, start at login and restart under systemd, Ask on the real desktop,
+clipboard over https, mobile data, Safari/iOS, a one-hour soak and a clean `.deb` install.

@@ -75,5 +75,6 @@ only output, Chrome on the tablet. Everything else is in `docs/ops/compatibility
 
 ## Review status
 
-Internal tests and one internal red-team pass only. **One independent review of the release is still owed** (you name the
-reviewer model); nothing here has been reviewed by anyone but its author.
+Internal tests and one internal red-team pass, plus **one independent read-only review (GPT-6.1 Sol, 2026-10-04)**: 30
+findings, 16 fixed, 3 disputed with a reason, the rest deferred (`docs/plans/plan-20261004-status.md`). The fixes were checked
+by tests and the headless suites, not by a second review, and not on the real desktop.

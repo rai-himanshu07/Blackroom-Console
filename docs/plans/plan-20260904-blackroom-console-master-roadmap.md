@@ -108,7 +108,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
 
 ### Stage I — Foundations
 
-- [ ] **Phase 0 — Repository discovery and bootstrap** (`11.P0`; Docs 00 §47, 01 §53, 11 §5)
+- [x] **Phase 0 — Repository discovery and bootstrap** (`11.P0`; Docs 00 §47, 01 §53, 11 §5)
   - Files: `.gitignore`, `Cargo.toml` (workspace), `rust-toolchain.toml`, `deny.toml`,
     `crates/*/Cargo.toml` skeletons, `web/` placeholder, `docs/gnome/`, `docs/security/`,
     `docs/experiments/`, `docs/protocol/`, `docs/ops/` (empty README stubs), `AGENTS.md`
@@ -120,7 +120,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     updated.
   - Gate: none (bookkeeping). Report.
 
-- [ ] **Phase 1 — Environment and research** (`11.P1`; Docs 10 Exp 0–2, 02 §7, 05 §165 steps 1–2, 06 §160, 03 §124, 20 §59)
+- [x] **Phase 1 — Environment and research** (`11.P1`; Docs 10 Exp 0–2, 02 §7, 05 §165 steps 1–2, 06 §160, 03 §124, 20 §59)
   - Files: `crates/blackroom-experiments/src/bin/exp00_environment.rs`,
     `exp01_session_discovery.rs`, `exp02_mutter_inventory.rs` (read-only D-Bus
     introspection via `zbus`); `docs/gnome/api-inventory.md` (every Mutter/Shell/logind/
@@ -142,7 +142,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
   - Gate: feasibility blockers list (Doc 00 §47 Phase 1 deliverable) is empty or explicitly
     accepted. Report.
 
-- [ ] **Phase 2 — State machine core** (`11.P2`, `11.P13`, `11.P14` logic-only; Docs 07 §4–§30, §59 steps 1–7; 16 §32–§38, §51; 17 §3–§5, §11; 13 §6–§7)
+- [x] **Phase 2 — State machine core** (`11.P2`, `11.P13`, `11.P14` logic-only; Docs 07 §4–§30, §59 steps 1–7; 16 §32–§38, §51; 17 §3–§5, §11; 13 §6–§7)
   - Files: `crates/blackroom-core/src/{state.rs, event.rs, transition.rs, lock.rs,
     lease.rs, epoch.rs, limits.rs, error.rs, protocol/*.rs, events/*.rs}` — 11 canonical
     states, typed events (one per transaction step outcome), the Doc 07 §8 transition
@@ -165,7 +165,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
 
 ### Stage II — GNOME feasibility PoC (all on this host; Doc 10 order; safety plan mandatory)
 
-- [ ] **Phase 3 — GNOME session discovery** (`11.P3`; Docs 05 §12–§15, 10 Exp 1–2, 06 §28–§32)
+- [x] **Phase 3 — GNOME session discovery** (`11.P3`; Docs 05 §12–§15, 10 Exp 1–2, 06 §28–§32)
   - Files: `crates/blackroom-gnome/src/mutter/{session.rs, capability.rs}` (logind session
     selection by UID+seat+Type=wayland+Class=user — never "first session"; Wayland check;
     Mutter/Shell version and interface capability detection → Doc 20 §8 constants);
@@ -178,7 +178,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     logind data + live check); two-session host case selects the correct session.
   - Gate: capability report `SUPPORTED` for OS/GNOME/Wayland/systemd/session. Report.
 
-- [ ] **Phase 4 — Virtual display PoC** (`11.P4`; Docs 10 Exp 3–5, 02 §8–§11, 05 §25–§27, 19 §16–§17)
+- [x] **Phase 4 — Virtual display PoC** (`11.P4`; Docs 10 Exp 3–5, 02 §8–§11, 05 §25–§27, 19 §16–§17)
   - Files: `crates/blackroom-gnome/src/mutter/{remote_desktop.rs, screencast.rs,
     virtual_monitor.rs, pipewire_capture.rs}`; experiments `exp03_capture.rs`,
     `exp04_virtual_monitor.rs`, `exp05_virtual_active.rs`; evidence under
@@ -190,7 +190,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     no leaked monitors/PipeWire nodes (`pw-dump` diff) and no Shell crash (journal).
   - Gate: **FEAS-B** PASS. Report.
 
-- [x] **Phase 5 — Physical display isolation** (`11.P5`; Docs 10 Exp 6–7, 37, 26–27, 29; 02 §12–§13, §37–§38; 05 §28–§40, §60–§62; 20 §20–§24) — **hard gate**
+- [x] **Phase 5 — Physical display isolation** — *steps 7–10 and 13–14 are deferred and not claimed (status 2026-10-04)* (`11.P5`; Docs 10 Exp 6–7, 37, 26–27, 29; 02 §12–§13, §37–§38; 05 §28–§40, §60–§62; 20 §20–§24) — **hard gate**
   - Supported-layout decision (2026-09-28): one physical display is a
     first-class configuration, not a fallback requiring an optional HDMI
     monitor. The matrix below records the original comprehensive targets;
@@ -277,7 +277,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
   - Gate: **FEAS-A** PASS; **Architecture Review #1** (Doc 11 §47): PROCEED / MODIFY /
     STOP recorded in `docs/HANDOFF.md`. Report.
 
-- [ ] **Phase 9 — Complete local lifecycle** (**LIVE STOP 2026-10-01: Shell SIGSEGV in the integrated probe; fixed; four real-session runs on 2026-10-02 survived, two passed the probe rule (remote input and physical-input blocking under isolation, one pass each), the rest of FEAS-F/H unproven; see `docs/gnome/display-isolation.md`**) (`11.P9`, `11.P10`, `11.P11`; Docs 10 Exp 13–20, 25, 30–36; 07 §9–§11, §18–§30; 05 §63–§72, §84–§99; 19 §30–§31 dev subset)
+- [ ] **Phase 9 — Complete local lifecycle** — *status 2026-10-04: built into the console and run live (runs 8–22); the formal gate (FEAS-F/H and the exp13–20, 25, 30–36 matrix) stays open* (**LIVE STOP 2026-10-01: Shell SIGSEGV in the integrated probe; fixed; four real-session runs on 2026-10-02 survived, two passed the probe rule (remote input and physical-input blocking under isolation, one pass each), the rest of FEAS-F/H unproven; see `docs/gnome/display-isolation.md`**) (`11.P9`, `11.P10`, `11.P11`; Docs 10 Exp 13–20, 25, 30–36; 07 §9–§11, §18–§30; 05 §63–§72, §84–§99; 19 §30–§31 dev subset)
   - Files: `crates/gnome-session-agent/src/{transaction.rs, teardown.rs, recovery.rs}`
     wiring the real `GnomeBackend` into the Doc 07 §9 22-step activation, §10 rollback and
     §5.8 teardown; `crates/remote-hostd/` PoC controller (local only: no network, mocked
@@ -298,7 +298,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     reboot invalidates prior sessions.
   - Gate: **FEAS-F** (fail-safe) and **FEAS-H** (same-session recovery) PASS. Report.
 
-- [ ] **Phase 10 — Emergency** (`11.P12`; Docs 10 Exp 21–24; 06 §14–§19, §84–§105, §126–§129, §139–§141; 07 §17–§19, §49; 21 §18–§19)
+- [ ] **Phase 10 — Emergency** — *status 2026-10-04: chord, lease, dead-man timers and the crash guard exist and were observed in single runs; the formal gate (exp21–24 repeats, FEAS-G) stays open; Go was given by the owner 2026-10-03* (`11.P12`; Docs 10 Exp 21–24; 06 §14–§19, §84–§105, §126–§129, §139–§141; 07 §17–§19, §49; 21 §18–§19)
   - Files: `crates/remote-emergencyd/` (evdev chord observer with 2000 ms hold, epoch-bump
     marker, logind `Session.Lock`, session-agent stop path, `emergency.sock` notify,
     `EMERGENCY_*` events only, full Doc 06 §97 hardening, `PrivateNetwork=yes`);
@@ -320,7 +320,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
 
 ### Stage III — Security authority and networking (only after Go)
 
-- [ ] **Phase 11 — Security authority** (`11.P13`–`11.P17`; Docs 03 §123 order, 17 §75 order, 09, 06 §36–§38, §106–§112)
+- [ ] **Phase 11 — Security authority** — *status 2026-10-04: built (hostd login, PAM helper, TOTP, keys, recovery codes) and the real `login-check` passed 2026-10-03; the console page signs in through it; independent review and formal SEC gates open* (`11.P13`–`11.P17`; Docs 03 §123 order, 17 §75 order, 09, 06 §36–§38, §106–§112)
   - Files: `crates/blackroom-store/` (`SecretStore` with atomic writes, schema versions,
     migration, corruption → `REMOTE ACCESS DISABLED`); `crates/remote-hostd/src/
     {identity.rs, totp.rs, access_key.rs, recovery_codes.rs, trusted_devices.rs,
@@ -340,7 +340,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     secrets — as separate users); no secret in logs (grep-based redaction test).
   - Gate: **SEC-A…E, SEC-J** (Doc 09 §100) unit/integration PASS. Report.
 
-- [ ] **Phase 12 — Gateway and protocol** (`11.P18` part, `11.P20`; Docs 16 §76 pipeline, 04 §11–§15, §34–§36, §69–§73, §104–§109; 06 §5, §41, §58, §72)
+- [ ] **Phase 12 — Gateway and protocol** — *status 2026-10-04: superseded by the single `blackroom-console` binary (owner decision 2026-10-03); the separate gateway stays an offline simulation* (`11.P18` part, `11.P20`; Docs 16 §76 pipeline, 04 §11–§15, §34–§36, §69–§73, §104–§109; 06 §5, §41, §58, §72)
   - Files: `docs/protocol/{messages.md, ipc.md, errors.md}` (every message per Doc 16 §75,
     the C18 allow-list, casing table C19, limits); `crates/blackroom-ipc/` framing +
     schema validation + fuzz targets (`cargo fuzz`); `crates/remote-gateway/` (axum +
@@ -356,7 +356,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     session on LAN.
   - Gate: Doc 16 §77 DoD items for authentication/session/IPC/errors/validation. Report.
 
-- [ ] **Phase 13 — Browser client** (`11.P18`; Docs 08 §65 order, 04 §7–§9, §37–§39, §45–§47, §60; 16 §39–§40, §56–§58)
+- [ ] **Phase 13 — Browser client** — *status 2026-10-04: superseded by the console's own page (`crates/blackroom-console/src/web`); the Doc 08 acceptance list was not run item by item* (`11.P18`; Docs 08 §65 order, 04 §7–§9, §37–§39, §45–§47, §60; 16 §39–§40, §56–§58)
   - Files: `web/` (Vite + TypeScript; Preact or Lit chosen here; client state machine per
     Doc 08 §52; screens per Doc 08 §5–§36; WebCrypto device credential; capability
     detection; pointer lock for relative motion; IME/composition handling; accessibility
@@ -369,7 +369,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     received.
   - Gate: **Architecture Review #3** (Doc 11 after P18). Report.
 
-- [ ] **Phase 14 — WebRTC** (`11.P19`–`11.P21`; Docs 04 §40–§44, §50–§56, §74–§86, §120–§122, 142 phases 3–5,8; 06 §75–§78; 19 §13–§15)
+- [ ] **Phase 14 — WebRTC** — *status 2026-10-04: built (H.264, Opus, input data channel) and proven in headless Chrome and live runs; formal gates not run* (`11.P19`–`11.P21`; Docs 04 §40–§44, §50–§56, §74–§86, §120–§122, 142 phases 3–5,8; 06 §75–§78; 19 §13–§15)
   - Files: `crates/remote-media/` (user-session child of the agent: GStreamer
     `pipewiresrc → encoder (vah264enc/nvh264enc/x264enc negotiated) → webrtcsink`, input
     data channel with sequence numbers bound to session+lease, lease-checked per event);
@@ -386,7 +386,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
 
 ### Stage IV — Integration and hardening
 
-- [ ] **Phase 15 — Full integration** (`11.P22`; Docs 00 §15–§16, §73; 04 §110–§112; 07; 13)
+- [ ] **Phase 15 — Full integration** — *status 2026-10-04: largely superseded by the MVP console and its headless and live runs* (`11.P22`; Docs 00 §15–§16, §73; 04 §110–§112; 07; 13)
   - Files: end-to-end wiring of `network → auth → authz → session → lease → GNOME
     preparation → display isolation → input isolation → media → REMOTE_ACTIVE` and
     `failure → revoke → lock → restore → verify`; observability completion (Doc 13 event
@@ -398,7 +398,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     BLOCKER rows PASS; Doc 13 §55 observability acceptance list.
   - Gate: **Architecture Review #4**. Report.
 
-- [ ] **Phase 16 — Adversarial testing** (`11.P23`, `11.P25`; Docs 18 §39 order, 09 §99–§103, 12 §19–§25, §36–§41)
+- [ ] **Phase 16 — Adversarial testing** — *status 2026-10-04: partly done (`docs/security/red-team-report.md`, `tests/adversarial.rs`, one external review pass on 2026-10-04); no independent penetration test* (`11.P23`, `11.P25`; Docs 18 §39 order, 09 §99–§103, 12 §19–§25, §36–§41)
   - Files: `crates/blackroom-systest/tests/rt_*.rs` covering all 82 `RT-*` attacks
     (automated / system-automated / manual with recorded evidence), `INV-SEC-001…010`
     assertions, Race A–F, fault injection in every state (Doc 00 §39), fuzzing campaign
@@ -409,7 +409,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     §103 checklist answered from code and tests; Doc 00 §74 questions answered.
   - Gate: **SEC-A…J PASS**; **Architecture Review #5**. Report.
 
-- [ ] **Phase 17 — Performance and reliability** (`11.P26`; Docs 19 §49 order, §42 profiles, §51 gates)
+- [ ] **Phase 17 — Performance and reliability** — *status 2026-10-04: partly done (100 headless cycles, soak script); the one-hour live soak is the owner's* (`11.P26`; Docs 19 §49 order, §42 profiles, §51 gates)
   - Files: metrics exposure (`blackroom status --metrics`, journald structured fields),
     `PERF-LAN-1080P/4K/WAN/DEGRADED/SOAK/CYCLE/FAILURE` runners in `blackroom-systest`,
     baselines and thresholds in `docs/ops/performance-baselines.md`.
@@ -420,7 +420,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     tripped gate.
   - Gate: Doc 19 §50 DoD. Report.
 
-- [ ] **Phase 18 — Compatibility** (`11.P24`; Docs 20 §49–§63, 12 §28–§31, §43, 05 §79–§83)
+- [ ] **Phase 18 — Compatibility** — *status 2026-10-04: one host proven; compatibility gate and matrix exist (`docs/ops/compatibility-matrix.md`)* (`11.P24`; Docs 20 §49–§63, 12 §28–§31, §43, 05 §79–§83)
   - Files: `crates/remote-hostd/src/compat/` (version + capability gating, cached
     validation invalidated on GNOME/Mutter/kernel/driver change, `UNKNOWN` never
     activates), `docs/ops/compatibility-matrix.md` (Ubuntu × GNOME × GPU incl. **hybrid
@@ -433,7 +433,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
     statement must say so explicitly.**
   - Gate: Doc 20 §62 DoD. Report.
 
-- [ ] **Phase 19 — Packaging, installation and operations** (`11.P27`–`11.P29`; Docs 14 §58 order, 15 §57 order, 21 §56 order, 13 §56; 06 §146–§155)
+- [ ] **Phase 19 — Packaging, installation and operations** — *status 2026-10-04: the `.deb`, runbook and `blackroom setup|reset|repair` exist; a clean-user install is the owner's check* (`11.P27`–`11.P29`; Docs 14 §58 order, 15 §57 order, 21 §56 order, 13 §56; 06 §146–§155)
   - Files: `packaging/debian/` (`blackroom-console` `.deb` via `cargo-deb` for development,
     `debian/` + `dh-cargo` for release; users/groups, directories and modes from assessment
     §6.2; minimal maintainer scripts; upgrade sequence Doc 15 §15; remote access disabled
@@ -452,7 +452,7 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
 
 ### Stage V — Release
 
-- [ ] **Phase 20 — Release candidate** (`11.P30`; Docs 00 §67, §73–§74; 12 §59; 15 §45–§46; 11 §56)
+- [ ] **Phase 20 — Release candidate** — *status 2026-10-04: open; release notes exist, the independent release review and the owner's live checks are owed* (`11.P30`; Docs 00 §67, §73–§74; 12 §59; 15 §45–§46; 11 §56)
   - Files: release notes, `docs/` synchronised with implemented behaviour only (Doc 00 §46),
     known-limitations list, supported-scope statement (Doc 20 §58), signed artefacts.
   - Depends on: Phases 16–19 gates recorded.
@@ -492,9 +492,8 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
 
 ## Blockers
 
-- None for Phase 0. Phase 1 step 5 still needs the user-run `apt install` of development
-  headers (`openssh-server` already installed 2026-09-05) and a verified SSH login from the
-  second device.
+- None. (Phase 0-1 step 5 was closed 2026-09-05.) The open items are the Phase 9/10 formal gates, the owner's live checks and the
+  release review; see `plan-20261004-status.md`.
 
 ## Execution Log
 
@@ -502,3 +501,5 @@ appended to the phase plan's Execution Log and summarised in `docs/HANDOFF.md`.
 - 2026-09-05: approved by user. Licence GPL-3.0 (`GPL-3.0-or-later`). AMD `UNKNOWN` for v1.
   `openssh-server` installed (socket-activated `ssh.socket`). Execution starts with
   `plan-20260904-phase0-1-discovery-and-environment.md`.
+- 2026-10-04: checkboxes corrected to match reality (Phases 0-8 done, 9-10 formal gates open, 11-20 annotated); the order since
+  2026-10-02 follows `plan-20261002-mvp-fast-path.md`. Current state: `plan-20261004-status.md`.

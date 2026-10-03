@@ -45,7 +45,8 @@ disabling it while locked brings the block back only once the remote sessions ha
 Stop order: restore the display, stop the capture, lock, and only then release the input grab, so the local
 keyboard never reaches an unlocked desktop while the panel comes back. The grab lease is renewed before the lock.
 
-State directory (`$XDG_RUNTIME_DIR/blackroom-console`): `last_stop.json` records how far the last Stop got (`step`,
+State directory (`$XDG_RUNTIME_DIR/blackroom-console`, or `--state-dir`; the console refuses to start without one of them and
+refuses a directory that is a symbolic link, belongs to another user or is open to group or others): `last_stop.json` records how far the last Stop got (`step`,
 and the report once done), so a Stop that dies half way is visible afterwards; `recovery.json` exists while a live
 session holds the display and is removed after a verified restore. If a console dies mid-session, the next console
 start restores from `backup.json` (same login session and Shell only) and locks; if that fails, Start is refused

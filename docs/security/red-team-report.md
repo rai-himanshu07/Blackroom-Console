@@ -97,8 +97,20 @@ second Unix user, or a real phone are listed at the end as untested.
   files; the design assumes the owner's account is not already compromised.
 - **ICE/UDP media ports** (the `--ice-port-range` you open) were not fuzzed; they accept DTLS only from a negotiated peer.
 
+## Independent review round (2026-10-04)
+
+One read-only review by another model (30 findings, read against the code before triage). Security-relevant fixes: the video
+stream and the WebRTC input channel stop when their login ends (they used to outlive a logout, revocation or expiry); the
+login is checked again after the owner answers an approval; a damaged `host.json` now makes every connection ask the owner
+instead of opening the defaults; the state directory must be private and owned by the user (no shared `/tmp` fallback);
+rejected input text no longer reaches the debug log; the CLI no longer reports "no live sessions" when hostd merely failed to
+answer. Open from that review (deferred, see `docs/plans/plan-20261004-status.md`): password attempts in flight at the same
+time on the loopback host page, the blocking pool shared by media readers and control calls, clipboard worker threads after a
+timeout, the order of a security reset, the lock-screen switch while remote handles exist, and the packaged emergency daemon
+without its own lock action. None of the fixes was observed on the real desktop.
+
 ## Not tested here (needs hardware or a person)
 
 Real phone on mobile data, Safari and iOS behaviour, a second Unix user on the same laptop, the one-hour live soak, the
 packaged install on a clean account, a CGNAT/symmetric-NAT client without TURN, and any test by someone other than the
-author. An independent review is still planned for the release (plan chunk J).
+author. The one independent review of the release was the read-only round above (2026-10-04); its fixes were not re-reviewed.

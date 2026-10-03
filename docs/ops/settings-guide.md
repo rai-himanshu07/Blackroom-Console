@@ -75,6 +75,8 @@ command-line flags.
 
 A client that asks for something outside these limits is refused (a mode that is not allowed) or held to the limit (numbers,
 sound), and its page shows what is available. "Typing text" off refuses text input even if a modified page sends it.
+If `host.json` exists but cannot be read or is invalid, the console uses the defaults except that every connection asks for
+your approval, and the host page shows the reason; saving the page writes a valid file again.
 
 ### What is not here yet
 
