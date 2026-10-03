@@ -18,6 +18,10 @@ const UNIT = 'blackroom-console.service';
 const LOCK_EXTENSION = 'blackroom-locked-remote@blackroom.local';
 const POLL_SECONDS = 2;
 
+// Only these prove nobody owns the console's bus name; a timeout or any other error says nothing about the console.
+const isAbsent = error => error.matches(Gio.DBusError, Gio.DBusError.SERVICE_UNKNOWN) ||
+    error.matches(Gio.DBusError, Gio.DBusError.NAME_HAS_NO_OWNER);
+
 const Indicator = GObject.registerClass(
 class BlackroomIndicator extends PanelMenu.Button {
     _init(uuid) {
@@ -52,6 +56,8 @@ class BlackroomIndicator extends PanelMenu.Button {
         this._lockSwitch = new PopupMenu.PopupSwitchMenuItem('Remote use on the lock screen', false);
         this._lockSwitch.connect('toggled', (_item, on) => this._setLockAccess(on));
         this.menu.addMenuItem(this._lockSwitch);
+        this._lockNote = new PopupMenu.PopupMenuItem('While on, locking does not end a remote session', {reactive: false});
+        this.menu.addMenuItem(this._lockNote);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._start = this._action('Start the console', () => this._systemctl('start'));
         this._stop = this._action('Stop the console', () => this._systemctl('stop'));
@@ -86,9 +92,19 @@ class BlackroomIndicator extends PanelMenu.Button {
                 } catch (error) {
                     if (error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                         return;
+                    if (!isAbsent(error)) {
+                        this._markUnavailable();
+                        return;
+                    }
                 }
                 this._apply(status);
             });
+    }
+
+    // The console did not answer, which is not the same as the console being off: keep what is known and say so.
+    _markUnavailable() {
+        this._title.label.text = 'Console status unavailable: it did not answer';
+        this._icon.opacity = 160;
     }
 
     _answer(method) {
@@ -154,15 +170,20 @@ class BlackroomIndicator extends PanelMenu.Button {
         process.communicate_utf8_async(null, null, () => {
             Gio.DBus.session.call(BUS_NAME, OBJECT_PATH, INTERFACE, 'Status', null, new GLib.VariantType('(s)'),
                 Gio.DBusCallFlags.NONE, 1500, null, (connection, result) => {
-                    let stillRunning = true;
+                    let outcome = 'running';
                     try {
                         connection.call_finish(result);
-                    } catch (_error) {
-                        stillRunning = false;
+                    } catch (error) {
+                        outcome = isAbsent(error) ? 'gone' : 'unknown';
                     }
-                    if (stillRunning) {
+                    if (outcome === 'running') {
                         Main.notify('The console is still running',
                             'It was not started by the user service, so it was left alone and this icon stays.');
+                        return;
+                    }
+                    if (outcome === 'unknown') {
+                        Main.notify('Blackroom Console',
+                            'The console did not answer, so it could not be confirmed stopped and this icon stays. Try Exit again.');
                         return;
                     }
                     Main.notify('Blackroom Console closed', 'Open it again from the applications menu.');
@@ -205,6 +226,8 @@ class BlackroomIndicator extends PanelMenu.Button {
                     'Locking this laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it off when you are done.');
             } else {
                 Main.extensionManager.disableExtension(LOCK_EXTENSION);
+                Main.notify('Remote use on the lock screen is off',
+                    'A remote session already open on the locked screen keeps running until it ends; new ones are refused after that.');
             }
         } catch (error) {
             Main.notify('Blackroom Console', `Could not change lock-screen access: ${error.message}`);
@@ -215,6 +238,7 @@ class BlackroomIndicator extends PanelMenu.Button {
     _showLock() {
         const on = this._lockAccess();
         this._lockSwitch.visible = on !== null;
+        this._lockNote.visible = on !== null;
         if (on !== null)
             this._lockSwitch.setToggleState(on);
         if (on !== this._lockOn) {

@@ -103,11 +103,18 @@ export function transitionNotice(previous, next) {
     if (before === after || !noticesWanted(next ?? previous))
         return null;
     const inSession = state => state === 'running' || state === 'starting' || state === 'stopping';
-    if (!inSession(before) && (after === 'running' || after === 'starting')) {
+    if (!inSession(before) && after === 'starting') {
+        return {title: 'Remote session starting',
+            body: 'A remote device is connecting. This laptop is being prepared; a second message follows when it is ready.'};
+    }
+    if ((!inSession(before) || before === 'starting') && after === 'running') {
+        // Each protection is described from its own flag: blanking the screen and blocking input are separate choices.
+        const screen = next.blank_panel ? 'This laptop\'s screen is blank' : 'This laptop\'s screen stays visible';
+        const input = next.block_local_input
+            ? 'its keyboard and touchpad are blocked'
+            : 'its keyboard and touchpad still work';
         return {title: 'Remote session started',
-            body: next.blank_panel
-                ? 'This laptop\'s screen is blank and its keyboard and touchpad are blocked.'
-                : 'You can both use this laptop. Disconnect from the top-bar icon.'};
+            body: `${screen}; ${input}. Disconnect from the top-bar icon.`};
     }
     if (inSession(before) && after === 'idle') {
         const stop = next.last_stop;
@@ -116,6 +123,18 @@ export function transitionNotice(previous, next) {
             parts.push('the screen was restored');
         if (stop && stop.locked === true)
             parts.push('the laptop was locked');
+        // An explicit false means the step ran and failed; null means it was not asked for.
+        const problems = [];
+        if (stop && stop.restored === false)
+            problems.push('the screen could not be confirmed restored');
+        if (stop && stop.locked === false)
+            problems.push('the laptop could not be locked');
+        if (stop && stop.grab_released === false)
+            problems.push('release of the laptop keyboard and touchpad was not confirmed');
+        if (problems.length) {
+            return {title: 'Remote session ended: check this laptop',
+                body: `${capital(problems.join('; '))}. If the screen is blank or the keyboard is blocked, see the runbook (docs/ops/runbook.md).`};
+        }
         return {title: 'Remote session ended',
             body: parts.length ? `${capital(parts.join(' and '))}.` : 'The remote device is disconnected.'};
     }

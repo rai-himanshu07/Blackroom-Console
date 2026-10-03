@@ -30,6 +30,7 @@ pub fn summary(status: &Status, host_url: Option<&str>, indicator: &Indicator) -
             "reason": report.reason,
             "locked": report.locked,
             "restored": report.topology_restored,
+            "grab_released": report.grab_released,
         })),
         "host_url": host_url,
         "pending": status.pending,

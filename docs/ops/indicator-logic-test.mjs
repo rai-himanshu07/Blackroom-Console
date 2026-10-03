@@ -35,15 +35,25 @@ assert.equal(transitionNotice(undefined, running), null, 'no message for the fir
 assert.equal(transitionNotice(idle, idle), null);
 assert.equal(transitionNotice(null, idle), null, 'console start is silent');
 assert.equal(transitionNotice(idle, null), null, 'console stop while idle is silent');
-assert.match(transitionNotice(idle, running).body, /blank/);
-assert.match(transitionNotice(idle, shared).body, /both use/);
-assert.equal(transitionNotice(idle, {...idle, phase: 'starting'}).title, 'Remote session started');
+assert.match(transitionNotice(idle, running).body, /screen is blank; its keyboard and touchpad are blocked/);
+assert.match(transitionNotice(idle, shared).body, /screen stays visible; its keyboard and touchpad still work/);
+assert.match(transitionNotice(idle, {...running, block_local_input: false}).body, /blank; its keyboard and touchpad still work/, 'a blank screen alone does not claim blocked input');
+assert.match(transitionNotice(idle, {...running, blank_panel: false}).body, /stays visible; its keyboard and touchpad are blocked/, 'blocked input alone does not claim a blank screen');
+const starting = transitionNotice(idle, {...idle, phase: 'starting'});
+assert.equal(starting.title, 'Remote session starting');
+assert.doesNotMatch(starting.body, /is blank|are blocked|stays visible/, 'nothing is claimed before isolation is done');
+assert.equal(transitionNotice({...idle, phase: 'starting'}, running).title, 'Remote session started', 'the protections are announced when running');
 assert.equal(transitionNotice(running, {...idle, phase: 'stopping'}), null);
 assert.equal(transitionNotice({phase: 'stopping'}, idle).title, 'Remote session ended', 'a Disconnect is seen as stopping, then idle');
 const ended = transitionNotice(running, {...idle, last_stop: {reason: 'x', locked: true, restored: true}});
 assert.equal(ended.title, 'Remote session ended');
 assert.equal(ended.body, 'The screen was restored and the laptop was locked.');
 assert.equal(transitionNotice(running, idle).body, 'The remote device is disconnected.');
+const failed = transitionNotice(running, {...idle, last_stop: {reason: 'x', locked: false, restored: false, grab_released: false}});
+assert.match(failed.title, /check this laptop/);
+assert.match(failed.body, /screen could not be confirmed restored; the laptop could not be locked; release of the laptop keyboard and touchpad was not confirmed/);
+assert.match(transitionNotice(running, {...idle, last_stop: {reason: 'x', locked: false, restored: true}}).body, /^The laptop could not be locked\./, 'a failed lock is never reported as success');
+assert.equal(transitionNotice(running, {...idle, last_stop: {reason: 'x', locked: null, restored: true, grab_released: true}}).title, 'Remote session ended', 'null means not asked for, not failed');
 assert.match(transitionNotice(running, null).title, /stopped during a remote session/);
 
 const waiting = {...idle, pending: {id: 4, mode: 'private', device: '192.168.1.52 (Chrome)', secs_left: 28}};
