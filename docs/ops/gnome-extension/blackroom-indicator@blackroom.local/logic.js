@@ -77,6 +77,7 @@ function viewOf(status) {
         lines: [],
         canDisconnect: false,
         canOpen: false,
+        canHost: Boolean(status && status.host_url),
         canStart: false,
         canStop: false,
     };

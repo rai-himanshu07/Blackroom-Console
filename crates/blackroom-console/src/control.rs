@@ -15,7 +15,7 @@ pub const BUS_NAME: &str = "org.blackroom.Console";
 pub const OBJECT_PATH: &str = "/org/blackroom/Console";
 
 /// The few facts the indicator shows; everything else stays inside the console.
-pub fn summary(status: &Status, local_url: Option<&str>, indicator: &Indicator) -> Value {
+pub fn summary(status: &Status, urls: &Urls, indicator: &Indicator) -> Value {
     json!({
         "phase": status.phase,
         "mode": status.mode,
@@ -31,15 +31,23 @@ pub fn summary(status: &Status, local_url: Option<&str>, indicator: &Indicator) 
             "locked": report.locked,
             "restored": report.topology_restored,
         })),
-        "local_url": local_url,
+        "local_url": urls.page,
+        "host_url": urls.host,
         "pending": status.pending,
         "indicator": indicator,
     })
 }
 
+/// Where the client page and the host settings page can be opened on this laptop.
+#[derive(Debug, Clone, Default)]
+pub struct Urls {
+    pub page: Option<String>,
+    pub host: Option<String>,
+}
+
 struct Control {
     console: RemoteConsole,
-    local_url: Option<String>,
+    urls: Urls,
 }
 
 #[zbus::interface(name = "org.blackroom.Console1")]
@@ -48,7 +56,7 @@ impl Control {
     fn status(&self) -> String {
         summary(
             &self.console.status(),
-            self.local_url.as_deref(),
+            &self.urls,
             &self.console.host_config().indicator,
         )
         .to_string()
@@ -79,10 +87,10 @@ impl Control {
 }
 
 /// Keep the returned connection alive for as long as the service should be reachable.
-pub fn serve(console: RemoteConsole, local_url: Option<String>) -> zbus::Result<Connection> {
+pub fn serve(console: RemoteConsole, urls: Urls) -> zbus::Result<Connection> {
     Builder::session()?
         .name(BUS_NAME)?
-        .serve_at(OBJECT_PATH, Control { console, local_url })?
+        .serve_at(OBJECT_PATH, Control { console, urls })?
         .build()
 }
 
@@ -107,7 +115,10 @@ mod tests {
     fn the_summary_names_only_what_the_indicator_shows() {
         let value = summary(
             &console().status(),
-            Some("https://localhost:8443/"),
+            &Urls {
+                page: Some("https://localhost:8443/".into()),
+                host: Some("http://localhost:8090/".into()),
+            },
             &Indicator::default(),
         );
         let mut keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
@@ -119,6 +130,7 @@ mod tests {
                 "blank_panel",
                 "block_local_input",
                 "host",
+                "host_url",
                 "indicator",
                 "input_accepted",
                 "last_stop",
@@ -138,7 +150,7 @@ mod tests {
     fn disconnect_with_nothing_running_does_nothing() {
         let control = Control {
             console: console(),
-            local_url: None,
+            urls: Urls::default(),
         };
         assert_eq!(control.disconnect(), "idle");
     }

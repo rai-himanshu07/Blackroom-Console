@@ -45,6 +45,10 @@ class BlackroomIndicator extends PanelMenu.Button {
         this._disconnect = this._action('Disconnect the remote user', () => this._call('Disconnect'));
         this._lock = this._action('Lock this screen now', () => Main.screenShield.lock(true));
         this._open = this._action('Open the console page', () => this._openPage());
+        this._host = this._action('Host settings...', () => {
+            if (this._status?.host_url)
+                Gio.AppInfo.launch_default_for_uri(this._status.host_url, global.create_app_launch_context(0, -1));
+        });
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this._start = this._action('Start the console', () => this._systemctl('start'));
         this._stop = this._action('Stop the console', () => this._systemctl('stop'));
@@ -191,6 +195,7 @@ class BlackroomIndicator extends PanelMenu.Button {
         this._deny.visible = shown.canApprove;
         this._disconnect.visible = shown.canDisconnect;
         this._open.visible = shown.canOpen;
+        this._host.visible = shown.canHost;
         this._start.visible = shown.canStart;
         this._stop.visible = shown.canStop;
         this._label.text = shown.badge;

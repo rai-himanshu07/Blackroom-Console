@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f1115">
+<title>Blackroom Console: host settings</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/host.css">
+</head>
+<body data-view="home">
+<main id="home">
+  <header class="brand">
+    <div><h1>Host settings</h1><p id="hostline">What this laptop allows its remote clients</p></div>
+    <button type="button" id="logout" class="ghost" hidden>Sign out</button>
+  </header>
+
+  <section class="card" id="loginView">
+    <h2>Sign in</h2>
+    <p class="note">This page changes how this laptop shares its screen and who may connect. It is reachable from this laptop only. Sign in with the laptop account password.</p>
+    <form id="loginForm" class="row">
+      <label class="field grow">Password <input type="password" id="password" autocomplete="current-password" required></label>
+      <button type="submit" class="primary" id="loginBtn">Sign in</button>
+    </form>
+    <p id="loginMsg" class="note" role="alert"></p>
+  </section>
+
+  <div id="appView" hidden>
+    <section class="card" id="statusCard" aria-live="polite">
+      <strong id="statusLine">Checking...</strong>
+      <div id="askBox" hidden>
+        <p id="askText" class="note"></p>
+        <div class="actions"><button type="button" id="askAccept" class="primary">Accept</button><button type="button" id="askDeny" class="danger">Deny</button></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Who may connect</h2>
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" data-key="allow_private"><span><b>Private sessions</b><small>The laptop screen goes blank and its keyboard and touchpad are blocked.</small></span></label>
+        <label class="switch"><input type="checkbox" data-key="allow_shared"><span><b>Shared sessions</b><small>The screen and input are left alone; you can both use the laptop.</small></span></label>
+      </div>
+      <label class="field">Approving a connection
+        <select data-key="approval">
+          <option value="never">Never ask: a client with the right login connects at once</option>
+          <option value="ask">Ask on this laptop: Accept or Deny, denied after 30 seconds</option>
+        </select>
+      </label>
+      <p class="note">With "Ask", nobody can connect while you are away from the laptop.</p>
+    </section>
+
+    <section class="card">
+      <h2>Limits a client cannot exceed</h2>
+      <label class="field">When a session ends, lock the laptop
+        <select data-key="force_lock_on_stop" data-type="bool-or-null">
+          <option value="">The client chooses</option><option value="true">Always lock</option><option value="false">Never lock</option>
+        </select>
+      </label>
+      <div class="row">
+        <label class="field">Longest session
+          <select data-key="max_session_hours" data-type="number"><option value="0">No limit</option><option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="12">12 hours</option><option value="24">24 hours</option></select>
+        </label>
+        <label class="field">Longest idle time
+          <select data-key="max_idle_minutes" data-type="number"><option value="0">No limit</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="240">4 hours</option></select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="field">Highest frame rate
+          <select data-key="max_fps" data-type="number"><option value="0">No limit</option><option value="10">10</option><option value="15">15</option><option value="24">24</option><option value="30">30</option><option value="60">60</option></select>
+        </label>
+        <label class="field">Highest bitrate
+          <select data-key="max_bitrate_kbps" data-type="number"><option value="0">No limit</option><option value="1000">1 Mbit/s</option><option value="2500">2.5 Mbit/s</option><option value="5000">5 Mbit/s</option><option value="8000">8 Mbit/s</option><option value="12000">12 Mbit/s</option><option value="20000">20 Mbit/s</option></select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>What a client may use</h2>
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" data-key="allow_audio"><span><b>Laptop sound</b><small>Send what the laptop plays to the remote device.</small></span></label>
+        <label class="switch"><input type="checkbox" data-key="allow_clipboard"><span><b>Clipboard</b><small>Text only, both directions, by explicit buttons.</small></span></label>
+        <label class="switch"><input type="checkbox" data-key="allow_text"><span><b>Typing text</b><small>Characters typed on a soft keyboard, whatever the laptop's layout.</small></span></label>
+      </div>
+      <label class="field">Sound output to send
+        <select data-key="audio_sink" data-type="string-or-null" id="sinkSelect"><option value="">The laptop's default output</option></select>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Network</h2>
+      <label class="field">Plain http address <input type="text" data-key="http_listen" data-type="string" spellcheck="false" placeholder="127.0.0.1:8080"></label>
+      <div class="toggles"><label class="switch"><input type="checkbox" id="tlsOn"><span><b>Serve https</b><small>Needed for full keyboard capture and for installing the web app.</small></span></label></div>
+      <label class="field">https address <input type="text" id="tlsListen" spellcheck="false" placeholder="0.0.0.0:8443"></label>
+      <div class="row">
+        <label class="field">Certificate file (real authority) <input type="text" data-key="tls_cert" data-type="string-or-null" spellcheck="false" placeholder="blank: self-signed"></label>
+        <label class="field">Key file <input type="text" data-key="tls_key" data-type="string-or-null" spellcheck="false"></label>
+      </div>
+      <div class="toggles"><label class="switch"><input type="checkbox" data-key="public"><span><b>Internet mode</b><small>Refuses to start unless login goes through hostd, https uses a real certificate and the plain-http port is loopback only.</small></span></label></div>
+      <p class="note">Network changes need a restart. A wrong address stops the console from starting: check them before restarting.</p>
+    </section>
+
+    <section class="card" id="credCard">
+      <h2>Login and credentials</h2>
+      <p class="note" id="credNote">Credentials are managed here in a later step; use <code>blackroom setup</code> in a terminal meanwhile.</p>
+    </section>
+
+    <section class="card">
+      <h2>This laptop</h2>
+      <div class="toggles">
+        <label class="switch"><input type="checkbox" data-key="indicator.notify"><span><b>Notifications</b><small>When a session starts or ends.</small></span></label>
+        <label class="switch"><input type="checkbox" data-key="indicator.show_timer"><span><b>Running time in the top bar</b><small>Next to the icon while a session runs.</small></span></label>
+        <label class="switch"><input type="checkbox" id="autostart"><span><b>Start the console when I log in</b><small>Only the idle service starts; nothing connects by itself. Applies at once.</small></span></label>
+      </div>
+      <p class="note" id="unitNote"></p>
+    </section>
+  </div>
+</main>
+
+<div id="savebar" hidden>
+  <span id="saveNote" role="status"></span>
+  <span id="hint"></span>
+  <button type="button" id="save" class="primary" disabled>Save</button>
+  <button type="button" id="restart" class="danger" disabled>Save and restart the console</button>
+</div>
+<script src="/host.js"></script>
+</body>
+</html>

@@ -22,7 +22,7 @@ the client can only choose inside them; the client keeps device choices on the d
   headless modes test with a restrictive policy.
 - [x] **T2. Approval.** pending request, 30 s timeout deny, D-Bus `Pending`/`Approve`/`Deny`, indicator notice and menu rows,
   client "waiting for the laptop owner". Check: unit tests, headless Shell test.
-- [ ] **T3. Host page.** loopback listener, PAM login, settings form (policy, sound device, network, indicator, approval),
+- [x] **T3. Host page.** loopback listener, PAM login, settings form (policy, sound device, network, indicator, approval),
   save and restart. Check: adversarial tests (origin, no anonymous access, loopback only), headless Chrome walkthrough.
 - [ ] **T4. Credentials, autostart.** credentials section through the `blackroom` CLI verbs (status, rotate key, new
   authenticator, recovery codes, devices, revoke, disable remote access); start at login with systemd.

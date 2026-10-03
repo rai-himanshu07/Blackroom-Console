@@ -37,6 +37,7 @@ assert.ok(live.lines.some(line => /sound/.test(line)));
 assert.match(view(shared).lines[0], /^Shared mode: screen visible, laptop keyboard and touchpad usable$/);
 assert.ok(!view(shared).lines.some(line => /sound/.test(line)));
 assert.ok(!view({...idle, local_url: null}).canOpen);
+assert.ok(view({...idle, host_url: 'http://localhost:8090/'}).canHost && !view(idle).canHost && !view(null).canHost);
 
 assert.equal(transitionNotice(undefined, running), null, 'no message for the first reading');
 assert.equal(transitionNotice(idle, idle), null);

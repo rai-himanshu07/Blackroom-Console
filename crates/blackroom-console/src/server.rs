@@ -117,7 +117,7 @@ pub fn token_from_file(path: &Path) -> anyhow::Result<String> {
 }
 
 /// Compares in time independent of where the first difference is; the token length is public.
-fn tokens_equal(a: &str, b: &str) -> bool {
+pub(crate) fn tokens_equal(a: &str, b: &str) -> bool {
     a.len() == b.len()
         && a.bytes()
             .zip(b.bytes())
@@ -134,7 +134,7 @@ fn cookie_token(headers: &HeaderMap) -> Option<&str> {
         .find_map(|pair| pair.trim().strip_prefix("br_token="))
 }
 
-fn cookie_value<'h>(headers: &'h HeaderMap, name: &str) -> Option<&'h str> {
+pub(crate) fn cookie_value<'h>(headers: &'h HeaderMap, name: &str) -> Option<&'h str> {
     headers
         .get_all(COOKIE)
         .iter()

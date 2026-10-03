@@ -98,6 +98,13 @@ struct Args {
     /// text (explicit, 256 KiB, rate limited, never logged). Off unless given.
     #[arg(long)]
     clipboard: bool,
+    /// The laptop owner's settings page, on this loopback address only (default 127.0.0.1:8090; with `--headless`
+    /// only when given). It asks for the laptop account's password.
+    #[arg(long)]
+    host_listen: Option<SocketAddr>,
+    /// The PAM helper that checks that password (default: `pam-auth-helper` next to this binary).
+    #[arg(long)]
+    pam_helper: Option<PathBuf>,
     /// Development only: serve a throwaway `--headless` Shell on a private bus (no grab, watchdog or lock).
     #[arg(long)]
     headless: bool,
@@ -203,6 +210,90 @@ fn urls(scheme: &str, listen: SocketAddr, token: &str) -> Vec<String> {
         .collect()
 }
 
+/// What `start_host_page` needs from the command line, copied before `args` is taken apart.
+struct HostPageArgs {
+    listen: Option<SocketAddr>,
+    helper: Option<PathBuf>,
+    effective: serde_json::Value,
+    hostd_dir: Option<PathBuf>,
+}
+
+/// True when systemd says this process is the unit's main process (a console started by hand is not).
+fn managed_by_unit(unit: &str) -> bool {
+    std::process::Command::new("systemctl")
+        .args([
+            "--user",
+            "show",
+            "--no-pager",
+            "-p",
+            "MainPID",
+            "--value",
+            unit,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        == Some(std::process::id())
+}
+
+/// Starts the loopback-only settings page; a problem is a warning, the console runs without it.
+async fn start_host_page(args: &HostPageArgs, console: &RemoteConsole) -> Option<String> {
+    let addr = args.listen?;
+    if !addr.ip().is_loopback() {
+        tracing::warn!(%addr, "--host-listen must be a loopback address: the settings page is off");
+        return None;
+    }
+    let Ok(account) = std::env::var("USER") else {
+        tracing::warn!("no $USER: the settings page is off");
+        return None;
+    };
+    let helper = match &args.helper {
+        Some(path) => path.clone(),
+        None => std::env::current_exe()
+            .ok()?
+            .with_file_name("pam-auth-helper"),
+    };
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    let settings = blackroom_console::hostpage::Settings {
+        port: addr.port(),
+        account,
+        effective: args.effective.clone(),
+        managed: managed_by_unit("blackroom-console.service"),
+        unit: "blackroom-console.service".into(),
+        unit_dirs: vec![
+            home.join(".config/systemd/user"),
+            PathBuf::from("/etc/systemd/user"),
+            PathBuf::from("/usr/lib/systemd/user"),
+        ],
+        cli: std::env::current_exe().ok()?.with_file_name("blackroom"),
+        hostd_dir: args.hostd_dir.clone().unwrap_or_default(),
+        home,
+    };
+    let check: blackroom_console::hostpage::PasswordFactory = std::sync::Arc::new(move || {
+        Box::new(remote_hostd::password::PamHelper::new(helper.clone()))
+            as Box<dyn remote_hostd::password::PasswordCheck>
+    });
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(error) => {
+            tracing::warn!(%error, %addr, "the settings page could not start (is another console running?)");
+            return None;
+        }
+    };
+    let app = blackroom_console::hostpage::router(console.clone(), settings, check);
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    println!(
+        "Host settings (this laptop only): http://localhost:{}/",
+        addr.port()
+    );
+    Some(format!("http://localhost:{}/", addr.port()))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -290,6 +381,23 @@ async fn main() -> anyhow::Result<()> {
     if host.audio_sink.is_some() {
         args.audio_sink.clone_from(&host.audio_sink);
     }
+    let args_for_host_page = HostPageArgs {
+        listen: args
+            .host_listen
+            .or_else(|| (!args.headless).then(|| SocketAddr::from(([127, 0, 0, 1], 8090)))),
+        helper: args.pam_helper.clone(),
+        effective: serde_json::json!({
+            "http_listen": args.listen.to_string(),
+            "tls_listen": args.tls_listen.map(|addr| addr.to_string()),
+            "tls_cert": args.tls_cert,
+            "tls_key": args.tls_key,
+            "public": args.public,
+            "clipboard": args.clipboard,
+            "audio_sink": args.audio_sink,
+            "hostd_login": args.hostd_dir.is_some(),
+        }),
+        hostd_dir: args.hostd_dir.clone(),
+    };
     let ice_config = ice_config_from(&args)?;
     if args.public {
         let problems =
@@ -470,8 +578,15 @@ async fn main() -> anyhow::Result<()> {
         Some(addr) => format!("https://localhost:{}/", addr.port()),
         None => format!("http://localhost:{}/", http.local_addr()?.port()),
     };
+    let host_url = start_host_page(&args_for_host_page, &console).await;
     // Held until exit; the indicator shows "off" without it, so a failure here is only a warning.
-    let _control = match blackroom_console::control::serve(console.clone(), Some(local_url)) {
+    let _control = match blackroom_console::control::serve(
+        console.clone(),
+        blackroom_console::control::Urls {
+            page: Some(local_url),
+            host: host_url,
+        },
+    ) {
         Ok(connection) => Some(connection),
         Err(error) => {
             tracing::warn!(%error, "the laptop indicator service is not available");

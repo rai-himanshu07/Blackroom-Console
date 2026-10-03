@@ -1,0 +1,9 @@
+#savebar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding: 10px 16px; background: var(--card); border-top: 1px solid var(--line); z-index: 5; }
+#savebar span { color: var(--dim); font-size: 13px; }
+#saveNote { margin-right: auto; }
+#home { padding-bottom: 90px; max-width: 760px; margin: 0 auto; }
+.card h2 { margin: 0 0 8px; font-size: 16px; }
+.card .field { margin-top: 10px; }
+.card input[type="text"], .card input[type="password"] { background: #1f232c; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.card .secret { font: 14px ui-monospace, monospace; background: #0c0e12; border: 1px solid var(--line); border-radius: 8px; padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+code { background: #1f232c; padding: 1px 5px; border-radius: 4px; }
