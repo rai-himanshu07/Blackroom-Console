@@ -2,6 +2,7 @@
 //! A silent browser is handled below this layer (`ConsoleConfig::heartbeat_timeout`).
 
 use std::convert::Infallible;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,6 +40,27 @@ pub fn random_token() -> anyhow::Result<String> {
         let _ = write!(hex, "{byte:02x}");
         hex
     }))
+}
+
+/// For repeated test runs only: the token kept in `path` (created there with mode 0600 if missing or
+/// malformed), so the URL does not change on every start. Default starts use a fresh random token.
+pub fn token_from_file(path: &Path) -> anyhow::Result<String> {
+    if let Ok(text) = std::fs::read_to_string(path) {
+        let token = text.trim();
+        if token.len() == 48 && token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Ok(token.to_string());
+        }
+    }
+    let token = random_token()?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("the token file needs a directory"))?;
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("the token file needs a name"))?;
+    crate::display::write_private(dir, name, token.as_bytes())?;
+    Ok(token)
 }
 
 /// Compares in time independent of where the first difference is; the token length is public.
@@ -307,6 +329,26 @@ mod tests {
     use crate::console::ConsoleConfig;
 
     const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn a_token_file_keeps_one_private_token_across_calls_and_replaces_garbage() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("br-token-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("token");
+        let first = token_from_file(&path).unwrap();
+        assert_eq!(first.len(), 48);
+        assert_eq!(token_from_file(&path).unwrap(), first);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::write(&path, "short").unwrap();
+        let replaced = token_from_file(&path).unwrap();
+        assert_eq!(replaced.len(), 48);
+        assert_ne!(replaced, first);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn app() -> Router {
         let console = RemoteConsole::spawn(ConsoleConfig {

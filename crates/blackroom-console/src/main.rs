@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use blackroom_console::server::{random_token, router};
+use blackroom_console::server::{random_token, router, token_from_file};
 use blackroom_console::{ConsoleConfig, Quality, RemoteConsole, tls};
 use clap::Parser;
 
@@ -20,6 +20,10 @@ struct Args {
     /// Where the certificate and key are kept (default: ~/.local/share/blackroom-console).
     #[arg(long)]
     cert_dir: Option<PathBuf>,
+    /// Tests only: keep the token in this file (0600) so the URL survives restarts. Default: a fresh
+    /// random token on every start.
+    #[arg(long)]
+    token_file: Option<PathBuf>,
     /// Control socket of `remote-emergencyd --enable-grabs` (absolute path).
     #[arg(long, required_unless_present = "headless")]
     grab_socket: Option<PathBuf>,
@@ -127,7 +131,10 @@ async fn main() -> anyhow::Result<()> {
         restore_bin,
     });
 
-    let token = random_token()?;
+    let token = match &args.token_file {
+        Some(path) => token_from_file(path)?,
+        None => random_token()?,
+    };
     let app = router(console.clone(), &token);
     let handle = axum_server::Handle::new();
 
