@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use blackroom_core::epoch::SecurityEpoch;
 use blackroom_core::error::{BlackroomError, ErrorCode};
@@ -65,6 +65,8 @@ pub struct AuthSession {
     principal: Principal,
     epoch: SecurityEpoch,
     expires_at: SystemTime,
+    /// `touch` never extends a session past this; equal to the first expiry for a fixed session.
+    hard_limit: SystemTime,
 }
 
 /// What an operator may see of a session: an identifier that is not the bearer credential.
@@ -147,6 +149,26 @@ impl HostSessions {
         epoch: SecurityEpoch,
         now: SystemTime,
     ) -> Result<SessionToken, BlackroomError> {
+        self.authenticate_with(
+            verifier,
+            presented,
+            epoch,
+            now,
+            AUTH_SESSION_TTL,
+            AUTH_SESSION_TTL,
+        )
+    }
+
+    /// A session that lives `idle` after each [`Self::touch`] but never beyond `absolute` from `now`.
+    pub fn authenticate_with<V: CredentialVerifier>(
+        &mut self,
+        verifier: &mut V,
+        presented: V::Presented,
+        epoch: SecurityEpoch,
+        now: SystemTime,
+        idle: Duration,
+        absolute: Duration,
+    ) -> Result<SessionToken, BlackroomError> {
         self.sessions
             .retain(|_, session| session.check(epoch, now).is_ok());
         if self.sessions.len() >= MAX_CONCURRENT_AUTH_SESSIONS as usize {
@@ -177,10 +199,25 @@ impl HostSessions {
                 id: hex::encode(id),
                 principal,
                 epoch,
-                expires_at: now + AUTH_SESSION_TTL,
+                expires_at: now + idle.min(absolute),
+                hard_limit: now + absolute,
             },
         );
         Ok(token)
+    }
+
+    /// Use of a live session pushes its expiry to `idle` from now, bounded by its hard limit.
+    pub fn touch(
+        &mut self,
+        token: &SessionToken,
+        epoch: SecurityEpoch,
+        now: SystemTime,
+        idle: Duration,
+    ) -> Result<&AuthSession, BlackroomError> {
+        self.resolve(token, epoch, now)?;
+        let session = self.sessions.get_mut(token).expect("resolved above");
+        session.expires_at = (now + idle).min(session.hard_limit).max(session.expires_at);
+        Ok(session)
     }
 
     pub fn resolve(

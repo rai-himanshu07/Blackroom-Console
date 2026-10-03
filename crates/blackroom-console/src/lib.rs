@@ -4,6 +4,7 @@
 pub mod console;
 pub mod display;
 pub mod eis_support;
+pub mod hostd_auth;
 pub mod login;
 pub mod server;
 pub mod tls;

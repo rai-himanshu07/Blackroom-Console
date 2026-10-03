@@ -64,13 +64,32 @@ flowchart LR
 
 - A session token is 256 random bits, shown to its client once, held only in memory (a hostd restart
   ends every session). Operators see a separate 64-bit session id, which is not a credential.
+- A login session ends after 30 minutes without use and never lives past 12 hours; every `check`
+  (each page request) counts as use. (The older 5-minute authentication session of the offline simulation
+  is unchanged.) At most 5 live sessions.
 - `revoke-all` and `disable` end all sessions and raise the persisted security epoch; the epoch never
   decreases and every start raises it again. An emergency stop (the offline marker) keeps remote
   access closed until local recovery clears it.
 - Device revocation ends that device's live sessions at once (`revoke-device`).
+- `auth.sock` serves each connection on its own thread (at most 16 at once), so `check` and `logout`
+  never wait behind a slow password check.
+
+## The console web page (`--hostd-dir`, or `BR_HOSTD=1 docs/ops/console.sh`)
+
+- The login page asks for account, Linux password, authenticator or recovery code, and the Remote
+  Access Key. "Trust this browser" stores a device credential in this browser's `localStorage`; later
+  logins from it need no key (still password and code). "Forget it" deletes it.
+- The server passes the browser's IP address as the client id, so hostd's failure limits are per source.
+- A successful login sets an HttpOnly, SameSite=Strict `br_session` cookie holding hostd's token; every
+  request is checked with hostd (2 s deadline). Use the https address: the cookie has no `Secure` flag
+  because the plain-http port also exists.
+- The console also ties each login to its emergency counter: the chord ends every browser session and
+  tells hostd to `revoke_all`.
+- "Log out" in the page ends the session at hostd. Stop, restore and lock are unchanged.
+- The older modes (URL token, `--auth-dir` TOTP-only) still exist; `--hostd-dir` replaces them when given.
 
 ## Not covered yet
 
-- The console web app still logs in with its own TOTP-only mode (`--auth-dir`); wiring it to
-  `auth.sock` is a later step. Until then use `blackroom login-check` to exercise the real chain.
-- No browser-side flows (trust-this-device prompt, QR code) and no gateway; those are Phase 12+.
+- No QR code (the secret is typed into the authenticator app), no gateway, no WebSocket/WebRTC
+  signalling auth beyond the same session cookie; those are Phase 12+.
+- Safari/iOS behaviour of the login page and `localStorage` has not been tried.

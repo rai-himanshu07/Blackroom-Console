@@ -9,10 +9,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
-use blackroom_core::limits::{AUTH_SESSION_TTL, MAX_CONCURRENT_AUTH_SESSIONS};
+use blackroom_core::limits::MAX_CONCURRENT_AUTH_SESSIONS;
 use blackroom_store::SecretStore;
 use remote_hostd::authd::{
-    AdminReply, AdminRequest, AuthDaemon, AuthReply, AuthRequest, EnableAuthorizer, OwnerOnly, Peer,
+    AdminReply, AdminRequest, AuthDaemon, AuthReply, AuthRequest, EnableAuthorizer, OwnerOnly,
+    Peer, SESSION_ABSOLUTE, SESSION_IDLE,
 };
 use remote_hostd::login::MultiFactorVerifier;
 use remote_hostd::password::{PasswordCheck, PasswordOutcome};
@@ -482,8 +483,39 @@ fn rt_session_001_an_expired_session_credential_is_refused() {
     let fx = Fixture::new();
     let token = token_of(&fx.send(fx.good().request()));
     assert!(check(&fx, &token, SystemTime::now()).ok);
-    let later = SystemTime::now() + AUTH_SESSION_TTL + Duration::from_secs(1);
+    let later = SystemTime::now() + SESSION_IDLE + Duration::from_secs(1);
     assert!(!check(&fx, &token, later).ok);
+}
+
+#[test]
+fn rt_session_001b_use_keeps_a_session_alive_but_never_past_the_hard_limit() {
+    let fx = Fixture::new();
+    let token = token_of(&fx.send(fx.good().request()));
+    let start = SystemTime::now();
+    for step in 1..=35_u32 {
+        let at = start + Duration::from_secs(20 * 60) * step;
+        assert!(
+            check(&fx, &token, at).ok,
+            "used every 20 minutes: step {step}"
+        );
+    }
+    // Idle longer than the idle limit ends it even before the hard limit.
+    let idle_end =
+        start + Duration::from_secs(20 * 60) * 35 + SESSION_IDLE + Duration::from_secs(1);
+    assert!(!check(&fx, &token, idle_end).ok);
+
+    let other = token_of(&fx.send(fx.good().request()));
+    let begun = SystemTime::now();
+    let mut at = begun;
+    while at < begun + SESSION_ABSOLUTE - Duration::from_secs(25 * 60) {
+        at += Duration::from_secs(25 * 60);
+        assert!(check(&fx, &other, at).ok);
+    }
+    let past = begun + SESSION_ABSOLUTE + Duration::from_secs(60);
+    assert!(
+        !check(&fx, &other, past).ok,
+        "never beyond 12 hours in total"
+    );
 }
 
 #[test]
@@ -907,7 +939,11 @@ fn the_two_private_sockets_serve_a_login_and_the_operator_verbs() {
             Arc::clone(&stop),
             Arc::clone(&fx.calls),
         );
-        std::thread::spawn(move || serve(&daemon, auth, admin, Box::new(FakePam(calls)), &stop))
+        std::thread::spawn(move || {
+            let pam: remote_hostd::authd::PamFactory =
+                Arc::new(move || Box::new(FakePam(Arc::clone(&calls))) as Box<dyn PasswordCheck>);
+            serve(&daemon, auth, admin, &pam, &stop)
+        })
     };
 
     let login = serde_json::json!({
@@ -966,4 +1002,217 @@ fn a_socket_path_held_by_a_regular_file_is_never_replaced() {
     );
     std::fs::set_permissions(runtime.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(bind_private(runtime.path(), "other.sock").is_err());
+}
+
+#[test]
+fn a_slow_password_check_on_the_socket_does_not_delay_check_or_logout() {
+    use remote_hostd::authd::{ADMIN_SOCKET, AUTH_SOCKET, bind_private, call, serve};
+    struct Sleepy(Arc<AtomicUsize>);
+    impl PasswordCheck for Sleepy {
+        fn check(&mut self, _: &str, password: &str) -> PasswordOutcome {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            if password == "slow" {
+                std::thread::sleep(Duration::from_millis(1500));
+                return PasswordOutcome::Rejected;
+            }
+            PasswordOutcome::Accepted
+        }
+    }
+    let fx = Fixture::new();
+    let runtime = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(runtime.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (auth, admin) = (
+        bind_private(runtime.path(), AUTH_SOCKET).unwrap(),
+        bind_private(runtime.path(), ADMIN_SOCKET).unwrap(),
+    );
+    let stop = Arc::new(AtomicBool::new(false));
+    let server = {
+        let (daemon, stop, calls) = (
+            Arc::clone(fx.daemon()),
+            Arc::clone(&stop),
+            Arc::clone(&fx.calls),
+        );
+        std::thread::spawn(move || {
+            let pam: remote_hostd::authd::PamFactory =
+                Arc::new(move || Box::new(Sleepy(Arc::clone(&calls))) as Box<dyn PasswordCheck>);
+            serve(&daemon, auth, admin, &pam, &stop)
+        })
+    };
+    let socket = runtime.path().join(AUTH_SOCKET);
+    let login = |password: &str, code: String| serde_json::json!({"command": "login", "account": OWNER, "client_id": "c", "password": password, "totp": code, "access_key": fx.key.as_str()});
+    let first: AuthReply = call(&socket, &login("pw", fx.fresh_code())).unwrap();
+    let token = token_of(&first);
+
+    let slow = {
+        let (socket, request) = (socket.clone(), login("slow", fx.fresh_code()));
+        std::thread::spawn(move || call::<_, AuthReply>(&socket, &request).unwrap())
+    };
+    std::thread::sleep(Duration::from_millis(200));
+    let began = std::time::Instant::now();
+    let seen: AuthReply = call(
+        &socket,
+        &serde_json::json!({"command": "check", "token": token.as_str()}),
+    )
+    .unwrap();
+    assert!(seen.ok);
+    assert!(
+        began.elapsed() < Duration::from_millis(500),
+        "check waited for the password check"
+    );
+    assert!(!slow.join().unwrap().ok);
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap().unwrap();
+}
+
+// ---- Doc 12 section 7: the authentication flow matrix, one row per scenario ----
+
+#[test]
+fn doc12_authentication_flow_matrix() {
+    let fx = Fixture::new();
+    let (id, secret) = trusted(&fx);
+    let codes = recovery_codes::generate(&fx.store(), OWNER).unwrap();
+    let old_key = fx.key.to_string();
+
+    // (scenario, build the attempt, expected: Ok or the refusal code)
+    type Build<'a> = Box<dyn Fn(&Fixture) -> Attempt + 'a>;
+    let rows: Vec<(&str, Build, Option<&str>)> = vec![
+        ("new device", Box::new(|fx| fx.good()), None),
+        (
+            "trusted device",
+            Box::new(|fx| {
+                let mut a = fx.good();
+                a.key = None;
+                a.device = Some((id.clone(), secret.clone()));
+                a
+            }),
+            None,
+        ),
+        (
+            "wrong password",
+            Box::new(|fx| {
+                let mut a = fx.good();
+                a.password = Some("wrong".into());
+                a
+            }),
+            Some("AUTH_INVALID"),
+        ),
+        (
+            "wrong TOTP",
+            Box::new(|fx| {
+                let mut a = fx.good();
+                a.totp = Some("000000".into());
+                a
+            }),
+            Some("AUTH_INVALID"),
+        ),
+        (
+            "new device without key",
+            Box::new(|fx| {
+                let mut a = fx.good();
+                a.key = None;
+                a
+            }),
+            Some("AUTH_ACCESS_KEY_REQUIRED"),
+        ),
+        (
+            "trusted device without TOTP",
+            Box::new(|fx| {
+                let mut a = fx.good();
+                a.key = None;
+                a.totp = None;
+                a.device = Some((id.clone(), secret.clone()));
+                a
+            }),
+            Some("AUTH_TOTP_REQUIRED"),
+        ),
+        (
+            "lost authenticator, recovery code",
+            Box::new(|fx| {
+                let mut a = fx.good();
+                a.totp = None;
+                a.recovery = Some(codes[0].to_string());
+                a
+            }),
+            None,
+        ),
+    ];
+    // Distinct clients, so five wrong attempts never lock a later row.
+    for (index, (scenario, build, expected)) in rows.iter().enumerate() {
+        let mut attempt = build(&fx);
+        attempt.client = format!("matrix-{index}");
+        let reply = fx.send(attempt.request());
+        match expected {
+            None => assert!(reply.ok, "{scenario} must be allowed"),
+            Some(code) => refused(&reply, code),
+        }
+    }
+
+    // Revoked trusted device and revoked access key.
+    assert!(trusted_devices::revoke(&fx.store(), &id).unwrap());
+    let mut revoked_device = fx.good();
+    revoked_device.key = None;
+    revoked_device.device = Some((id.clone(), secret.clone()));
+    refused(&fx.send(revoked_device.request()), "AUTH_INVALID");
+    access_key::rotate(&fx.store(), OWNER).unwrap();
+    let mut revoked_key = fx.good();
+    revoked_key.key = Some(old_key);
+    refused(&fx.send(revoked_key.request()), "AUTH_INVALID");
+
+    // Revoked all sessions: every existing session ends.
+    assert!(fx.sessions() > 0);
+    fx.admin(AdminRequest::RevokeAll {});
+    assert_eq!(fx.sessions(), 0);
+}
+
+// ---- crash consistency: a real SIGKILL during rotation and epoch increments ----
+
+#[test]
+fn crash_a_real_sigkill_during_key_rotation_and_epoch_increments_never_corrupts_state() {
+    const CHILD: &str = "BLACKROOM_CRASH_CHILD_DIR";
+    if let Some(dir) = std::env::var_os(CHILD) {
+        // Child: rotate and bump forever until the parent kills it.
+        let fd = File::open(&dir).unwrap();
+        let store = SecretStore::open(&fd).unwrap();
+        let mut host = PersistentHostAuthority::open(&fd).unwrap();
+        loop {
+            access_key::rotate(&store, OWNER).unwrap();
+            host.advance_epoch().unwrap();
+            recovery_codes::generate(&store, OWNER).unwrap();
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let fd = File::open(dir.path()).unwrap();
+    drop(PersistentHostAuthority::open(&fd).unwrap());
+    let store = SecretStore::open(&fd).unwrap();
+    let mut last_epoch = PersistentHostAuthority::inspect(&fd).unwrap().epoch;
+    for round in 0..20_u64 {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "crash_a_real_sigkill_during_key_rotation_and_epoch_increments_never_corrupts_state",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(CHILD, dir.path())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(60 + (round * 37) % 140));
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let status = PersistentHostAuthority::inspect(&fd)
+            .unwrap_or_else(|error| panic!("round {round}: {error}"));
+        assert!(
+            status.epoch >= last_epoch,
+            "the epoch went backwards in round {round}"
+        );
+        last_epoch = status.epoch;
+        access_key::configured(&store, OWNER)
+            .unwrap_or_else(|error| panic!("round {round}: key file {error}"));
+        recovery_codes::remaining(&store, OWNER)
+            .unwrap_or_else(|error| panic!("round {round}: codes file {error}"));
+    }
+    assert!(last_epoch > 0, "the child must have made progress");
 }

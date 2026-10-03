@@ -2,12 +2,13 @@
 //! A silent browser is handled below this layer (`ConsoleConfig::heartbeat_timeout`).
 
 use std::convert::Infallible;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
-use axum::extract::{DefaultBodyLimit, Query, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Query, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, HOST, LOCATION, ORIGIN, SET_COOKIE};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
@@ -17,10 +18,13 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 
 use crate::console::{InputEvent, Quality, RemoteConsole};
+use crate::hostd_auth::{HostdAuth, LoginForm, LoginOutcome};
 use crate::login::{Login, LoginError};
 
 const PAGE: &str = include_str!("page.html");
 const LOGIN_PAGE: &str = include_str!("login.html");
+const LOGIN_FULL_PAGE: &str = include_str!("login_full.html");
+const LOGOUT_BUTTON: &str = r#"<button id="logout" onclick="fetch('/logout',{method:'POST',credentials:'same-origin'}).then(()=>location.reload())">Log out</button>"#;
 const SESSION_COOKIE: &str = "br_session";
 const COOKIE_NAME: &str = "br_token";
 const BOUNDARY: &str = "frame";
@@ -34,6 +38,8 @@ enum Auth {
     Token(Arc<str>),
     /// A TOTP code per browser session (`--auth-dir`).
     Totp(Arc<Login>),
+    /// Linux password, authenticator code and key or trusted device, checked by hostd (`--hostd-dir`).
+    Hostd(Arc<HostdAuth>),
 }
 
 #[derive(Clone)]
@@ -106,6 +112,8 @@ fn authorized(state: &AppState, headers: &HeaderMap) -> bool {
         Auth::Token(token) => cookie_token(headers).is_some_and(|given| tokens_equal(given, token)),
         Auth::Totp(login) => cookie_value(headers, SESSION_COOKIE)
             .is_some_and(|id| login.check(id, state.console.emergency_count(), Instant::now())),
+        Auth::Hostd(hostd) => cookie_value(headers, SESSION_COOKIE)
+            .is_some_and(|token| hostd.check(token, state.console.emergency_count())),
     }
 }
 
@@ -141,10 +149,16 @@ pub fn router_totp(console: RemoteConsole, login: Arc<Login>) -> Router {
     build(console, Auth::Totp(login))
 }
 
+/// The same routes behind hostd's three-factor login.
+pub fn router_hostd(console: RemoteConsole, hostd: Arc<HostdAuth>) -> Router {
+    build(console, Auth::Hostd(hostd))
+}
+
 fn build(console: RemoteConsole, auth: Auth) -> Router {
     let state = AppState { console, auth };
     Router::new()
-        .route("/login", post(login).layer(DefaultBodyLimit::max(1024)))
+        .route("/login", post(login).layer(DefaultBodyLimit::max(4096)))
+        .route("/logout", post(logout))
         .route("/", get(index))
         .route("/video", get(video))
         .route("/status", get(status))
@@ -206,9 +220,16 @@ async fn index(
                 (StatusCode::UNAUTHORIZED, "open the URL printed at start\n").into_response()
             }
             Auth::Totp(_) => ([(CACHE_CONTROL, "no-store")], Html(LOGIN_PAGE)).into_response(),
+            Auth::Hostd(_) => {
+                ([(CACHE_CONTROL, "no-store")], Html(LOGIN_FULL_PAGE)).into_response()
+            }
         };
     }
-    ([(CACHE_CONTROL, "no-store")], Html(PAGE)).into_response()
+    let page = match state.auth {
+        Auth::Hostd(_) => PAGE.replace("<!--LOGOUT-->", LOGOUT_BUTTON),
+        _ => PAGE.replace("<!--LOGOUT-->", ""),
+    };
+    ([(CACHE_CONTROL, "no-store")], Html(page)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -216,7 +237,15 @@ struct LoginBody {
     code: String,
 }
 
-async fn login(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn login(
+    State(state): State<AppState>,
+    peer: Peer,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if let Auth::Hostd(hostd) = &state.auth {
+        return login_hostd(&state, hostd, peer, &headers, &body).await;
+    }
     let Auth::Totp(login) = &state.auth else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -246,6 +275,112 @@ async fn login(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -
         Ok(Err(_)) => (StatusCode::UNAUTHORIZED, "refused\n").into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+/// One failed-attempt counter per browser address (hostd keys its limits on this).
+fn client_id(peer: Peer) -> String {
+    peer.0.map_or_else(
+        || "ip-unknown".to_string(),
+        |address| format!("ip-{}", address.ip()),
+    )
+}
+
+/// The browser's address when the server was started with connect info; none in unit tests.
+struct Peer(Option<SocketAddr>);
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Peer {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Infallible> {
+        Ok(Self(
+            parts
+                .extensions
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|ConnectInfo(address)| *address),
+        ))
+    }
+}
+
+fn session_cookie(token: &str) -> String {
+    format!("{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/")
+}
+
+async fn login_hostd(
+    state: &AppState,
+    hostd: &Arc<HostdAuth>,
+    peer: Peer,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Response {
+    if !same_origin(headers) {
+        return (StatusCode::FORBIDDEN, "cross-origin request refused\n").into_response();
+    }
+    let Some(form) = parse_body::<LoginForm>(body) else {
+        return malformed();
+    };
+    let (hostd, client, emergency) = (
+        Arc::clone(hostd),
+        client_id(peer),
+        state.console.emergency_count(),
+    );
+    let outcome = tokio::task::spawn_blocking(move || hostd.login(&form, &client, emergency)).await;
+    match outcome {
+        Ok(LoginOutcome::Accepted { token, device }) => {
+            let reply = match device {
+                Some((id, secret)) => {
+                    serde_json::json!({"ok": true, "device_id": id, "device_secret": secret.as_str()})
+                }
+                None => serde_json::json!({"ok": true}),
+            };
+            (
+                StatusCode::OK,
+                [
+                    (SET_COOKIE, session_cookie(&token)),
+                    (CACHE_CONTROL, "no-store".to_string()),
+                ],
+                Json(reply),
+            )
+                .into_response()
+        }
+        Ok(LoginOutcome::Refused(code)) => (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "code": code })),
+        )
+            .into_response(),
+        Ok(LoginOutcome::Locked) => {
+            (StatusCode::TOO_MANY_REQUESTS, "too many attempts, wait\n").into_response()
+        }
+        Ok(LoginOutcome::Unavailable) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "login service unavailable\n",
+        )
+            .into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let Auth::Hostd(hostd) = &state.auth else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if !same_origin(&headers) {
+        return (StatusCode::FORBIDDEN, "cross-origin request refused\n").into_response();
+    }
+    if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
+        let (hostd, token) = (Arc::clone(hostd), token.to_string());
+        let _ = tokio::task::spawn_blocking(move || hostd.logout(&token)).await;
+    }
+    (
+        StatusCode::NO_CONTENT,
+        [(
+            SET_COOKIE,
+            format!("{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"),
+        )],
+    )
+        .into_response()
 }
 
 async fn status(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -570,6 +705,336 @@ mod tests {
     #[tokio::test]
     async fn token_mode_has_no_login() {
         let response = call(&app(), login_request("123456")).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    // ---- login through hostd (real authority on temporary sockets, fake password check) ----
+
+    struct Rig {
+        _state: tempfile::TempDir,
+        runtime: tempfile::TempDir,
+        clock: Arc<std::sync::atomic::AtomicU64>,
+        secret: Vec<u8>,
+        key: String,
+        stop: Arc<std::sync::atomic::AtomicBool>,
+        server: Option<std::thread::JoinHandle<()>>,
+    }
+
+    struct Pw;
+
+    impl remote_hostd::password::PasswordCheck for Pw {
+        fn check(&mut self, _: &str, password: &str) -> remote_hostd::password::PasswordOutcome {
+            if password == "pw" {
+                remote_hostd::password::PasswordOutcome::Accepted
+            } else {
+                remote_hostd::password::PasswordOutcome::Rejected
+            }
+        }
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            use std::os::unix::fs::PermissionsExt;
+            use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+            let private = || {
+                let dir = tempfile::tempdir().unwrap();
+                std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+                    .unwrap();
+                dir
+            };
+            let (state, runtime) = (private(), private());
+            let fd = std::fs::File::open(state.path()).unwrap();
+            let secret = remote_hostd::totp::base32_decode(
+                &remote_hostd::totp::enroll(&fd, "owner").unwrap(),
+            )
+            .unwrap();
+            let store = blackroom_store::SecretStore::open(&fd).unwrap();
+            let key = remote_hostd::access_key::rotate(&store, "owner")
+                .unwrap()
+                .to_string();
+            let clock = Arc::new(AtomicU64::new(1_800_000_000));
+            let (c1, c2) = (Arc::clone(&clock), Arc::clone(&clock));
+            let totp = remote_hostd::totp::load_verifier(&fd, Default::default())
+                .unwrap()
+                .with_clock(move || c1.load(Ordering::SeqCst));
+            let limiter = remote_hostd::ratelimit::FailureLimiter::new(Default::default())
+                .with_clock(move || c2.load(Ordering::SeqCst));
+            let verifier = remote_hostd::login::MultiFactorVerifier::new(
+                blackroom_store::SecretStore::open(&fd).unwrap(),
+                totp,
+                None,
+                limiter,
+            );
+            let daemon = Arc::new(
+                remote_hostd::authd::AuthDaemon::new(
+                    &fd,
+                    verifier,
+                    Box::new(remote_hostd::authd::OwnerOnly),
+                )
+                .unwrap(),
+            );
+            let auth =
+                remote_hostd::authd::bind_private(runtime.path(), remote_hostd::authd::AUTH_SOCKET)
+                    .unwrap();
+            let admin = remote_hostd::authd::bind_private(
+                runtime.path(),
+                remote_hostd::authd::ADMIN_SOCKET,
+            )
+            .unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let server = {
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    let pam: remote_hostd::authd::PamFactory =
+                        Arc::new(|| Box::new(Pw) as Box<dyn remote_hostd::password::PasswordCheck>);
+                    remote_hostd::authd::serve(&daemon, auth, admin, &pam, &stop).unwrap();
+                })
+            };
+            Self {
+                _state: state,
+                runtime,
+                clock,
+                secret,
+                key,
+                stop,
+                server: Some(server),
+            }
+        }
+
+        fn code(&self) -> String {
+            let now = self
+                .clock
+                .fetch_add(30, std::sync::atomic::Ordering::SeqCst)
+                + 30;
+            remote_hostd::totp::totp(&self.secret, now)
+        }
+
+        fn app(&self) -> (Router, RemoteConsole) {
+            let console = RemoteConsole::spawn(ConsoleConfig {
+                grab_socket: None,
+                state_dir: std::env::temp_dir().join("br-console-server-test-hostd"),
+                headless: true,
+                quality: crate::console::Quality::Medium,
+                heartbeat_timeout: Duration::from_secs(15),
+                restore_bin: std::path::PathBuf::new(),
+            });
+            let hostd = Arc::new(HostdAuth::new(
+                self.runtime.path().to_path_buf(),
+                console.emergency_count(),
+            ));
+            (router_hostd(console.clone(), hostd), console)
+        }
+
+        fn admin(&self, command: &str) {
+            let _: remote_hostd::authd::AdminReply = remote_hostd::authd::call(
+                &self.runtime.path().join(remote_hostd::authd::ADMIN_SOCKET),
+                &serde_json::json!({ "command": command }),
+            )
+            .unwrap();
+        }
+    }
+
+    impl Drop for Rig {
+        fn drop(&mut self) {
+            self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            if let Some(server) = self.server.take() {
+                let _ = server.join();
+            }
+        }
+    }
+
+    fn json_login(body: serde_json::Value) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
+    async fn body_json(response: Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+    }
+
+    async fn text_of(response: Response) -> String {
+        String::from_utf8(
+            axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap()
+    }
+
+    fn page_request(session: &str) -> Request<Body> {
+        Request::builder()
+            .uri("/")
+            .header(COOKIE, format!("{SESSION_COOKIE}={session}"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn hostd_login_needs_all_factors_trusts_a_browser_and_dies_with_an_emergency() {
+        let rig = Rig::new();
+        let (app, console) = rig.app();
+
+        let page = call(
+            &app,
+            Request::builder().uri("/").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert!(text_of(page).await.contains("Linux password"));
+        let status = call(
+            &app,
+            Request::builder()
+                .uri("/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status.status(), StatusCode::UNAUTHORIZED);
+
+        let wrong = call(
+            &app,
+            json_login(serde_json::json!({"account": "owner", "password": "bad", "code": rig.code(), "access_key": rig.key})),
+        )
+        .await;
+        assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(body_json(wrong).await["code"], "AUTH_INVALID");
+        let no_key = call(
+            &app,
+            json_login(
+                serde_json::json!({"account": "owner", "password": "pw", "code": rig.code()}),
+            ),
+        )
+        .await;
+        assert_eq!(body_json(no_key).await["code"], "AUTH_ACCESS_KEY_REQUIRED");
+        let extra = call(&app, json_login(serde_json::json!({"account": "owner", "password": "pw", "code": "1", "admin": true}))).await;
+        assert_eq!(extra.status(), StatusCode::BAD_REQUEST);
+
+        let first = call(
+            &app,
+            json_login(serde_json::json!({"account": "owner", "password": "pw", "code": rig.code(), "access_key": rig.key, "trust_label": "Tablet"})),
+        )
+        .await;
+        assert_eq!(first.status(), StatusCode::OK);
+        let first_cookie = session_of(&first);
+        let reply = body_json(first).await;
+        let (device_id, device_secret) = (
+            reply["device_id"].as_str().unwrap().to_string(),
+            reply["device_secret"].as_str().unwrap().to_string(),
+        );
+        assert_eq!(
+            call(&app, session_request(&first_cookie)).await.status(),
+            StatusCode::OK
+        );
+        assert!(
+            text_of(call(&app, page_request(&first_cookie)).await)
+                .await
+                .contains("id=\"logout\"")
+        );
+
+        let by_device = call(
+            &app,
+            json_login(serde_json::json!({"account": "owner", "password": "pw", "code": rig.code(), "device_id": device_id, "device_secret": device_secret})),
+        )
+        .await;
+        assert_eq!(by_device.status(), StatusCode::OK);
+        let second_cookie = session_of(&by_device);
+        assert!(body_json(by_device).await.get("device_id").is_none());
+
+        console.note_emergency();
+        assert_eq!(
+            call(&app, session_request(&first_cookie)).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&app, session_request(&second_cookie)).await.status(),
+            StatusCode::UNAUTHORIZED,
+            "the authority ended every session too"
+        );
+
+        let again = call(
+            &app,
+            json_login(serde_json::json!({"account": "owner", "password": "pw", "code": rig.code(), "access_key": rig.key})),
+        )
+        .await;
+        assert_eq!(again.status(), StatusCode::OK);
+        let third = session_of(&again);
+        assert_eq!(
+            call(&app, session_request(&third)).await.status(),
+            StatusCode::OK
+        );
+
+        let cross = Request::builder()
+            .method("POST")
+            .uri("/logout")
+            .header(COOKIE, format!("{SESSION_COOKIE}={third}"))
+            .header(ORIGIN, "http://evil.example")
+            .header(HOST, "console.local")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(call(&app, cross).await.status(), StatusCode::FORBIDDEN);
+        let out = Request::builder()
+            .method("POST")
+            .uri("/logout")
+            .header(COOKIE, format!("{SESSION_COOKIE}={third}"))
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(call(&app, out).await.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            call(&app, session_request(&third)).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn hostd_disable_ends_sessions_and_a_stopped_hostd_refuses_logins() {
+        let rig = Rig::new();
+        let (app, _console) = rig.app();
+        let login = |rig: &Rig| {
+            json_login(
+                serde_json::json!({"account": "owner", "password": "pw", "code": rig.code(), "access_key": rig.key}),
+            )
+        };
+        let ok = call(&app, login(&rig)).await;
+        let cookie = session_of(&ok);
+        rig.admin("disable");
+        assert_eq!(
+            call(&app, session_request(&cookie)).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&app, login(&rig)).await.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        rig.admin("enable");
+        assert_eq!(call(&app, login(&rig)).await.status(), StatusCode::OK);
+
+        drop(rig);
+        let down = call(
+            &app,
+            json_login(serde_json::json!({"account": "owner", "password": "pw", "code": "000000", "access_key": "x"})),
+        )
+        .await;
+        assert_eq!(down.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn token_and_totp_modes_have_no_logout_or_logout_button() {
+        let response = call(
+            &app(),
+            Request::builder()
+                .method("POST")
+                .uri("/logout")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 

@@ -9,11 +9,12 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use remote_hostd::authd::{
-    ADMIN_SOCKET, AUTH_SOCKET, AuthDaemon, EnableAuthorizer, OwnerOnly, Polkit, bind_private, serve,
+    ADMIN_SOCKET, AUTH_SOCKET, AuthDaemon, EnableAuthorizer, OwnerOnly, PamFactory, Polkit,
+    bind_private, serve,
 };
 use remote_hostd::isolation::{DaemonIsolation, InputIsolation};
 use remote_hostd::login::MultiFactorVerifier;
-use remote_hostd::password::PamHelper;
+use remote_hostd::password::{PamHelper, PasswordCheck};
 use remote_hostd::ratelimit::FailureLimiter;
 use remote_hostd::totp::{self, Limits};
 use remote_hostd::{service, store::PersistentHostAuthority, write_update};
@@ -237,7 +238,8 @@ fn auth_service(args: &[OsString]) -> io::Result<()> {
         &daemon,
         auth,
         admin,
-        Box::new(PamHelper::new(helper)),
+        &(Arc::new(move || Box::new(PamHelper::new(helper.clone())) as Box<dyn PasswordCheck>)
+            as PamFactory),
         &Arc::new(AtomicBool::new(false)),
     )
 }

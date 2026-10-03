@@ -4,7 +4,7 @@ Date 2026-10-03. Scope: unit and integration level, offline, fake password check
 accept path needs the files installed by `docs/ops/install-security.sh` and is the owner's live check).
 
 Checks run: `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,
-`cargo test --workspace --exclude gnome-session-agent` (481 tests pass) and
+`cargo test --workspace --exclude gnome-session-agent` (489 tests pass) and
 `cargo test -p gnome-session-agent` (36 pass), `cargo deny check` (workspace), `cargo audit`.
 
 ## Gates (Doc 09 §100)
@@ -39,10 +39,10 @@ Tests are in `crates/remote-hostd/tests/rt_security.rs` unless named otherwise.
 | RT-AUTH-010 revoked device | covered | `rt_auth_010` |
 | RT-AUTH-011 revoked key | covered | `rt_auth_011` |
 | RT-AUTH-012 recovery code abuse | covered | `rt_auth_012` |
-| RT-AUTH-013 enumeration | covered for response and PAM cost; timing not measured | `rt_auth_013` |
+| RT-AUTH-013 enumeration | covered for response and PAM cost; timing measured once with the real helper, ranges overlap (threat-model.md) | `rt_auth_013` |
 | RT-AUTH-014 flooding | covered | `rt_auth_014` (bounded table, no password check once saturated) |
 | RT-AUTH-015 concurrent race | covered | `rt_auth_015`; also `a_hung_password_check_does_not_delay_operator_commands` |
-| RT-SESSION-001 expired | covered | `rt_session_001` |
+| RT-SESSION-001 expired | covered (idle 30 min, hard 12 h) | `rt_session_001`, `rt_session_001b` |
 | RT-SESSION-002 wrong host | covered (random 256-bit tokens, unknown elsewhere) | `rt_session_002` |
 | RT-SESSION-003 wrong client | partial: the session reports its principal and epoch; binding to a connection is the gateway's job (Phase 12) | `rt_session_003` |
 | RT-SESSION-004 replay | covered (logout, revoke, expiry, epoch) | `rt_session_004` |
@@ -65,7 +65,7 @@ Tests are in `crates/remote-hostd/tests/rt_security.rs` unless named otherwise.
 | RT-FILE-005 secrets in logs | covered | `rt_file_005`; CLI `diagnostics_and_compatibility_are_json_without_secrets` |
 
 Crash consistency (Doc 17 §42): atomic temporary-file-and-rename writes; `crash_leftovers_do_not_change_what_a_restart_trusts`
-and the store's concurrent-reader test. A real SIGKILL during a rotation is not simulated.
+and the store's concurrent-reader test. A real SIGKILL is also exercised: `crash_a_real_sigkill...` kills a child process 20 times mid key rotation, mid epoch increment and mid recovery-code generation, and checks every file still parses and the epoch never goes back.
 Data security across users (Doc 17 §74): owner-only modes asserted; separate-user processes not run.
 
 ## Needs the owner (live)
@@ -75,5 +75,19 @@ Data security across users (Doc 17 §74): owner-only modes asserted; separate-us
 2. `docs/ops/install-security.sh --check` (a wrong password must be rejected with exit 1, not 2).
 3. Optional: `--polkit` and a local `blackroom enable` versus the same command from an SSH session.
 
-Open: wiring the console web app to `auth.sock`, the browser trust-this-device flow, gateway
-rate limits per source address, a measured timing check for enumeration, an independent review.
+Open: Safari/iOS login page, an independent review, tests as a second Unix user, unit sandboxing (every option breaks PAM in a user unit; see threat-model.md).
+
+## Doc 12 section 7 coverage
+
+| Item | Where |
+|---|---|
+| Password: correct, wrong, empty, repeated failures | `rt_auth_002`, `rt_auth_001`, `password.rs` tests |
+| Password: PAM failure, timeout, error | `password.rs` (exit codes, hung helper killed), `HOST_UNAVAILABLE` path |
+| Password: account locked or disabled, change while running | not testable without root: a locked account fails `authenticate`; the live password is read by PAM on every login, so a change applies at once (design, not a test) |
+| TOTP: valid, invalid, replayed, skew, rate limit | `rt_auth_004`, `rt_auth_005`, `totp.rs` tests (RFC vectors, skew), `rt_auth_002` |
+| TOTP: secret unavailable, reconfiguration | unreadable file disables access (`rt_file_004`); reconfiguration is a local reset (credential-lifecycle.md) |
+| Key: valid, invalid, malformed, rotated, old, repeated failures, leakage | `rt_auth_006` to `rt_auth_011`, `access_key.rs` tests, `rt_file_005` (logs, status), CLI diagnostics test |
+| Key: leakage through browser storage and URLs | the key is never stored by the page and never in a URL (login page code); not browser-tested |
+| Trusted device: register, authenticate, revoke one or all, malformed, copied, after epoch change | `rt_auth_008` to `rt_auth_010`, `trusted_devices.rs` tests, console `hostd_login...` test |
+| Trusted device: expired credential, rotate credential | not implemented (a device credential does not expire; replace it by revoking and registering again) |
+| Flow matrix, 10 rows | `doc12_authentication_flow_matrix` |

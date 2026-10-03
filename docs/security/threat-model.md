@@ -56,9 +56,18 @@ does not.
   by guessing (availability, not access). `blackroom` on the local machine still works.
 - Timing: unknown and known accounts take the same code path and a PAM call; PAM's own failure delay
   applies to both. Not measured statistically.
-- The unit carries no seccomp-based option: in a user manager each one (checked live: `MemoryDenyWriteExecute`,
-  `RestrictAddressFamilies`, `LockPersonality`) turns `NoNewPrivileges` on and the PAM helper then cannot
-  decide (exit 2, login answers `HOST_UNAVAILABLE`). Sandboxing needs a design that keeps `unix_chkpwd` working.
+- The unit carries no sandbox option at all. Probed live with a wrong password: every seccomp-based option
+  (`MemoryDenyWriteExecute`, `RestrictAddressFamilies`, `LockPersonality`) and every namespace-based one
+  (`PrivateTmp`, `ProtectSystem`, `ProtectHome`, `ProtectKernelTunables`, `ProtectControlGroups`) made the PAM
+  helper exit 2 (cannot decide, login answers `HOST_UNAVAILABLE`); `PrivateDevices`, `ProtectKernelModules`
+  and `ProtectClock` refuse to start (218/CAPABILITIES) in a user manager. A sandbox needs a different design
+  (for example a root-owned system unit with a separate PAM helper), which is not planned.
+- The trusted-browser credential lives in `localStorage`, readable by any script on the page origin. The page
+  loads no third-party script; a cross-site-scripting bug would expose it (still useless without password
+  and code).
+- Enumeration timing was measured once (6 wrong-password tries each, real PAM helper): your account 1.5 to 2.4 s
+  (median 1.6 s), a nonexistent account 1.5 to 2.6 s (median 2.0 s). The ranges overlap and PAM's own random
+  failure delay (about 2 s plus or minus half) swamps any difference; not a statistical proof.
 
 ## Gate J (no arbitrary privileged execution)
 

@@ -431,6 +431,7 @@ dependencies = [
  "axum-server",
  "blackroom-core",
  "blackroom-gnome",
+ "blackroom-store",
  "clap",
  "ed25519-dalek",
  "futures-util",
@@ -445,11 +446,13 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tower",
  "tracing",
  "tracing-subscriber",
  "zbus",
+ "zeroize",
 ]
 
 [[package]]

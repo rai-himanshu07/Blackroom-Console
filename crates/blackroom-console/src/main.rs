@@ -4,8 +4,9 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use blackroom_console::hostd_auth::{HostdAuth, sockets_present};
 use blackroom_console::login::Login;
-use blackroom_console::server::{random_token, router, router_totp, token_from_file};
+use blackroom_console::server::{random_token, router, router_hostd, router_totp, token_from_file};
 use blackroom_console::{ConsoleConfig, Quality, RemoteConsole, tls};
 use clap::Parser;
 
@@ -21,6 +22,11 @@ struct Args {
     /// Where the certificate and key are kept (default: ~/.local/share/blackroom-console).
     #[arg(long)]
     cert_dir: Option<PathBuf>,
+    /// Phase 11: log in through remote-hostd (Linux password, authenticator code and Remote Access Key
+    /// or trusted device). The directory holding its `auth.sock` and `admin.sock`, normally
+    /// `$XDG_RUNTIME_DIR/blackroom-hostd`; start `remote-hostd.service` first.
+    #[arg(long, conflicts_with = "auth_dir")]
+    hostd_dir: Option<PathBuf>,
     /// Phase 11: log in with a TOTP code instead of the URL token. A directory (mode 0700, absolute) holding
     /// the enrolled credentials; enrol with `blackroom --state-dir <dir> enroll --account <name>`.
     #[arg(long)]
@@ -145,8 +151,19 @@ async fn main() -> anyhow::Result<()> {
         restore_bin,
     });
 
-    let (token, app, login_account) = match &args.auth_dir {
-        Some(dir) => {
+    let hostd_login = args.hostd_dir.is_some();
+    let (token, app, login_account) = match (&args.hostd_dir, &args.auth_dir) {
+        (Some(dir), _) => {
+            anyhow::ensure!(dir.is_absolute(), "--hostd-dir must be an absolute path");
+            anyhow::ensure!(
+                sockets_present(dir),
+                "hostd is not running: no auth.sock in {} (systemctl --user start remote-hostd.service)",
+                dir.display()
+            );
+            let hostd = std::sync::Arc::new(HostdAuth::new(dir.clone(), console.emergency_count()));
+            (String::new(), router_hostd(console.clone(), hostd), None)
+        }
+        (None, Some(dir)) => {
             let directory = remote_hostd::store::open_state_directory(dir)?;
             let account = args
                 .account
@@ -170,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
                 Some(account),
             )
         }
-        None => {
+        (None, None) => {
             let token = match &args.token_file {
                 Some(path) => token_from_file(path)?,
                 None => random_token()?,
@@ -199,12 +216,20 @@ async fn main() -> anyhow::Result<()> {
         let config = axum_server::tls_rustls::RustlsConfig::from_pem(cert, key).await?;
         let server = axum_server::bind_rustls(addr, config)
             .handle(handle.clone())
-            .serve(app.clone().into_make_service());
+            .serve(
+                app.clone()
+                    .into_make_service_with_connect_info::<SocketAddr>(),
+            );
         tls_task = Some(tokio::spawn(server));
         all_urls.extend(urls("https", addr, &token));
     }
 
     println!("Open one of these in a browser (https needs a one-time certificate exception):");
+    if hostd_login {
+        println!(
+            "Log in with your Linux password, an authenticator code and the Remote Access Key (or a trusted browser)."
+        );
+    }
     if let Some(account) = &login_account {
         println!(
             "Log in with the 6-digit code of the authenticator enrolled for account {account:?}."
@@ -221,19 +246,22 @@ async fn main() -> anyhow::Result<()> {
 
     let shutdown_console = console.clone();
     let shutdown_handle = handle.clone();
-    axum::serve(http, app)
-        .with_graceful_shutdown(async move {
-            let signal = tokio::select! {
-                _ = tokio::signal::ctrl_c() => "SIGINT",
-                _ = terminate.recv() => "SIGTERM",
-                _ = hangup.recv() => "SIGHUP",
-            };
-            tracing::info!(signal, "shutdown signal received");
-            let report = tokio::task::spawn_blocking(move || shutdown_console.stop()).await;
-            tracing::info!(?report, "shut down");
-            shutdown_handle.graceful_shutdown(Some(Duration::from_secs(3)));
-        })
-        .await?;
+    axum::serve(
+        http,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        let signal = tokio::select! {
+            _ = tokio::signal::ctrl_c() => "SIGINT",
+            _ = terminate.recv() => "SIGTERM",
+            _ = hangup.recv() => "SIGHUP",
+        };
+        tracing::info!(signal, "shutdown signal received");
+        let report = tokio::task::spawn_blocking(move || shutdown_console.stop()).await;
+        tracing::info!(?report, "shut down");
+        shutdown_handle.graceful_shutdown(Some(Duration::from_secs(3)));
+    })
+    .await?;
     if let Some(task) = tls_task {
         let _ = task.await;
     }

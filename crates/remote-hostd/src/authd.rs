@@ -17,7 +17,7 @@ use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -38,6 +38,9 @@ pub const AUTH_SOCKET: &str = "auth.sock";
 pub const ADMIN_SOCKET: &str = "admin.sock";
 pub const POLKIT_ACTION: &str = "org.blackroom.console.enable-remote-access";
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
+/// A login session ends after this long without use, and never lives past [`SESSION_ABSOLUTE`].
+pub const SESSION_IDLE: Duration = Duration::from_secs(30 * 60);
+pub const SESSION_ABSOLUTE: Duration = blackroom_core::limits::SESSION_CREDENTIAL_MAX_LIFETIME;
 
 #[derive(Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
@@ -383,11 +386,13 @@ impl AuthDaemon {
             }
         };
         let epoch = authority.host.epoch();
-        let token = match authority.sessions.authenticate(
+        let token = match authority.sessions.authenticate_with(
             &mut Approved(Some(principal.clone())),
             (),
             epoch,
             now,
+            SESSION_IDLE,
+            SESSION_ABSOLUTE,
         ) {
             Ok(token) => token,
             Err(error) => return AuthReply::refused(error.code),
@@ -433,10 +438,8 @@ impl AuthDaemon {
         let Some(token) = SessionToken::from_hex(token) else {
             return AuthReply::refused(ErrorCode::SessionNotFound);
         };
-        match authority
-            .sessions
-            .resolve(&token, authority.host.epoch(), now)
-        {
+        let epoch = authority.host.epoch();
+        match authority.sessions.touch(&token, epoch, now, SESSION_IDLE) {
             Ok(session) => AuthReply {
                 ok: true,
                 user_id: Some(session.principal().user_id.clone()),
@@ -613,12 +616,19 @@ fn next_connection(listener: &UnixListener) -> io::Result<Option<UnixStream>> {
     }
 }
 
-/// Serves both sockets until `stop` is set; the admin socket runs on its own thread.
+/// Builds one password check per login connection, so a slow PAM call never blocks another request.
+pub type PamFactory = Arc<dyn Fn() -> Box<dyn PasswordCheck> + Send + Sync>;
+
+/// At most this many `auth.sock` requests are handled at once; more are dropped at accept.
+const MAX_IN_FLIGHT: usize = 16;
+
+/// Serves both sockets until `stop` is set. The admin socket has its own thread; each auth
+/// connection gets a thread too, so `check` and `logout` never wait behind a slow password check.
 pub fn serve(
     daemon: &Arc<AuthDaemon>,
     auth: UnixListener,
     admin: UnixListener,
-    mut pam: Box<dyn PasswordCheck>,
+    pam: &PamFactory,
     stop: &Arc<AtomicBool>,
 ) -> io::Result<()> {
     auth.set_nonblocking(true)?;
@@ -641,20 +651,35 @@ pub fn serve(
             }
         })
     };
+    let in_flight = Arc::new(AtomicUsize::new(0));
     while !stop.load(Ordering::SeqCst) {
         let Some(mut stream) = next_connection(&auth)? else {
             continue;
         };
         let Ok(peer) = peer_of(&stream) else { continue };
-        if peer.uid != daemon.owner_uid {
+        if peer.uid != daemon.owner_uid || in_flight.fetch_add(1, Ordering::SeqCst) >= MAX_IN_FLIGHT
+        {
+            if peer.uid == daemon.owner_uid {
+                in_flight.fetch_sub(1, Ordering::SeqCst);
+            }
             continue;
         }
-        if let Ok(request) = read_frame_within::<AuthRequest>(&mut stream, REQUEST_WAIT) {
-            let reply = daemon.handle_auth(request, pam.as_mut(), SystemTime::now());
-            let _ = write_frame(&mut stream, &reply);
-        }
+        let (daemon, pam, in_flight) =
+            (Arc::clone(daemon), Arc::clone(pam), Arc::clone(&in_flight));
+        std::thread::spawn(move || {
+            if let Ok(request) = read_frame_within::<AuthRequest>(&mut stream, REQUEST_WAIT) {
+                let reply = daemon.handle_auth(request, pam().as_mut(), SystemTime::now());
+                let _ = write_frame(&mut stream, &reply);
+            }
+            in_flight.fetch_sub(1, Ordering::SeqCst);
+        });
     }
     let _ = admin_thread.join();
+    // Let requests already accepted finish, bounded.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while in_flight.load(Ordering::SeqCst) > 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
     Ok(())
 }
 
@@ -663,11 +688,20 @@ pub fn call<Req: Serialize, Rep: serde::de::DeserializeOwned>(
     socket: &Path,
     request: &Req,
 ) -> io::Result<Rep> {
+    call_within(socket, request, Duration::from_secs(30))
+}
+
+/// Like [`call`] with a caller-chosen deadline for the reply.
+pub fn call_within<Req: Serialize, Rep: serde::de::DeserializeOwned>(
+    socket: &Path,
+    request: &Req,
+    within: Duration,
+) -> io::Result<Rep> {
     let mut stream = UnixStream::connect(socket)?;
     let credentials = rustix::net::sockopt::socket_peercred(&stream)?;
     if credentials.uid.as_raw() != rustix::process::getuid().as_raw() {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
     write_frame(&mut stream, request)?;
-    read_frame_within(&mut stream, Duration::from_secs(30))
+    read_frame_within(&mut stream, within)
 }

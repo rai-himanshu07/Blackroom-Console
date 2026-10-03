@@ -263,7 +263,11 @@ fn live_verbs_list_and_revoke_sessions_through_the_admin_socket() {
     let stop = Arc::new(AtomicBool::new(false));
     let server = {
         let (daemon, stop) = (Arc::clone(&daemon), Arc::clone(&stop));
-        std::thread::spawn(move || serve(&daemon, auth, admin, Box::new(Fake), &stop))
+        std::thread::spawn(move || {
+            let pam: remote_hostd::authd::PamFactory =
+                std::sync::Arc::new(|| Box::new(Fake) as Box<dyn PasswordCheck>);
+            serve(&daemon, auth, admin, &pam, &stop)
+        })
     };
 
     let now = std::time::SystemTime::now()

@@ -2,6 +2,7 @@
 # Installs the Phase 11 security pieces for the current user. Run from anywhere:
 #   docs/ops/install-security.sh --check       read-only report (also proves the PAM stack loads)
 #   docs/ops/install-security.sh --install     build, copy binaries, install the unit; asks sudo for TWO files
+#   docs/ops/install-security.sh --update      rebuild and replace the binaries, restart the unit; no sudo
 #   docs/ops/install-security.sh --uninstall   stop and remove the unit and the two root files (keeps your credentials)
 # Options: --no-build (reuse target/release), --polkit (let `blackroom enable` need a local active session).
 # Root is used for exactly: /etc/pam.d/blackroom-console and /usr/share/polkit-1/actions/org.blackroom.console.policy.
@@ -17,13 +18,13 @@ POLKIT_FILE=/usr/share/polkit-1/actions/org.blackroom.console.policy
 mode=""; build=1; polkit=0
 for arg in "$@"; do
   case "$arg" in
-    --check|--install|--uninstall) mode="$arg" ;;
+    --check|--install|--update|--uninstall) mode="$arg" ;;
     --no-build) build=0 ;;
     --polkit) polkit=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
-[ -n "$mode" ] || { sed -n '2,7p' "${BASH_SOURCE[0]}"; exit 2; }
+[ -n "$mode" ] || { sed -n '2,8p' "${BASH_SOURCE[0]}"; exit 2; }
 [ "$(id -u)" -ne 0 ] || { echo "run as your normal user, not root (sudo is asked only where needed)" >&2; exit 2; }
 
 ok()   { echo "OK   $*"; }
@@ -79,6 +80,17 @@ case "$mode" in
   echo "   systemctl --user start remote-hostd.service"
   echo "   $BIN/blackroom --state-dir $STATE login-check --account $USER     # real password+code+key test"
   echo "   docs/ops/install-security.sh --check"
+  ;;
+--update)
+  if [ "$build" = 1 ]; then
+    (cd "$REPO" && cargo build --release -p remote-hostd -p blackroom-cli -p pam-auth-helper -p blackroom-console)
+  fi
+  install -m 755 "$REPO/target/release/remote-hostd" "$REPO/target/release/pam-auth-helper" "$LIB/"
+  install -m 755 "$REPO/target/release/blackroom" "$BIN/blackroom"
+  install -m 644 "$REPO/systemd/user/remote-hostd.service" "$UNIT_DIR/remote-hostd.service"
+  systemctl --user daemon-reload
+  if systemctl --user is-active --quiet remote-hostd.service; then systemctl --user restart remote-hostd.service && echo "remote-hostd restarted"; fi
+  echo "updated (the console binary is run from $REPO/target/release by console.sh)"
   ;;
 --uninstall)
   systemctl --user stop remote-hostd.service 2>/dev/null || true

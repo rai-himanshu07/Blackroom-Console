@@ -90,3 +90,8 @@ Then, once: `blackroom --state-dir ~/.local/share/blackroom-console/hostd enroll
 Operator verbs: `status`, `sessions`, `revoke-session <id>`, `revoke-all`, `disable [--reason ...]`, `enable`,
 `rotate-key [--revoke-devices]`, `devices`, `revoke-device <id>`, `doctor`, `diagnostics`, `compatibility`.
 `disable` works with hostd stopped. Details: `docs/security/authentication.md`, `credential-lifecycle.md`.
+
+Console login through hostd: start `remote-hostd.service`, then `BR_HOSTD=1 docs/ops/console.sh` (or
+`blackroom-console --hostd-dir $XDG_RUNTIME_DIR/blackroom-hostd`). The page asks for account, Linux password,
+authenticator code and Remote Access Key; "Trust this browser" remembers a device credential so later logins skip the
+key. After a code change run `docs/ops/install-security.sh --update` (no sudo) to replace the installed binaries.
