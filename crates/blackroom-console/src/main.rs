@@ -102,6 +102,13 @@ struct Args {
     /// only when given). It asks for the laptop account's password.
     #[arg(long)]
     host_listen: Option<SocketAddr>,
+    /// The `blackroom` command the settings page runs to manage credentials (default: next to this binary, else
+    /// /usr/bin/blackroom), and the login authority's state directory it works on (default
+    /// ~/.local/share/blackroom-console/hostd). For tests.
+    #[arg(long)]
+    blackroom_cli: Option<PathBuf>,
+    #[arg(long)]
+    hostd_state_dir: Option<PathBuf>,
     /// The PAM helper that checks that password (default: `pam-auth-helper` next to this binary).
     #[arg(long)]
     pam_helper: Option<PathBuf>,
@@ -214,8 +221,9 @@ fn urls(scheme: &str, listen: SocketAddr, token: &str) -> Vec<String> {
 struct HostPageArgs {
     listen: Option<SocketAddr>,
     helper: Option<PathBuf>,
+    cli: Option<PathBuf>,
+    state_dir: Option<PathBuf>,
     effective: serde_json::Value,
-    hostd_dir: Option<PathBuf>,
 }
 
 /// True when systemd says this process is the unit's main process (a console started by hand is not).
@@ -268,8 +276,21 @@ async fn start_host_page(args: &HostPageArgs, console: &RemoteConsole) -> Option
             PathBuf::from("/etc/systemd/user"),
             PathBuf::from("/usr/lib/systemd/user"),
         ],
-        cli: std::env::current_exe().ok()?.with_file_name("blackroom"),
-        hostd_dir: args.hostd_dir.clone().unwrap_or_default(),
+        cli: match &args.cli {
+            Some(path) => path.clone(),
+            None => {
+                let beside = std::env::current_exe().ok()?.with_file_name("blackroom");
+                if beside.is_file() {
+                    beside
+                } else {
+                    PathBuf::from("/usr/bin/blackroom")
+                }
+            }
+        },
+        state_dir: args
+            .state_dir
+            .clone()
+            .unwrap_or_else(|| home.join(".local/share/blackroom-console/hostd")),
         home,
     };
     let check: blackroom_console::hostpage::PasswordFactory = std::sync::Arc::new(move || {
@@ -386,6 +407,8 @@ async fn main() -> anyhow::Result<()> {
             .host_listen
             .or_else(|| (!args.headless).then(|| SocketAddr::from(([127, 0, 0, 1], 8090)))),
         helper: args.pam_helper.clone(),
+        cli: args.blackroom_cli.clone(),
+        state_dir: args.hostd_state_dir.clone(),
         effective: serde_json::json!({
             "http_listen": args.listen.to_string(),
             "tls_listen": args.tls_listen.map(|addr| addr.to_string()),
@@ -396,7 +419,6 @@ async fn main() -> anyhow::Result<()> {
             "audio_sink": args.audio_sink,
             "hostd_login": args.hostd_dir.is_some(),
         }),
-        hostd_dir: args.hostd_dir.clone(),
     };
     let ice_config = ice_config_from(&args)?;
     if args.public {

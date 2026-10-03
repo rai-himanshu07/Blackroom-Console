@@ -144,10 +144,12 @@ $("loginForm").addEventListener("submit", async (event) => {
   if (!ok) { $("loginMsg").textContent = data.error ?? "Sign-in failed."; return; }
   await load(true);
   schedule();
+  loadCredentials();
 });
 
 $("logout").addEventListener("click", async () => {
   await api("POST", "/host/logout", {});
+  hideSecret();
   clearInterval(timer);
   saved = null;
   show("login");
@@ -198,4 +200,54 @@ for (const [id, accept] of [["askAccept", true], ["askDeny", false]]) {
   });
 }
 
-load(true).then((signedIn) => { if (signedIn) schedule(); }).catch(() => show("login"));
+// ---- credentials: the laptop's own `blackroom` command does the work; secrets are shown once and not kept ----
+let hideTimer = 0;
+function hideSecret() {
+  clearTimeout(hideTimer);
+  $("credOut").textContent = "";
+  $("secretBox").hidden = true;
+}
+
+async function credential(action, extra = {}, needsPassword = true) {
+  const body = { action, ...extra };
+  if (needsPassword) {
+    body.password = $("credPassword").value;
+    if (body.password === "") { $("saveNote").textContent = "Type your laptop password first."; return null; }
+  }
+  const reply = await api("POST", "/host/credentials", body);
+  if (needsPassword) $("credPassword").value = "";
+  if (!reply.ok) { $("saveNote").textContent = reply.data.error ?? "That did not work."; return null; }
+  return reply.data;
+}
+
+async function loadCredentials() {
+  const [status, devices] = await Promise.all([credential("status", {}, false), credential("devices", {}, false)]);
+  const text = [status, devices].filter(Boolean).map((part) => (part.output || part.notice || "").trim()).filter(Boolean).join("\n\n");
+  $("credStatus").textContent = text || "Nothing to show: the login authority is not set up (run blackroom setup).";
+}
+
+async function change(action, extra, question) {
+  if (question && !window.confirm(question)) return;
+  const data = await credential(action, extra);
+  if (!data) return;
+  const out = [data.output.trim(), data.notice].filter(Boolean).join("\n\n");
+  $("saveNote").textContent = data.ok ? "Done." : "The command reported a problem.";
+  if (out) {
+    $("credOut").textContent = out;
+    $("secretBox").hidden = false;
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideSecret, 120000);
+  }
+  await loadCredentials();
+}
+
+$("credKey").addEventListener("click", () => change("rotate_key", { revoke_devices: $("credForget").checked }, "Make a new Remote Access Key? The old one stops working."));
+$("credCodes").addEventListener("click", () => change("recovery_codes", {}, "Make new recovery codes? The old ones stop working."));
+$("credReset").addEventListener("click", () => change("reset_security", {}, "New authenticator, key and recovery codes? Every old secret, trusted browser and remote login stops working."));
+$("credSignOut").addEventListener("click", () => change("revoke_all", {}, "Sign out every remote login, including a session that is running?"));
+$("credOff").addEventListener("click", () => change("disable", {}, "Switch remote access off? Every remote login ends and nobody can sign in until you switch it on."));
+$("credOn").addEventListener("click", () => change("enable", {}, null));
+$("credRevoke").addEventListener("click", () => change("revoke_device", { device: $("credDevice").value.trim() }, "Forget this trusted browser?"));
+$("credHide").addEventListener("click", hideSecret);
+
+load(true).then((signedIn) => { if (signedIn) { schedule(); loadCredentials(); } }).catch(() => show("login"));

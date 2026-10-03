@@ -99,6 +99,23 @@ await js("document.getElementById('restart').click()");
 await sleep(1500);
 check("Restart saves and explains a console that was started by hand", /started by systemd|by hand|not started/i.test(await js("document.getElementById('saveNote').textContent")));
 
+// Credentials: the page asks the laptop's own command; a change needs the password again; secrets are shown once.
+await js("window.confirm = () => true; true");
+check("the credential status is shown", /stub status/.test(await js("document.getElementById('credStatus').textContent")) && /dev-1/.test(await js("document.getElementById('credStatus').textContent")));
+await js("document.getElementById('credKey').click()");
+await sleep(500);
+check("a change without the password does nothing", /password/i.test(await js("document.getElementById('saveNote').textContent")) && (await js("document.getElementById('secretBox').hidden")) === true);
+await js("document.getElementById('credPassword').value = 'wrong'; document.getElementById('credKey').click(); true");
+await sleep(900);
+check("a wrong password is refused", /wrong/i.test(await js("document.getElementById('saveNote').textContent")) && (await js("document.getElementById('secretBox').hidden")) === true);
+await js("document.getElementById('credPassword').value = 'hostpass'; document.getElementById('credKey').click(); true");
+await sleep(1500);
+check("the new key is shown once", /ABCD-EFGH-IJKL/.test(await js("document.getElementById('credOut').textContent")) && (await js("document.getElementById('secretBox').hidden")) === false);
+check("the password field is emptied", (await js("document.getElementById('credPassword').value")) === "");
+check("the laptop ran the fixed command", /rotate-key --account \S+/.test(readFileSync(`${stateDir}/cli-calls`, "utf8")));
+await js("document.getElementById('credHide').click()");
+check("Hide removes the secret from the page", (await js("document.getElementById('credOut').textContent")) === "" && (await js("document.getElementById('secretBox').hidden")) === true);
+
 await js("document.getElementById('logout').click()");
 await sleep(800);
 check("Sign out returns to the sign-in view", (await visible("loginView")) && !(await visible("appView")));

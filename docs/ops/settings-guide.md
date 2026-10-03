@@ -1,9 +1,15 @@
 # Settings guide
 
+Two places, two jobs.
+
+- **The client page** (the tablet or phone): how *this device* connects. Choices are saved on the device, one set per
+  laptop address, and can only go as far as the laptop owner allows.
+- **The host page** (on the laptop): what the laptop allows. See "Host settings" below.
+
 Open the console page and sign in. The connect screen shows the laptop's name and state, two modes and a **Settings**
-button. Settings are saved on the laptop (`profile.json` in `--profile-dir`, owner-only, written atomically), so every
-browser you sign in with sees the same choices. **Reset to defaults** restores them; the picture and sound level of the
-current browser follow the saved values.
+button. **Reset to defaults** forgets this device's choices and goes back to the laptop's defaults (`profile.json`, which
+only supplies the starting values). A browser that cannot keep site data (some private modes) falls back to saving the
+choices on the laptop. Anything the owner has limited is greyed out, with a line saying "Set by the laptop owner".
 
 ## Modes
 
@@ -34,7 +40,7 @@ Pick a mode, then change any single setting; the mode label turns to "Custom" wh
 
 Frame rate and bitrate also change live: open **Settings** from the session menu and pick new values.
 
-## This device
+## This device (more)
 
 Quality level, picture scale (fit, stretch, 1:1 with scrolling to follow the pointer), volume, the pointer marker
 over the picture, touch mode (trackpad or direct), the keyboard (key presses for a US layout, or characters typed with
@@ -46,3 +52,28 @@ The connect screen offers **Install** when the browser allows it. Browsers only 
 (a Tailscale certificate or Let's Encrypt, see `internet-access.md`) or on `localhost`; with the self-signed certificate
 the page works but cannot be installed. On iPhone and iPad use Share, then Add to Home Screen. The service worker caches
 nothing: it only makes the app installable and shows a "can't reach the laptop" page that retries every 5 seconds.
+
+## Host settings (the laptop owner)
+
+Open the indicator menu and choose **Host settings...**, or browse to `http://localhost:8090/` on the laptop. The page is
+reachable from the laptop only (a loopback address; other machines and web pages cannot reach it) and asks for the laptop
+account's password. Everything is saved to `host.json` next to `profile.json` and takes effect when the console restarts
+(**Save and restart the console**; a running session ends, and the page asks first). Settings in `host.json` win over
+command-line flags.
+
+| Section | What you set |
+|---|---|
+| Who may connect | allow Private and/or Shared sessions; approving each connection: **Never ask** (default, so remote use works while you are away) or **Ask** (Accept or Deny on the laptop from a notification or the indicator menu; no answer in 30 seconds is a Deny) |
+| Limits a client cannot exceed | lock on disconnect forced on or off (or the client chooses), longest session, longest idle time, highest frame rate and bitrate |
+| What a client may use | laptop sound, clipboard, typing text, which sound output is sent |
+| Network | the plain-http and https addresses, a certificate and key from a real authority, internet mode (`--public`) |
+| Login and credentials | status and trusted devices, new Remote Access Key, new recovery codes, new authenticator + key + codes, sign out every remote login, switch remote access off or on, forget a trusted device. Each change asks for your password again and shows new secrets once; they are not stored on the page |
+| This laptop | notifications, running time in the top bar, start the console when you log in (applies at once; only the idle service starts, nothing connects by itself) |
+
+A client that asks for something outside these limits is refused (a mode that is not allowed) or held to the limit (numbers,
+sound), and its page shows what is available. "Typing text" off refuses text input even if a modified page sends it.
+
+### What is not here yet
+
+Saved servers (several laptops) and named connection profiles in the client; the client's "remember this device" is the
+existing trusted-browser login.

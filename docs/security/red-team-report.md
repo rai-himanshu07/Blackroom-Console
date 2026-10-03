@@ -36,8 +36,19 @@ second Unix user, or a real phone are listed at the end as untested.
 - Found by the browser walkthrough: the logout button's inline handler was silently blocked by the hash-based CSP, and
   typing in page text fields was swallowed by the global key handler. Both fixed; a unit test refuses inline handlers.
 - A second local entry point, the session-bus service `org.blackroom.Console` for the top-bar indicator: it returns a small fixed set of
-  facts about the session (a test pins the exact key set; no credentials) and can only end a running session. It cannot
-  start one or change a setting. Any process of the owner's user can call it, like `pkill` or `systemctl --user stop`.
+  facts about the session (a test pins the exact key set; no credentials), can end a running session and can answer a
+  connection that waits for approval. It cannot start a session or change a setting. Any process of the owner's user can call it, like `pkill` or `systemctl --user stop`.
+- **The host settings page** (`hostpage.rs`) is a third entry point: a loopback-only listener behind the laptop account's
+  password (PAM helper, 5 failures lock it for a minute), a session cookie (HttpOnly, SameSite=Strict, 15 minutes idle, 1 hour
+  at most), a loopback-only `Host` check against DNS rebinding, an `Origin` that must be the page's own on every change, and a
+  script-only CSP. Credential changes ask for the password again and run the `blackroom` command with fixed arguments (the only
+  browser text that reaches a command line is a device id of letters, digits and `_.-`); new secrets are returned once and not
+  stored or logged. Tests: `tests/hostpage.rs` and `docs/ops/headless-hostpage-test.sh`. Residual risk: anything running as the
+  owner on the laptop can reach the loopback port and try the password; the unlocked laptop is the owner's trust boundary.
+- **Limits are enforced by the laptop**, not the page: a start outside the owner's modes is refused (403), numbers are
+  clamped, sound and text typing are refused when switched off (`tests/adversarial.rs`).
+- **Approve each connection** (Ask): only the laptop's D-Bus service or the host page can answer; a stale or invented id
+  does nothing; one request waits at a time; no answer in 30 seconds is a Deny; the device text shown is plain ASCII.
 - New settings can lower the safety margin on purpose (Shared mode, no lock on disconnect, longer or unlimited timeouts):
   they are the owner's choices and the defaults stay safe. The emergency chord, the Stop button and heartbeat loss
   still end the session; with "lock on disconnect" off the screen is left unlocked afterwards.

@@ -67,8 +67,10 @@ await js("document.querySelector('.tabs [data-tab=display]').click()");
 check("tabs switch panes", (await js("!document.querySelector('[data-pane=display]').hidden && document.querySelector('[data-pane=conn]').hidden")) === true);
 await js("(() => { const el = document.querySelector('[data-key=\"client.scale\"]'); el.value = 'actual'; el.dispatchEvent(new Event('change', {bubbles: true})); })()");
 await sleep(900);
-const savedScale = await js("fetch('/settings', {credentials: 'same-origin'}).then((r) => r.json()).then((s) => s.client.scale)");
-check("a changed setting is saved on the laptop", savedScale === "actual" && (await js("stageScale")) === "actual");
+const savedScale = await js("JSON.parse(localStorage.getItem('br.settings.v1')).client.scale");
+check("a changed setting is saved on this device", savedScale === "actual" && (await js("stageScale")) === "actual");
+check("the laptop's own defaults are not changed by it", (await js("fetch('/settings', {credentials: 'same-origin'}).then((r) => r.json()).then((s) => s.client.scale)")) === "fit");
+check("no limits from the laptop owner means no note", (await js("document.getElementById('policynote').hidden")) === true);
 await js("(() => { const el = document.querySelector('[data-key=\"client.scale\"]'); el.value = 'fit'; el.dispatchEvent(new Event('change', {bubbles: true})); })()");
 await js("document.getElementById('sheetClose').click()");
 check("the settings sheet closes", (await js("document.getElementById('sheet').hidden")) === true);
@@ -196,6 +198,22 @@ await sleep(4000);
 const end = await js("({view: document.body.dataset.view, pill: document.getElementById('hoststate').textContent, note: document.getElementById('hostnote').textContent})");
 check("back on the connect screen after Disconnect", end.view === "home" && end.pill === "Ready", JSON.stringify(end));
 check("the screen was restored", /screen was restored/.test(end.note), JSON.stringify(end));
+// The laptop owner's limits: the page offers only what is allowed.
+await js("applyPolicy({allow_private: false, allow_shared: true, force_lock_on_stop: true, max_session_hours: 2, max_idle_minutes: 15, max_fps: 30, max_bitrate_kbps: 5000, allow_audio: false, allow_text: false, approval: 'ask'}); true");
+const limited = await js(`({
+  privateOff: document.querySelector('.mode[data-preset=private]').disabled, sharedOn: !document.querySelector('.mode[data-preset=shared]').disabled,
+  preset: currentPreset(), lockForced: settings.session.lock_on_stop === true && document.getElementById('homeLock').disabled,
+  fps60Off: [...document.querySelector('[data-key="session.fps_cap"]').options].find((o) => o.value === '60').disabled,
+  hours: settings.session.max_hours, idle: settings.session.idle_minutes,
+  audioOff: settings.session.audio === false && document.getElementById('homeAudio').disabled,
+  textOff: [...document.querySelector('[data-key="client.text_mode"]').options].find((o) => o.value === 'text').disabled,
+  note: document.getElementById('policynote').textContent })`);
+check("limits grey out what the owner switched off", limited.privateOff && limited.sharedOn && limited.preset === "shared" && limited.lockForced && limited.fps60Off && limited.audioOff && limited.textOff, JSON.stringify(limited));
+check("a session length and idle time inside the limit are chosen", limited.hours === 2 && limited.idle === 15, JSON.stringify([limited.hours, limited.idle]));
+check("the page says who set them", /^Set by the laptop owner:/.test(limited.note) && /accept each connection/.test(limited.note), limited.note);
+await js("applyPolicy({allow_private: true, allow_shared: true, force_lock_on_stop: null, max_session_hours: 0, max_idle_minutes: 0, max_fps: 0, max_bitrate_kbps: 0, allow_audio: true, allow_text: true, approval: 'never'}); true");
+check("lifting the limits offers everything again", (await js("!document.querySelector('.mode[data-preset=private]').disabled && !document.getElementById('homeLock').disabled && document.getElementById('policynote').hidden")) === true);
+
 check("no uncaught page errors", pageErrors.length === 0, JSON.stringify(pageErrors));
 console.log(failed ? "BROWSER TEST FAILED" : "BROWSER TEST OK");
 done(failed ? 1 : 0);

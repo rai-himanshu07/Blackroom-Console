@@ -10,7 +10,18 @@ state=$(mktemp -d /tmp/br-hostpage-state.XXXXXX)
 log=$(mktemp /tmp/br-hostpage.XXXXXX)
 printf '#!/bin/bash\nread -r account\nread -r password\n[ "$password" = "hostpass" ] && exit 0\nexit 1\n' > "$state/pam-stub"
 chmod 700 "$state/pam-stub"
-"$BIN" --headless --listen 127.0.0.1:18095 --host-listen 127.0.0.1:18096 --pam-helper "$state/pam-stub" --state-dir "$state" > "$log" 2>&1 &
+# A stand-in for the blackroom command: records its arguments and prints fake secrets (the real credentials are never touched).
+cat > "$state/blackroom-stub" <<STUB
+#!/bin/bash
+echo "\$@" >> "$state/cli-calls"
+case "\$*" in
+  *" status") echo "stub status: remote access enabled" ;;
+  *devices*) echo "device dev-1 (Chrome on tablet)" ;;
+  *rotate-key*) echo "remote access key: ABCD-EFGH-IJKL" ;;
+esac
+STUB
+chmod 700 "$state/blackroom-stub"
+"$BIN" --headless --listen 127.0.0.1:18095 --host-listen 127.0.0.1:18096 --pam-helper "$state/pam-stub" --blackroom-cli "$state/blackroom-stub" --hostd-state-dir "$state/hostd" --state-dir "$state" > "$log" 2>&1 &
 srv=$!
 trap 'kill "$srv" 2>/dev/null' EXIT
 for _ in $(seq 1 50); do grep -q "Host settings" "$log" && break; sleep 0.2; done

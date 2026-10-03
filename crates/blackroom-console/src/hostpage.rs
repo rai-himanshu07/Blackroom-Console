@@ -48,8 +48,9 @@ pub struct Settings {
     pub managed: bool,
     pub unit_dirs: Vec<PathBuf>,
     pub home: PathBuf,
+    /// The `blackroom` command and its login-authority state directory, used for credential management.
     pub cli: PathBuf,
-    pub hostd_dir: PathBuf,
+    pub state_dir: PathBuf,
 }
 
 #[derive(Default)]
@@ -98,6 +99,7 @@ pub fn router(console: RemoteConsole, settings: Settings, check: PasswordFactory
         .route("/host/restart", post(restart))
         .route("/host/approve", post(approve))
         .route("/host/autostart", post(autostart))
+        .route("/host/credentials", post(credentials))
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(axum::middleware::from_fn(security_headers))
         .with_state(app)
@@ -249,33 +251,22 @@ struct LoginBody {
     password: String,
 }
 
-async fn login(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
-    if !host_ok(&headers, app.settings.port) {
-        return error(
-            StatusCode::FORBIDDEN,
-            "this page answers only on the laptop's own address",
-        );
-    }
-    if !origin_ok(&headers) {
-        return error(StatusCode::FORBIDDEN, "cross-origin request refused");
-    }
+/// Checks the laptop account's password (rate limited); `Err` is the reply to send.
+async fn check_password(app: &App, password: String) -> Result<(), Response> {
     {
         let limiter = lock(&app.limiter);
         if limiter
             .locked_until
             .is_some_and(|until| Instant::now() < until)
         {
-            return error(
+            return Err(error(
                 StatusCode::TOO_MANY_REQUESTS,
                 "too many wrong passwords: wait a minute",
-            );
+            ));
         }
     }
-    let Ok(LoginBody { password }) = object::<LoginBody>(&body) else {
-        return error(StatusCode::BAD_REQUEST, "send {\"password\": \"...\"}");
-    };
     if !password_ok(&password) {
-        return error(StatusCode::UNAUTHORIZED, "wrong password");
+        return Err(error(StatusCode::UNAUTHORIZED, "wrong password"));
     }
     let account = app.settings.account.clone();
     let factory = Arc::clone(&app.check);
@@ -288,18 +279,7 @@ async fn login(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Respo
     match outcome {
         PasswordOutcome::Accepted => {
             lock(&app.limiter).failures = 0;
-            let Ok(token) = crate::server::random_token() else {
-                return error(StatusCode::INTERNAL_SERVER_ERROR, "no random source");
-            };
-            let now = Instant::now();
-            lock(&app.sessions).live.insert(token.clone(), (now, now));
-            let mut response = reply(StatusCode::OK, &json!({ "ok": true }));
-            if let Ok(value) = HeaderValue::from_str(&format!(
-                "{COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path=/"
-            )) {
-                response.headers_mut().insert(SET_COOKIE, value);
-            }
-            response
+            Ok(())
         }
         PasswordOutcome::Rejected => {
             let mut limiter = lock(&app.limiter);
@@ -308,13 +288,43 @@ async fn login(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Respo
                 limiter.failures = 0;
                 limiter.locked_until = Some(Instant::now() + LOCK);
             }
-            error(StatusCode::UNAUTHORIZED, "wrong password")
+            Err(error(StatusCode::UNAUTHORIZED, "wrong password"))
         }
-        PasswordOutcome::Unavailable => error(
+        PasswordOutcome::Unavailable => Err(error(
             StatusCode::SERVICE_UNAVAILABLE,
             "the password check is not available (is the blackroom PAM helper installed?)",
-        ),
+        )),
     }
+}
+
+async fn login(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
+    if !host_ok(&headers, app.settings.port) {
+        return error(
+            StatusCode::FORBIDDEN,
+            "this page answers only on the laptop's own address",
+        );
+    }
+    if !origin_ok(&headers) {
+        return error(StatusCode::FORBIDDEN, "cross-origin request refused");
+    }
+    let Ok(LoginBody { password }) = object::<LoginBody>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "send {\"password\": \"...\"}");
+    };
+    if let Err(refusal) = check_password(&app, password).await {
+        return refusal;
+    }
+    let Ok(token) = crate::server::random_token() else {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "no random source");
+    };
+    let now = Instant::now();
+    lock(&app.sessions).live.insert(token.clone(), (now, now));
+    let mut response = reply(StatusCode::OK, &json!({ "ok": true }));
+    if let Ok(value) = HeaderValue::from_str(&format!(
+        "{COOKIE_NAME}={token}; HttpOnly; SameSite=Strict; Path=/"
+    )) {
+        response.headers_mut().insert(SET_COOKIE, value);
+    }
+    response
 }
 
 async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
@@ -617,6 +627,168 @@ async fn autostart(State(app): State<App>, headers: HeaderMap, body: Bytes) -> R
         Ok(Ok(())) => reply(StatusCode::OK, &json!({ "autostart": enabled })),
         Ok(Err(message)) => error(StatusCode::CONFLICT, &message),
         Err(_) => error(StatusCode::INTERNAL_SERVER_ERROR, "autostart change failed"),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CredentialBody {
+    action: String,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    device: String,
+    #[serde(default)]
+    revoke_devices: bool,
+}
+
+/// The `blackroom` arguments for an action, or why there are none. Nothing from the browser reaches the command line but a
+/// device id made of letters, digits and `_.-`.
+pub fn cli_args(
+    settings: &Settings,
+    body_action: &str,
+    device: &str,
+    revoke_devices: bool,
+) -> Result<(Vec<String>, bool), String> {
+    let base = |verb: &[&str]| {
+        let mut args = vec![
+            "--state-dir".to_string(),
+            settings.state_dir.display().to_string(),
+        ];
+        args.extend(verb.iter().map(|part| (*part).to_string()));
+        args
+    };
+    let account = settings.account.as_str();
+    // The second value says whether the action needs the password again.
+    Ok(match body_action {
+        "status" => (base(&["status"]), false),
+        "devices" => (base(&["devices", "--account", account]), false),
+        "rotate_key" => {
+            let mut args = base(&["rotate-key", "--account", account]);
+            if revoke_devices {
+                args.push("--revoke-devices".into());
+            }
+            (args, true)
+        }
+        "recovery_codes" => (base(&["recovery-codes", "--account", account]), true),
+        "reset_security" => (
+            vec![
+                "reset".into(),
+                "security".into(),
+                "--yes".into(),
+                "--state-dir".into(),
+                settings.state_dir.display().to_string(),
+                "--account".into(),
+                account.into(),
+            ],
+            true,
+        ),
+        "revoke_all" => (base(&["revoke-all"]), true),
+        "disable" => (
+            base(&[
+                "disable",
+                "--reason",
+                "switched off from the host settings page",
+            ]),
+            true,
+        ),
+        "enable" => (base(&["enable"]), true),
+        "revoke_device" => {
+            let valid = !device.is_empty()
+                && device.len() <= 80
+                && device
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c));
+            if !valid {
+                return Err("the device id may hold letters, digits and _ . - only".into());
+            }
+            (base(&["revoke-device", device]), true)
+        }
+        _ => return Err("unknown action".into()),
+    })
+}
+
+fn run_cli(cli: &Path, args: &[String], limit: Duration) -> Result<(bool, String, String), String> {
+    use std::io::Read;
+    let mut child = std::process::Command::new(cli)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("cannot run {}: {error}", cli.display()))?;
+    let (mut stdout, mut stderr) = (child.stdout.take(), child.stderr.take());
+    let out = std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(pipe) = stdout.as_mut() {
+            let _ = pipe.take(256 * 1024).read_to_string(&mut text);
+        }
+        text
+    });
+    let err = std::thread::spawn(move || {
+        let mut text = String::new();
+        if let Some(pipe) = stderr.as_mut() {
+            let _ = pipe.take(64 * 1024).read_to_string(&mut text);
+        }
+        text
+    });
+    let deadline = Instant::now() + limit;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("the command did not finish in time".into());
+            }
+        }
+    };
+    Ok((
+        status.success(),
+        out.join().unwrap_or_default(),
+        err.join().unwrap_or_default(),
+    ))
+}
+
+async fn credentials(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    let Ok(CredentialBody {
+        action,
+        password,
+        device,
+        revoke_devices,
+    }) = object::<CredentialBody>(&body)
+    else {
+        return error(StatusCode::BAD_REQUEST, "send {\"action\": \"status\"}");
+    };
+    let (args, needs_password) = match cli_args(&app.settings, &action, &device, revoke_devices) {
+        Ok(found) => found,
+        Err(message) => return error(StatusCode::BAD_REQUEST, &message),
+    };
+    // Changing a credential asks for the password again, so a page left open on an unlocked laptop cannot do it.
+    if needs_password && let Err(refusal) = check_password(&app, password).await {
+        return refusal;
+    }
+    if !app.settings.cli.is_file() {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the blackroom command is not installed next to the console",
+        );
+    }
+    let cli = app.settings.cli.clone();
+    match tokio::task::spawn_blocking(move || run_cli(&cli, &args, Duration::from_secs(60))).await {
+        Ok(Ok((success, output, notice))) => reply(
+            StatusCode::OK,
+            &json!({ "ok": success, "output": output, "notice": notice.trim() }),
+        ),
+        Ok(Err(message)) => error(StatusCode::BAD_GATEWAY, &message),
+        Err(_) => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the command failed to run",
+        ),
     }
 }
 

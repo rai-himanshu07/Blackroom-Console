@@ -1,8 +1,14 @@
 "use strict";
 // The app shell around the remote-desktop engine in app.js: the connect screen, the in-session menu, the settings
-// sheet (saved on the laptop) and toasts.
+// sheet (saved on this device, inside the limits the laptop owner sets) and toasts.
 
-// ---- settings: the laptop's profile.json, mirrored here ----
+// ---- settings: this device's choices; the laptop's profile.json only supplies the defaults ----
+const DEVICE_KEY = "br.settings.v1";
+function deviceStoreWorks() {
+  try { localStorage.setItem("br.probe", "1"); localStorage.removeItem("br.probe"); return true; } catch (_) { return false; }
+}
+const onDevice = deviceStoreWorks();
+
 const PRESETS = {
   private: { blank_panel: true, block_local_input: true, lock_on_stop: true, cursor_in_video: false },
   shared: { blank_panel: false, block_local_input: false, lock_on_stop: false, cursor_in_video: true },
@@ -52,11 +58,16 @@ function saveSoon(note) {
   clearTimeout(saveTimer);
   $("sheetnote").textContent = "Saving...";
   saveTimer = setTimeout(async () => {
+    if (onDevice) {
+      store.set(DEVICE_KEY, JSON.stringify(settings));
+      $("sheetnote").textContent = note || "Your choices are saved on this device.";
+      return;
+    }
     try {
       const response = await post("/settings", settings);
       const body = await response.json();
       if (!response.ok) { toast("Settings not saved: " + (body.error || response.status), "bad"); $("sheetnote").textContent = "Not saved."; return; }
-      $("sheetnote").textContent = note || "Saved on the laptop: every device starts the same way.";
+      $("sheetnote").textContent = note || "Saved on the laptop (this browser cannot keep them).";
     } catch (error) { toast("Settings not saved: " + error, "bad"); $("sheetnote").textContent = "Not saved."; }
   }, 350);
 }
@@ -99,6 +110,16 @@ async function loadSettings() {
     const response = await fetch("/settings", { credentials: "same-origin" });
     if (response.ok) settings = await response.json();
   } catch (_) { toast("Could not load the saved settings; using defaults.", "bad"); }
+  if (onDevice) {
+    try {
+      const mine = JSON.parse(store.get(DEVICE_KEY) || "null");
+      if (mine && typeof mine === "object" && mine.session && mine.client) {
+        settings = { version: 1, session: { ...settings.session, ...mine.session }, client: { ...settings.client, ...mine.client } };
+      }
+    } catch (_) { /* damaged: the laptop's defaults stay */ }
+  }
+  policyKey = "";
+  if (lastState) applyPolicy(lastState.policy);
   applyAll();
 }
 
@@ -159,9 +180,11 @@ function fitSize() {
   return { width: Math.round(w) & ~1, height: Math.round(h) & ~1 };
 }
 
+let connecting = false;
 async function connect() {
+  connecting = true;
   $("connect").disabled = true;
-  setHostState("Connecting...", "warn");
+  setHostState(waitingText(), "warn");
   const options = { ...settings.session };
   if (settings.client.fit_resolution && options.blank_panel) options.resolution = fitSize();
   try {
@@ -171,8 +194,11 @@ async function connect() {
     if (!response.ok) { toast("Could not connect: " + (body.error || response.status), "bad"); refresh(); }
     else show(body);
   } catch (error) { toast("Could not connect: " + error, "bad"); }
+  connecting = false;
   $("connect").disabled = false;
 }
+
+const waitingText = () => (policy && policy.approval === "ask" ? "Waiting for the laptop owner to accept..." : "Connecting...");
 $("connect").addEventListener("click", connect);
 
 function setHostState(text, kind) {
@@ -201,6 +227,7 @@ setInterval(() => { if (running) $("timer").textContent = fmtTime(sessionClock.s
 
 // Called by app.js after every status poll.
 function onState(state) {
+  applyPolicy(state.policy);
   $("hostname").textContent = state.host || "This laptop";
   $("hostline").textContent = state.host ? `Remote control for ${state.host}` : "Remote control for this laptop";
   $("version").textContent = "Blackroom Console " + (state.version || "");
@@ -223,8 +250,9 @@ function onState(state) {
     return;
   }
   const busy = state.phase === "starting" || state.phase === "stopping";
-  $("connect").disabled = busy;
+  $("connect").disabled = busy || connecting;
   if (linkLost) setHostState("No connection", "warn");
+  else if (connecting) setHostState(waitingText(), "warn");
   else if (busy) setHostState(state.phase === "starting" ? "Connecting..." : "Disconnecting...", "warn");
   else setHostState("Ready", "live");
   const stop = state.last_stop;
@@ -286,7 +314,13 @@ $("settingsReset").addEventListener("click", async () => {
   if (!window.confirm("Reset every setting to its default?")) return;
   try {
     const response = await post("/settings/reset");
-    if (response.ok) { settings = await response.json(); applyAll(); toast("Settings reset."); }
+    if (response.ok) {
+      settings = await response.json();
+      try { localStorage.removeItem(DEVICE_KEY); } catch (_) { /* nothing kept */ }
+      policyKey = "";
+      if (lastState) applyPolicy(lastState.policy);
+      applyAll(); toast("Settings reset.");
+    }
   } catch (error) { toast("Could not reset: " + error, "bad"); }
 });
 
@@ -315,3 +349,69 @@ $("installBtn").addEventListener("click", async () => {
 });
 if (capabilities().ios) showInstall("To install on this device: tap Share, then Add to Home Screen.");
 if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => { /* untrusted certificate: no install, the page still works */ });
+
+// ---- what the laptop owner allows: the page offers only that (the laptop refuses the rest anyway) ----
+let policy = null, policyKey = "";
+function enable(el, on) { if (el) el.disabled = !on; }
+function bySel(key) { return document.querySelector(`[data-key="${key}"]`); }
+
+// Disables the options a limit forbids and moves the current value to the largest allowed one.
+function limitOptions(key, max, zeroAllowed) {
+  const el = bySel(key);
+  if (!el || !max) { if (el) for (const o of el.options) o.disabled = false; return false; }
+  let allowed = null, changed = false;
+  for (const o of el.options) {
+    const v = o.value === "" ? 0 : Number(o.value);
+    o.disabled = (v === 0 && !zeroAllowed) || v > max;
+    if (!o.disabled && (allowed === null || v > Number(allowed.value || 0))) allowed = o;
+  }
+  const current = dig(key);
+  if (allowed && ((current === 0 && !zeroAllowed) || current > max)) { put(key, Number(allowed.value)); changed = true; }
+  return changed;
+}
+
+function applyPolicy(p) {
+  if (!p) return;
+  const text = JSON.stringify(p);
+  if (text === policyKey) return;
+  policyKey = text;
+  policy = p;
+  const s = settings.session, c = settings.client;
+  const notes = [];
+  document.querySelectorAll(".mode").forEach((button) => {
+    const ok = button.dataset.preset === "private" ? p.allow_private : p.allow_shared;
+    button.disabled = !ok;
+    button.title = ok ? "" : "The laptop owner has switched this off";
+  });
+  const only = p.allow_private && !p.allow_shared ? "private" : !p.allow_private && p.allow_shared ? "shared" : null;
+  if (only) {
+    s.blank_panel = s.block_local_input = only === "private";
+    notes.push(only === "private" ? "Only Private sessions are allowed." : "Only Shared sessions are allowed.");
+  }
+  for (const key of ["session.blank_panel", "session.block_local_input"]) enable(bySel(key), !only);
+  const forced = p.force_lock_on_stop;
+  if (forced !== null && forced !== undefined) {
+    s.lock_on_stop = forced;
+    notes.push(forced ? "The laptop always locks when you disconnect." : "The laptop does not lock when you disconnect.");
+  }
+  enable($("homeLock"), forced === null || forced === undefined);
+  enable(bySel("session.lock_on_stop"), forced === null || forced === undefined);
+  if (!p.allow_audio) { s.audio = false; notes.push("Laptop sound is switched off."); }
+  for (const el of [$("homeAudio"), bySel("session.audio"), $("soundBtn"), $("volume")]) enable(el, p.allow_audio);
+  const textMode = bySel("client.text_mode");
+  if (textMode) for (const o of textMode.options) if (o.value === "text") o.disabled = !p.allow_text;
+  if (!p.allow_text) { if (c.text_mode === "text") c.text_mode = "keys"; notes.push("Typing text is switched off."); }
+  limitOptions("session.fps_cap", p.max_fps, true);
+  if (p.max_fps) notes.push(`Frame rate is limited to ${p.max_fps}.`);
+  limitOptions("session.bitrate_kbps", p.max_bitrate_kbps, true);
+  if (p.max_bitrate_kbps) notes.push(`Bitrate is limited to ${(p.max_bitrate_kbps / 1000).toFixed(1).replace(/\.0$/, "")} Mbit/s.`);
+  limitOptions("session.idle_minutes", p.max_idle_minutes, false);
+  if (p.max_idle_minutes) notes.push(`A session ends after ${p.max_idle_minutes} idle minutes at most.`);
+  limitOptions("session.max_hours", p.max_session_hours, false);
+  if (p.max_session_hours) notes.push(`A session lasts ${p.max_session_hours} hour${p.max_session_hours === 1 ? "" : "s"} at most.`);
+  if (p.approval === "ask") notes.push("The laptop owner has to accept each connection.");
+  const note = notes.filter(Boolean).join(" ");
+  $("policynote").hidden = note === "";
+  $("policynote").textContent = note === "" ? "" : "Set by the laptop owner: " + note;
+  applyAll();
+}

@@ -34,6 +34,9 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
+    let cli = dir.path().join("blackroom");
+    std::fs::write(&cli, format!("#!/bin/bash\necho \"$@\" >> '{}/cli-calls'\necho 'secret: S3CRET-ONCE'\necho 'note on stderr' >&2\n[ \"$3\" = status ] && echo not-a-secret\nexit 0\n", dir.path().display())).unwrap();
+    std::fs::set_permissions(&cli, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
     let console = RemoteConsole::spawn(ConsoleConfig {
         grab_socket: None,
         state_dir: dir.path().to_path_buf(),
@@ -51,8 +54,8 @@ fn fixture() -> Fixture {
         managed: false,
         unit_dirs: vec![],
         home: dir.path().to_path_buf(),
-        cli: "/nonexistent/blackroom".into(),
-        hostd_dir: dir.path().to_path_buf(),
+        cli,
+        state_dir: dir.path().join("hostd"),
     };
     let check: PasswordFactory = Arc::new(|| Box::new(Fake) as Box<dyn PasswordCheck>);
     Fixture {
@@ -524,4 +527,126 @@ async fn approving_with_nothing_waiting_does_nothing() {
         false,
         "not started by systemd: nothing is restarted"
     );
+}
+
+#[tokio::test]
+async fn credential_changes_need_the_password_again_and_use_fixed_arguments() {
+    let fixture = fixture();
+    let cookie = signed_in(&fixture.app).await;
+    let post = |body: Value, cookie: String| {
+        request(
+            Method::POST,
+            "/host/credentials",
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            body,
+        )
+    };
+    // Reading the status needs no second password.
+    let status = send(
+        &fixture.app,
+        post(json!({ "action": "status" }), cookie.clone()),
+    )
+    .await;
+    assert_eq!(status.status(), StatusCode::OK);
+    let status = json_of(status).await;
+    assert!(status["output"].as_str().unwrap().contains("not-a-secret"));
+    // A change without the password, or with a wrong one, runs nothing.
+    for body in [
+        json!({ "action": "rotate_key" }),
+        json!({ "action": "rotate_key", "password": "wrong" }),
+    ] {
+        let refused = send(&fixture.app, post(body, cookie.clone())).await;
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+    }
+    let calls =
+        || std::fs::read_to_string(fixture.dir.path().join("cli-calls")).unwrap_or_default();
+    assert!(!calls().contains("rotate-key"), "{}", calls());
+    let ok = send(
+        &fixture.app,
+        post(
+            json!({ "action": "rotate_key", "password": "correct horse", "revoke_devices": true }),
+            cookie.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(ok.status(), StatusCode::OK);
+    let ok = json_of(ok).await;
+    assert_eq!(ok["ok"], true);
+    assert!(
+        ok["output"].as_str().unwrap().contains("S3CRET-ONCE"),
+        "the new secret is shown to the owner once"
+    );
+    assert_eq!(ok["notice"], "note on stderr");
+    assert!(
+        calls().contains("rotate-key --account owner --revoke-devices"),
+        "{}",
+        calls()
+    );
+    // Nothing the browser sends reaches the command line except a plain device id.
+    for device in ["", "a b", "x;rm -rf /", "../etc", "a\nb", &"d".repeat(200)] {
+        let bad = send(
+            &fixture.app,
+            post(
+                json!({ "action": "revoke_device", "password": "correct horse", "device": device }),
+                cookie.clone(),
+            ),
+        )
+        .await;
+        assert_eq!(bad.status(), StatusCode::BAD_REQUEST, "{device:?}");
+    }
+    let good = send(&fixture.app, post(json!({ "action": "revoke_device", "password": "correct horse", "device": "dev_1.a-b" }), cookie.clone())).await;
+    assert_eq!(good.status(), StatusCode::OK);
+    assert!(calls().contains("revoke-device dev_1.a-b"));
+    let unknown = send(
+        &fixture.app,
+        post(
+            json!({ "action": "format-disk", "password": "correct horse" }),
+            cookie.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(unknown.status(), StatusCode::BAD_REQUEST);
+    let extra = send(
+        &fixture.app,
+        post(
+            json!({ "action": "status", "args": ["--x"] }),
+            cookie.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(
+        extra.status(),
+        StatusCode::BAD_REQUEST,
+        "unknown fields are refused"
+    );
+    for action in [
+        "reset_security",
+        "revoke_all",
+        "disable",
+        "enable",
+        "recovery_codes",
+    ] {
+        let unlocked = send(
+            &fixture.app,
+            post(json!({ "action": action }), cookie.clone()),
+        )
+        .await;
+        assert_eq!(
+            unlocked.status(),
+            StatusCode::UNAUTHORIZED,
+            "{action} needs the password"
+        );
+    }
+    let reset = send(
+        &fixture.app,
+        post(
+            json!({ "action": "reset_security", "password": "correct horse" }),
+            cookie.clone(),
+        ),
+    )
+    .await;
+    assert_eq!(reset.status(), StatusCode::OK);
+    assert!(calls().contains("reset security --yes --state-dir"));
 }

@@ -81,11 +81,24 @@ after a session. Proof without hardware: `docs/ops/headless-indicator-test.sh` (
 loaded into a throwaway Shell, a click on its menu's Disconnect) and `node docs/ops/indicator-logic-test.mjs`. Not observed:
 the real top bar, notifications, Lock and Start/Stop from the menu.
 
+### Host settings page and approval
+
+The console also serves a settings page for you, on `127.0.0.1:8090` only (`--host-listen`; with `--headless` only when
+given). It needs the laptop account's password (the PAM helper `pam-auth-helper`, `--pam-helper`), changes `host.json`
+(allowed modes, limits, sound, clipboard, network, indicator options, approval) and manages the credentials through the
+`blackroom` command, asking for the password again before each change. Open it from the indicator menu. With approval set to
+Ask, a client's Start waits up to 30 seconds for Accept or Deny on the laptop (indicator notification and menu, or this
+page); no answer is a Deny. Proof without hardware: `docs/ops/headless-hostpage-test.sh` (Chrome against a stand-in password
+check and a stand-in `blackroom` command, so the real credentials are never touched) and
+`docs/ops/headless-indicator-test.sh` (approve, deny and no answer, seen in a throwaway Shell). Not observed: the real PAM
+check, the real `blackroom` verbs from the page, start-at-login and the restart button under systemd, notifications on the
+real desktop. See `docs/ops/settings-guide.md`.
+
 ### Modes, settings and the web app
 
 The page opens on a connect screen with Private and Shared modes and a settings sheet whose choices are saved on the
 laptop (`--profile-dir`, default `~/.local/share/blackroom-console`; `--audio-sink <name>` picks the sound source
-instead of the default output). The page can be installed as an app. See `docs/ops/settings-guide.md`. Proof without
+instead of the default output). Choices are kept on each device (the laptop's profile only supplies defaults) and limited by the host settings. The page can be installed as an app. See `docs/ops/settings-guide.md`. Proof without
 hardware: `BR_BIN=docs/ops/headless-modes-test.sh docs/ops/headless-repro.sh` (modes, options, audio, reset) and
 `BR_BIN=docs/ops/headless-browser-test.sh docs/ops/headless-repro.sh` (the whole page in Chrome, audio tone, install
 checks). Not observed live: Shared mode on the real screen, laptop sound from the real output, install on a tablet.

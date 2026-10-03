@@ -24,11 +24,11 @@ the client can only choose inside them; the client keeps device choices on the d
   client "waiting for the laptop owner". Check: unit tests, headless Shell test.
 - [x] **T3. Host page.** loopback listener, PAM login, settings form (policy, sound device, network, indicator, approval),
   save and restart. Check: adversarial tests (origin, no anonymous access, loopback only), headless Chrome walkthrough.
-- [ ] **T4. Credentials, autostart.** credentials section through the `blackroom` CLI verbs (status, rotate key, new
+- [x] **T4. Credentials, autostart.** credentials section through the `blackroom` CLI verbs (status, rotate key, new
   authenticator, recovery codes, devices, revoke, disable remote access); start at login with systemd.
-- [ ] **T5. Client split.** host-set limits greyed out with a note; device choices in localStorage; host-level controls leave
+- [x] **T5. Client split.** host-set limits greyed out with a note; device choices in localStorage; host-level controls leave
   the client settings sheet; waiting-for-approval state.
-- [ ] **T6. Docs, gate, `.deb`, notes.**
+- [x] **T6. Docs, gate, `.deb`, notes.**
 
 ## Risks
 The host page can change network, login and credentials: it must not be reachable from any other machine or a web page in

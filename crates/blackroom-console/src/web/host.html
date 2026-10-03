@@ -102,7 +102,29 @@
 
     <section class="card" id="credCard">
       <h2>Login and credentials</h2>
-      <p class="note" id="credNote">Credentials are managed here in a later step; use <code>blackroom setup</code> in a terminal meanwhile.</p>
+      <p class="note">A client signs in with your Linux password, an authenticator code and the Remote Access Key, or from a trusted browser. New secrets appear below once and are never stored here.</p>
+      <pre id="credStatus" class="secret">Loading...</pre>
+      <label class="field">Your laptop password, needed for every change below <input type="password" id="credPassword" autocomplete="current-password"></label>
+      <div class="actions">
+        <button type="button" id="credKey">New remote access key</button>
+        <button type="button" id="credCodes">New recovery codes</button>
+        <button type="button" id="credReset" class="danger">New authenticator, key and codes</button>
+      </div>
+      <div class="toggles"><label class="switch"><input type="checkbox" id="credForget"><span><b>Also forget trusted browsers</b><small>With a new remote access key.</small></span></label></div>
+      <div class="actions">
+        <button type="button" id="credSignOut">Sign out every remote login</button>
+        <button type="button" id="credOff" class="danger">Switch remote access off</button>
+        <button type="button" id="credOn">Switch remote access on</button>
+      </div>
+      <div class="row">
+        <label class="field grow">Trusted device to forget (its id, from the list above) <input type="text" id="credDevice" spellcheck="false"></label>
+        <button type="button" id="credRevoke">Forget this device</button>
+      </div>
+      <div id="secretBox" hidden>
+        <p class="note">Shown once. Copy it now: it disappears when you press Hide, sign out or after two minutes.</p>
+        <pre id="credOut" class="secret"></pre>
+        <button type="button" id="credHide">Hide</button>
+      </div>
     </section>
 
     <section class="card">
