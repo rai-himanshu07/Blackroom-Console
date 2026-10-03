@@ -4,7 +4,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use blackroom_console::server::{random_token, router, token_from_file};
+use blackroom_console::login::Login;
+use blackroom_console::server::{random_token, router, router_totp, token_from_file};
 use blackroom_console::{ConsoleConfig, Quality, RemoteConsole, tls};
 use clap::Parser;
 
@@ -20,6 +21,13 @@ struct Args {
     /// Where the certificate and key are kept (default: ~/.local/share/blackroom-console).
     #[arg(long)]
     cert_dir: Option<PathBuf>,
+    /// Phase 11: log in with a TOTP code instead of the URL token. A directory (mode 0700, absolute) holding
+    /// the enrolled credentials; enrol with `blackroom --state-dir <dir> enroll --account <name>`.
+    #[arg(long)]
+    auth_dir: Option<PathBuf>,
+    /// The enrolled account that may log in (default: the current user name).
+    #[arg(long)]
+    account: Option<String>,
     /// Tests only: keep the token in this file (0600) so the URL survives restarts. Default: a fresh
     /// random token on every start.
     #[arg(long)]
@@ -84,7 +92,13 @@ fn urls(scheme: &str, listen: SocketAddr, token: &str) -> Vec<String> {
     hosts.push("127.0.0.1".into());
     hosts
         .into_iter()
-        .map(|host| format!("{scheme}://{host}:{port}/?t={token}"))
+        .map(|host| {
+            if token.is_empty() {
+                format!("{scheme}://{host}:{port}/")
+            } else {
+                format!("{scheme}://{host}:{port}/?t={token}")
+            }
+        })
         .collect()
 }
 
@@ -131,11 +145,40 @@ async fn main() -> anyhow::Result<()> {
         restore_bin,
     });
 
-    let token = match &args.token_file {
-        Some(path) => token_from_file(path)?,
-        None => random_token()?,
+    let (token, app, login_account) = match &args.auth_dir {
+        Some(dir) => {
+            let directory = remote_hostd::store::open_state_directory(dir)?;
+            let account = args
+                .account
+                .clone()
+                .or_else(|| std::env::var("USER").ok())
+                .ok_or_else(|| anyhow::anyhow!("--account is needed (no $USER)"))?;
+            let enrolled = remote_hostd::totp::enrolled_accounts(&directory)?;
+            anyhow::ensure!(
+                enrolled.contains(&account),
+                "account {account:?} is not enrolled in {} (blackroom --state-dir <dir> enroll --account {account})",
+                dir.display()
+            );
+            let verifier = remote_hostd::totp::load_verifier(
+                &directory,
+                remote_hostd::totp::Limits::default(),
+            )?;
+            let login = std::sync::Arc::new(Login::new(&account, verifier));
+            (
+                String::new(),
+                router_totp(console.clone(), login),
+                Some(account),
+            )
+        }
+        None => {
+            let token = match &args.token_file {
+                Some(path) => token_from_file(path)?,
+                None => random_token()?,
+            };
+            let app = router(console.clone(), &token);
+            (token, app, None)
+        }
     };
-    let app = router(console.clone(), &token);
     let handle = axum_server::Handle::new();
 
     let http = tokio::net::TcpListener::bind(args.listen).await?;
@@ -162,6 +205,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     println!("Open one of these in a browser (https needs a one-time certificate exception):");
+    if let Some(account) = &login_account {
+        println!(
+            "Log in with the 6-digit code of the authenticator enrolled for account {account:?}."
+        );
+    }
     for url in &all_urls {
         println!("  {url}");
     }

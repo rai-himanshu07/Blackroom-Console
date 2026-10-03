@@ -517,7 +517,7 @@ async function refresh() {
   try {
     const response = await fetch("/status", { credentials: "same-origin" });
     if (response.ok) show(await response.json());
-    else if (response.status === 401) say("Not authorised: open the URL printed at start.");
+    else if (response.status === 401) { say("Not authorised: open the URL printed at start."); location.reload(); }
   } catch (_) { chip.textContent = "no connection"; }
 }
 

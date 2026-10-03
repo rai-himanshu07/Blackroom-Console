@@ -439,6 +439,7 @@ dependencies = [
  "rcgen",
  "reis",
  "remote-emergency-client",
+ "remote-hostd",
  "rustls",
  "serde",
  "serde_json",

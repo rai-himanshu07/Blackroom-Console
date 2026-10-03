@@ -4,7 +4,7 @@
 use std::convert::Infallible;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, Query, State};
@@ -17,8 +17,11 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 
 use crate::console::{InputEvent, Quality, RemoteConsole};
+use crate::login::{Login, LoginError};
 
 const PAGE: &str = include_str!("page.html");
+const LOGIN_PAGE: &str = include_str!("login.html");
+const SESSION_COOKIE: &str = "br_session";
 const COOKIE_NAME: &str = "br_token";
 const BOUNDARY: &str = "frame";
 /// A frame is resent at least this often so a still desktop does not look like a dead stream.
@@ -26,9 +29,17 @@ const KEEPALIVE: Duration = Duration::from_secs(1);
 const MAX_INPUT_BODY: usize = 64 * 1024;
 
 #[derive(Clone)]
+enum Auth {
+    /// The default: one random token in the URL, kept as a cookie.
+    Token(Arc<str>),
+    /// A TOTP code per browser session (`--auth-dir`).
+    Totp(Arc<Login>),
+}
+
+#[derive(Clone)]
 struct AppState {
     console: RemoteConsole,
-    token: Arc<str>,
+    auth: Auth,
 }
 
 /// 48 hex characters from the OS random source.
@@ -81,8 +92,21 @@ fn cookie_token(headers: &HeaderMap) -> Option<&str> {
         .find_map(|pair| pair.trim().strip_prefix("br_token="))
 }
 
+fn cookie_value<'h>(headers: &'h HeaderMap, name: &str) -> Option<&'h str> {
+    headers
+        .get_all(COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .find_map(|pair| pair.trim().strip_prefix(name)?.strip_prefix('='))
+}
+
 fn authorized(state: &AppState, headers: &HeaderMap) -> bool {
-    cookie_token(headers).is_some_and(|token| tokens_equal(token, &state.token))
+    match &state.auth {
+        Auth::Token(token) => cookie_token(headers).is_some_and(|given| tokens_equal(given, token)),
+        Auth::Totp(login) => cookie_value(headers, SESSION_COOKIE)
+            .is_some_and(|id| login.check(id, state.console.emergency_count(), Instant::now())),
+    }
 }
 
 /// A browser sends `Origin` on cross-site posts; it must name this host. Plain clients send none.
@@ -109,11 +133,18 @@ fn guard(state: &AppState, headers: &HeaderMap) -> Option<Response> {
 }
 
 pub fn router(console: RemoteConsole, token: &str) -> Router {
-    let state = AppState {
-        console,
-        token: Arc::from(token),
-    };
+    build(console, Auth::Token(Arc::from(token)))
+}
+
+/// The same routes behind a TOTP login instead of the URL token.
+pub fn router_totp(console: RemoteConsole, login: Arc<Login>) -> Router {
+    build(console, Auth::Totp(login))
+}
+
+fn build(console: RemoteConsole, auth: Auth) -> Router {
+    let state = AppState { console, auth };
     Router::new()
+        .route("/login", post(login).layer(DefaultBodyLimit::max(1024)))
         .route("/", get(index))
         .route("/video", get(video))
         .route("/status", get(status))
@@ -156,8 +187,10 @@ async fn index(
     Query(query): Query<IndexQuery>,
     headers: HeaderMap,
 ) -> Response {
-    if let Some(given) = query.t {
-        if !tokens_equal(&given, &state.token) {
+    if let Auth::Token(token) = &state.auth
+        && let Some(given) = query.t
+    {
+        if !tokens_equal(&given, token) {
             return (StatusCode::UNAUTHORIZED, "wrong token\n").into_response();
         }
         let cookie = format!("{COOKIE_NAME}={given}; HttpOnly; SameSite=Strict; Path=/");
@@ -168,9 +201,51 @@ async fn index(
             .into_response();
     }
     if !authorized(&state, &headers) {
-        return (StatusCode::UNAUTHORIZED, "open the URL printed at start\n").into_response();
+        return match state.auth {
+            Auth::Token(_) => {
+                (StatusCode::UNAUTHORIZED, "open the URL printed at start\n").into_response()
+            }
+            Auth::Totp(_) => ([(CACHE_CONTROL, "no-store")], Html(LOGIN_PAGE)).into_response(),
+        };
     }
     ([(CACHE_CONTROL, "no-store")], Html(PAGE)).into_response()
+}
+
+#[derive(Deserialize)]
+struct LoginBody {
+    code: String,
+}
+
+async fn login(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+    let Auth::Totp(login) = &state.auth else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if !same_origin(&headers) {
+        return (StatusCode::FORBIDDEN, "cross-origin request refused\n").into_response();
+    }
+    let Some(LoginBody { code }) = parse_body(&body) else {
+        return malformed();
+    };
+    let (login, epoch) = (Arc::clone(login), state.console.emergency_count());
+    let result = tokio::task::spawn_blocking(move || {
+        login.login(&code, epoch, Instant::now(), || random_token().ok())
+    })
+    .await;
+    match result {
+        Ok(Ok(id)) => (
+            StatusCode::NO_CONTENT,
+            [(
+                SET_COOKIE,
+                format!("{SESSION_COOKIE}={id}; HttpOnly; SameSite=Strict; Path=/"),
+            )],
+        )
+            .into_response(),
+        Ok(Err(LoginError::Locked)) => {
+            (StatusCode::TOO_MANY_REQUESTS, "too many attempts, wait\n").into_response()
+        }
+        Ok(Err(_)) => (StatusCode::UNAUTHORIZED, "refused\n").into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 async fn status(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -374,6 +449,128 @@ mod tests {
             .header(CONTENT_TYPE, "application/json")
             .body(Body::from(body.to_string()))
             .unwrap()
+    }
+
+    const SECRET: &[u8] = b"12345678901234567890";
+
+    fn totp_app(clock: Arc<std::sync::atomic::AtomicU64>) -> (Router, RemoteConsole) {
+        let console = RemoteConsole::spawn(ConsoleConfig {
+            grab_socket: None,
+            state_dir: std::env::temp_dir().join("br-console-server-test-totp"),
+            headless: true,
+            quality: crate::console::Quality::Medium,
+            heartbeat_timeout: Duration::from_secs(15),
+            restore_bin: std::path::PathBuf::new(),
+        });
+        let mut verifier = remote_hostd::totp::TotpVerifier::new(Default::default())
+            .with_clock(move || clock.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(verifier.add_account("owner", SECRET.to_vec(), 0));
+        let login = Arc::new(Login::new("owner", verifier));
+        (router_totp(console.clone(), login), console)
+    }
+
+    fn login_request(code: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(format!("{{\"code\":\"{code}\"}}")))
+            .unwrap()
+    }
+
+    fn session_request(session: &str) -> Request<Body> {
+        Request::builder()
+            .uri("/status")
+            .header(COOKIE, format!("{SESSION_COOKIE}={session}"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    fn session_of(response: &Response) -> String {
+        let cookie = response.headers()[SET_COOKIE].to_str().unwrap();
+        let (_, rest) = cookie.split_once('=').expect("name=value");
+        rest.split(';').next().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn totp_mode_needs_a_code_and_an_emergency_ends_the_session() {
+        use remote_hostd::totp::totp;
+        let clock = Arc::new(std::sync::atomic::AtomicU64::new(1_000_000));
+        let (app, console) = totp_app(Arc::clone(&clock));
+
+        let page = call(
+            &app,
+            Request::builder().uri("/").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(page.status(), StatusCode::OK);
+        let unauthenticated = call(
+            &app,
+            Request::builder()
+                .uri("/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            call(&app, login_request("000000")).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(
+                &app,
+                Request::builder()
+                    .method("POST")
+                    .uri("/login")
+                    .body(Body::from("not json"))
+                    .unwrap()
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let accepted = call(&app, login_request(&totp(SECRET, 1_000_000))).await;
+        assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
+        let session = session_of(&accepted);
+        assert_eq!(
+            call(&app, session_request(&session)).await.status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            call(&app, session_request("forged")).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&app, login_request(&totp(SECRET, 1_000_000)))
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED,
+            "a used code is refused"
+        );
+
+        console.note_emergency();
+        assert_eq!(
+            call(&app, session_request(&session)).await.status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        clock.store(1_000_090, std::sync::atomic::Ordering::SeqCst);
+        let again = call(&app, login_request(&totp(SECRET, 1_000_090))).await;
+        assert_eq!(again.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            call(&app, session_request(&session_of(&again)))
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn token_mode_has_no_login() {
+        let response = call(&app(), login_request("123456")).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]

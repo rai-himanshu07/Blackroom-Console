@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackroom Console login</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #000; color: #ddd; font: 16px system-ui, sans-serif; }
+  form { display: flex; flex-direction: column; gap: 12px; width: min(320px, 90vw); }
+  input, button { font: inherit; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #1c1c1c; color: #eee; }
+  input { letter-spacing: .3em; text-align: center; font-size: 22px; }
+  button { background: #1a6b2a; border-color: #3c3; }
+  #msg { min-height: 1.4em; text-align: center; color: #f99; }
+</style>
+</head>
+<body>
+<form id="f" autocomplete="off">
+  <div>Enter the 6-digit code from your authenticator app.</div>
+  <input id="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autofocus required>
+  <button type="submit">Log in</button>
+  <div id="msg"></div>
+</form>
+<script>
+document.getElementById("f").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const msg = document.getElementById("msg");
+  msg.textContent = "";
+  const code = document.getElementById("code").value.trim();
+  try {
+    const response = await fetch("/login", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    if (response.status === 204) { location.reload(); return; }
+    msg.textContent = response.status === 429 ? "Too many attempts. Wait and try again." : "That code was not accepted.";
+  } catch (_) { msg.textContent = "No connection."; }
+  document.getElementById("code").value = "";
+});
+</script>
+</body>
+</html>

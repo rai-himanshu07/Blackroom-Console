@@ -27,6 +27,7 @@ rcgen = "0.14"
 reis = "0.7.1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 remote-emergency-client = { version = "0.1.0", path = "../remote-emergency-client" }
+remote-hostd = { version = "0.1.0", path = "../remote-hostd" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }

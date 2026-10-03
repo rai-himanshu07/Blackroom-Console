@@ -62,3 +62,18 @@ symlinked, relative or loose-permission directories.
 Runbooks for the released product (incident response, recovery) live in
 `docs/plans/Detailed_Project_Plan/21_OPERATIONAL_RUNBOOK_RECOVERY_AND_INCIDENT_RESPONSE.md`;
 this directory holds the project's own dev-workstation procedures.
+
+### TOTP login (optional, Phase 11 slice 1)
+
+Default is the URL token. To log in with an authenticator code instead:
+
+1. Enrol once into a private, persistent directory (not `$XDG_RUNTIME_DIR`, it is tmpfs):
+   `mkdir -p -m 700 ~/.local/share/blackroom-console/auth && target/release/blackroom --state-dir ~/.local/share/blackroom-console/auth enroll --account <name>`
+   (prints the otpauth URI once; add it to the authenticator app).
+2. Start with `BR_AUTH_DIR=~/.local/share/blackroom-console/auth BR_ACCOUNT=<name> docs/ops/console.sh`
+   (or `blackroom-console --auth-dir <dir> --account <name>`). The printed URLs carry no token.
+3. The page asks for the 6-digit code. A code is accepted once; repeated failures lock the account.
+   Sessions end after 30 min idle, 12 h absolute, and at any emergency stop (chord). Sessions are
+   in memory only, so a console restart logs everyone out.
+
+Not covered: logout button, rate limits per client address (one shared counter), live use.

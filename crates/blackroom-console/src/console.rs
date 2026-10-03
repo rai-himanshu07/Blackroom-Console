@@ -177,6 +177,8 @@ struct Shared {
     last_stop: Mutex<Option<StopReport>>,
     /// Set when the start-up recovery of an unclean session failed; Start is refused meanwhile.
     recovery_pending: Mutex<Option<String>>,
+    /// Emergency chords seen; a TOTP session opened before one is no longer valid.
+    emergencies: AtomicU64,
     beat: Mutex<Instant>,
     notes: Mutex<Vec<String>>,
     size: Mutex<(u32, u32)>,
@@ -211,6 +213,7 @@ impl RemoteConsole {
             slot: Mutex::new(None),
             last_stop: Mutex::new(None),
             recovery_pending: Mutex::new(None),
+            emergencies: AtomicU64::new(0),
             beat: Mutex::new(Instant::now()),
             notes: Mutex::new(Vec::new()),
             size: Mutex::new((0, 0)),
@@ -293,6 +296,16 @@ impl RemoteConsole {
             }
             Err(_) => tracing::debug!("data-channel input malformed"),
         }
+    }
+
+    /// Emergency chords so far; sessions opened before a change are void.
+    pub fn emergency_count(&self) -> u64 {
+        self.shared.emergencies.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn note_emergency(&self) {
+        self.shared.emergencies.fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn beat(&self) {
@@ -517,6 +530,9 @@ fn finish(active: Active<'_>, reason: &str) -> StopReport {
     let report = active.teardown(reason);
     tracing::info!(?report, "remote console stopped");
     persist_stop(&state_dir, "stopped", reason, "done", Some(&report));
+    if report.released_early.iter().any(|why| why == "chord") {
+        shared.emergencies.fetch_add(1, Ordering::Relaxed);
+    }
     *lock_ok(&shared.slot) = None;
     *lock_ok(&shared.tuning) = None;
     *lock_ok(&shared.last_stop) = Some(report.clone());
