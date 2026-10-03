@@ -70,6 +70,24 @@ exec 3>&- 4>&-
 check "a request line of 100 KB is refused, not served" "$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$HTTP/$(head -c 100000 /dev/zero | tr '\0' a)")" 414
 check "100 headers of 1 KB each are refused or ignored, never a 5xx" "$(args=(); for i in $(seq 1 100); do args+=(-H "X-A$i: $(head -c 1000 /dev/zero | tr '\0' b)"); done; code=$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' "${args[@]}" "http://127.0.0.1:$HTTP/status"); [ "$code" -lt 500 ] && echo ok)" ok
 
+echo "== compatibility gate (a fake gnome-shell on PATH stands in for other desktops)"
+check "this host is supported" "$("$BIN" --check-compat | jq -r .verdict.verdict)" supported
+shim=$(mktemp -d /tmp/br-shim.XXXXXX)
+for fake in "GNOME Shell 99.2:untested" "GNOME Shell 50.1:supported"; do
+  printf '#!/bin/sh\necho "%s"\n' "${fake%%:*}" > "$shim/gnome-shell"; chmod +x "$shim/gnome-shell"
+  check "fake '${fake%%:*}' is ${fake##*:}" "$(PATH="$shim:$PATH" "$BIN" --check-compat | jq -r .verdict.verdict)" "${fake##*:}"
+done
+printf '#!/bin/sh\necho "GNOME Shell 99.2"\n' > "$shim/gnome-shell"
+refusal=$(PATH="$shim:$PATH" timeout 5 "$BIN" --headless --listen 127.0.0.1:18093 --state-dir "$state" 2>&1); code=$?
+check "an untested desktop refuses to start" "$code" 1
+echo "$refusal" | grep -q "allow-untested" && echo "ok   the refusal names the override" || { echo "FAIL refusal text: $refusal"; fail=1; }
+PATH="$shim:$PATH" timeout 3 "$BIN" --headless --allow-untested --listen 127.0.0.1:18093 --state-dir "$state" > /dev/null 2>&1; code=$?
+check "--allow-untested starts it (stopped by the timeout)" "$code" 124
+printf '#!/bin/sh\nexit 1\n' > "$shim/gnome-shell"
+PATH="$shim:$PATH" timeout 5 "$BIN" --headless --allow-untested --listen 127.0.0.1:18093 --state-dir "$state" > /dev/null 2>&1; code=$?
+check "a host without GNOME Shell is refused even with --allow-untested" "$code" 1
+rm -rf "$shim"
+
 echo "== the console still answers and logged no secret"
 check "still serving" "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$HTTP/status")" 401
 grep -q "$token" "$log" && echo "NOTE the one-time URL (with its token) is printed at start by design" || true

@@ -2,6 +2,7 @@
 //! blank and the local keyboard and touchpad are grabbed.
 
 pub mod clipboard;
+pub mod compat;
 pub mod console;
 pub mod display;
 pub mod eis_support;

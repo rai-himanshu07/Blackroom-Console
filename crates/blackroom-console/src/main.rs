@@ -66,7 +66,7 @@ struct Args {
     #[arg(long)]
     ice_port_range: Option<String>,
     /// Control socket of `remote-emergencyd --enable-grabs` (absolute path).
-    #[arg(long, required_unless_present = "headless")]
+    #[arg(long, required_unless_present_any = ["headless", "check_compat"])]
     grab_socket: Option<PathBuf>,
     /// Directory for backup.json and the printed URLs.
     #[arg(long)]
@@ -80,6 +80,13 @@ struct Args {
     /// Starting quality; the page can change it while a session runs.
     #[arg(long, default_value = "medium", value_parser = ["low", "medium", "high"])]
     quality: String,
+    /// Start even when this GNOME/PipeWire combination has not been tested (docs/ops/compatibility-matrix.md). Setups
+    /// that cannot work (no GNOME Shell, an X11 session) are refused regardless.
+    #[arg(long)]
+    allow_untested: bool,
+    /// Print the compatibility verdict for this host as JSON and exit.
+    #[arg(long)]
+    check_compat: bool,
     /// Offer the text clipboard: two buttons in the page send text to the laptop and fetch the laptop's
     /// text (explicit, 256 KiB, rate limited, never logged). Off unless given.
     #[arg(long)]
@@ -207,6 +214,31 @@ async fn main() -> anyhow::Result<()> {
         !rustix::process::geteuid().is_root(),
         "refusing to run as root: start the console as the user whose desktop it controls"
     );
+    let facts = blackroom_console::compat::detect();
+    let verdict = blackroom_console::compat::judge(&facts, args.headless);
+    if args.check_compat {
+        println!(
+            "{}",
+            serde_json::json!({ "facts": facts, "verdict": verdict })
+        );
+        return Ok(());
+    }
+    match &verdict {
+        blackroom_console::compat::Verdict::Supported => {}
+        blackroom_console::compat::Verdict::Untested(reasons) if args.allow_untested => {
+            tracing::warn!(
+                "untested combination, continuing because of --allow-untested: {}",
+                reasons.join("; ")
+            );
+        }
+        blackroom_console::compat::Verdict::Untested(reasons) => anyhow::bail!(
+            "this desktop combination has not been tested: {}. Start with --allow-untested to try anyway (docs/ops/compatibility-matrix.md)",
+            reasons.join("; ")
+        ),
+        blackroom_console::compat::Verdict::Unsupported(reasons) => {
+            anyhow::bail!("this host cannot run the console: {}", reasons.join("; "))
+        }
+    }
     let ice_config = ice_config_from(&args)?;
     if args.public {
         let problems =

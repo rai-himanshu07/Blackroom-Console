@@ -46,7 +46,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   start/stop cycles with flat-resource assertion) and a soak script. Check: 100 headless cycles pass; **you** run the 1 h live soak.
 - [x] **H. Adversarial tests that need no hardware.** (done 2026-10-03; `tests/adversarial.rs`, `docs/ops/adversarial-net-test.sh`, `docs/security/red-team-report.md`) Browser/network/privilege cases (cookie flags, CSRF, origin, headers, TLS config,
   no setuid/no root), property tests on the JSON inputs, `docs/security/red-team-report.md`.
-- [ ] **I. Compatibility gate.** Start refuses an untested GNOME/Mutter/PipeWire combination unless `--allow-untested`;
+- [x] **I. Compatibility gate.** (done 2026-10-03; `compat.rs`, `--allow-untested`, `--check-compat`, `docs/ops/compatibility-matrix.md`) Start refuses an untested GNOME/Mutter/PipeWire combination unless `--allow-untested`;
   `docs/ops/compatibility-matrix.md` with evidence per cell (this laptop PASS, everything else UNKNOWN, AMD UNKNOWN).
 - [ ] **J. Release notes.** Known limits, supported scope, runbook, one independent review (you name the model).
 

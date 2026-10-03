@@ -474,7 +474,7 @@ fn script_hash_sources(pages: &[&str]) -> String {
             };
             sources.push(format!(
                 "'sha256-{}'",
-                base64(&Sha256::digest(body[..end].as_bytes()))
+                base64(&Sha256::digest(&body.as_bytes()[..end]))
             ));
             rest = &body[end..];
         }
