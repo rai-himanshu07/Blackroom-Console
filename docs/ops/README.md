@@ -18,10 +18,10 @@ extension after use.
 
 Observed live (this laptop, built-in eDP-1 panel at scale 1.0, built-in input nodes, one tablet): Start isolates
 the panel and grabs the built-in keyboard and touchpad; typing, pointer, click and scroll work; Stop restores the
-display, locks the screen and releases the grab; 15 s without a heartbeat ran Stop with a clean restore; Start on a
+display, locks the screen and releases the grab; 15 s without a heartbeat ran Stop with a clean restore; a console killed with SIGKILL mid-session was locked within a few milliseconds by the crash guard and the display restored by the 60 s timer (run 20); Start on a
 locked screen with the extension enabled beforehand showed the lock screen and the account password unlocked it.
 Not observed: Safari or Android decode, iOS fullscreen, enabling the extension on an already locked screen, idle
-screen blanking during a session, a `kill -9` on purpose (the dead-man restore plus lock was seen once after an unclean exit), input over the
+screen blanking during a session, input over the
 WebRTC data channel on the tablet, suspend, logout, long runs, other displays or layouts.
 
 Kill switches while a session is live: the chord (Left Ctrl + Left Shift + Left Alt + Esc, held 2 s), the Stop
