@@ -7,7 +7,7 @@
 #                                   while a console is running; keeps recovery.json (the next start acts on it)
 #   docs/ops/console.sh             start; prints the URL to open on the tablet; Ctrl-C stops everything
 # Env: BR_TARGET=target/release (default) or target/debug; BR_PORT=8080 (http); BR_TLS_PORT=8443 (https, self-signed);
-# BR_KILL_SECS=7200 (daemon kill timer); BR_TOKEN_FILE=<abs path> keeps the URL token across restarts (tests only); BR_AUTH_DIR=<abs dir> [BR_ACCOUNT=<name>] logs in with a TOTP code instead of the URL token; BR_HOSTD=1 logs in through remote-hostd (Linux password + authenticator + key or trusted browser; start remote-hostd.service first; see README). Use the https URL on a Chromium laptop for full keyboard capture.
+# BR_KILL_SECS=7200 (daemon kill timer); BR_TOKEN_FILE=<abs path> keeps the URL token across restarts (tests only); BR_AUTH_DIR=<abs dir> [BR_ACCOUNT=<name>] logs in with a TOTP code instead of the URL token; BR_TLS_CERT/BR_TLS_KEY/BR_PUBLIC/BR_STUN/BR_TURN/BR_TURN_SECRET_FILE/BR_ICE_PORTS enable internet access (docs/ops/internet-access.md); BR_HOSTD=1 logs in through remote-hostd (Linux password + authenticator + key or trusted browser; start remote-hostd.service first; see README). Use the https URL on a Chromium laptop for full keyboard capture.
 #
 # Needs temporary ACLs on the built-in input nodes (you run sudo, never this script):
 #   sudo setfacl -m u:user:rw /dev/input/event2 /dev/input/event3 /dev/input/event4 /dev/input/event5
@@ -124,7 +124,16 @@ extra=()
 [ -n "${BR_AUTH_DIR:-}" ] && extra+=(--auth-dir "$BR_AUTH_DIR")
 [ -n "${BR_HOSTD:-}" ] && extra+=(--hostd-dir "${XDG_RUNTIME_DIR:?}/blackroom-hostd")
 [ -n "${BR_ACCOUNT:-}" ] && extra+=(--account "$BR_ACCOUNT")
-"$T/blackroom-console" --grab-socket "$SOCK" --listen "0.0.0.0:$PORT" --tls-listen "0.0.0.0:$TLS_PORT" "${extra[@]}" &
+# Internet access (docs/ops/internet-access.md): BR_TLS_CERT + BR_TLS_KEY (real certificate), BR_PUBLIC=1 (needs BR_HOSTD=1),
+# BR_STUN / BR_TURN (space separated URLs), BR_TURN_SECRET_FILE, BR_ICE_PORTS=MIN-MAX.
+[ -n "${BR_TLS_CERT:-}" ] && extra+=(--tls-cert "$BR_TLS_CERT" --tls-key "${BR_TLS_KEY:?BR_TLS_KEY is needed with BR_TLS_CERT}")
+for url in ${BR_STUN:-}; do extra+=(--stun "$url"); done
+for url in ${BR_TURN:-}; do extra+=(--turn "$url"); done
+[ -n "${BR_TURN_SECRET_FILE:-}" ] && extra+=(--turn-secret-file "$BR_TURN_SECRET_FILE")
+[ -n "${BR_ICE_PORTS:-}" ] && extra+=(--ice-port-range "$BR_ICE_PORTS")
+listen_host=0.0.0.0
+if [ -n "${BR_PUBLIC:-}" ]; then extra+=(--public); listen_host=127.0.0.1; fi
+"$T/blackroom-console" --grab-socket "$SOCK" --listen "$listen_host:$PORT" --tls-listen "0.0.0.0:$TLS_PORT" "${extra[@]}" &
 app=$!
 wait "$app"
 echo "console exited with $?"

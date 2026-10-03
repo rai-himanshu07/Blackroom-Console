@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use blackroom_console::hostd_auth::{HostdAuth, sockets_present};
 use blackroom_console::login::Login;
-use blackroom_console::server::{random_token, router, router_hostd, router_totp, token_from_file};
+use blackroom_console::server::{
+    Hardening, random_token, router_hostd_with, router_totp_with, router_with, token_from_file,
+};
 use blackroom_console::{ConsoleConfig, Quality, RemoteConsole, tls};
 use clap::Parser;
 
@@ -38,6 +40,31 @@ struct Args {
     /// random token on every start.
     #[arg(long)]
     token_file: Option<PathBuf>,
+    /// PEM certificate chain for `--tls-listen` from a real authority (Let's Encrypt, `tailscale cert`), with
+    /// `--tls-key`. Re-read every 6 hours, so a renewed certificate needs no restart.
+    #[arg(long, requires = "tls_key")]
+    tls_cert: Option<PathBuf>,
+    #[arg(long, requires = "tls_cert")]
+    tls_key: Option<PathBuf>,
+    /// Internet-facing mode: refuses to start unless login is through hostd, https uses a real certificate and the
+    /// plain-http port is loopback only; cookies are `Secure` and HSTS is sent.
+    #[arg(long)]
+    public: bool,
+    /// STUN server for reaching the console from outside the LAN, e.g. `stun:stun.l.google.com:19302` (repeatable).
+    #[arg(long = "stun")]
+    stun: Vec<String>,
+    /// TURN relay (coturn), e.g. `turn:turn.example.org:3478?transport=udp` (repeatable); needs `--turn-secret-file`.
+    #[arg(long = "turn")]
+    turn: Vec<String>,
+    /// coturn `static-auth-secret` (file, mode 0600): short-lived TURN credentials are derived from it.
+    #[arg(long)]
+    turn_secret_file: Option<PathBuf>,
+    /// How long a TURN credential stays valid.
+    #[arg(long, default_value_t = 3600, value_parser = clap::value_parser!(u64).range(60..=86400))]
+    turn_ttl_secs: u64,
+    /// UDP port range for media, `MIN-MAX`, so it can be forwarded on a router (default: any port).
+    #[arg(long)]
+    ice_port_range: Option<String>,
     /// Control socket of `remote-emergencyd --enable-grabs` (absolute path).
     #[arg(long, required_unless_present = "headless")]
     grab_socket: Option<PathBuf>,
@@ -56,6 +83,56 @@ struct Args {
     /// Development only: serve a throwaway `--headless` Shell on a private bus (no grab, watchdog or lock).
     #[arg(long)]
     headless: bool,
+}
+
+fn ice_config_from(args: &Args) -> anyhow::Result<blackroom_console::ice::IceConfig> {
+    use blackroom_console::ice;
+    for url in &args.stun {
+        anyhow::ensure!(
+            ice::valid_stun(url),
+            "--stun {url:?} must look like stun:host[:port]"
+        );
+    }
+    for url in &args.turn {
+        anyhow::ensure!(
+            ice::valid_turn(url),
+            "--turn {url:?} must look like turn:host[:port][?transport=udp|tcp] (or turns:)"
+        );
+    }
+    let turn_secret = match &args.turn_secret_file {
+        Some(path) => {
+            let metadata = std::fs::metadata(path)?;
+            anyhow::ensure!(
+                std::os::unix::fs::MetadataExt::mode(&metadata) & 0o077 == 0,
+                "--turn-secret-file must be readable by you only (chmod 600)"
+            );
+            let secret =
+                zeroize::Zeroizing::new(std::fs::read_to_string(path)?.trim().as_bytes().to_vec());
+            anyhow::ensure!(
+                secret.len() >= 16,
+                "--turn-secret-file holds fewer than 16 characters"
+            );
+            Some(secret)
+        }
+        None => None,
+    };
+    anyhow::ensure!(
+        args.turn.is_empty() || turn_secret.is_some(),
+        "--turn needs --turn-secret-file"
+    );
+    let port_range = match &args.ice_port_range {
+        Some(text) => Some(ice::parse_port_range(text).ok_or_else(|| {
+            anyhow::anyhow!("--ice-port-range must be MIN-MAX, both between 1025 and 65535")
+        })?),
+        None => None,
+    };
+    Ok(ice::IceConfig {
+        stun: args.stun.clone(),
+        turn: args.turn.clone(),
+        turn_secret,
+        turn_ttl: Duration::from_secs(args.turn_ttl_secs),
+        port_range,
+    })
 }
 
 fn command_words(program: &str, args: &[&str]) -> Vec<String> {
@@ -121,6 +198,22 @@ async fn main() -> anyhow::Result<()> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let args = Args::parse();
+    let ice_config = ice_config_from(&args)?;
+    if args.public {
+        let problems =
+            blackroom_console::exposure::public_problems(blackroom_console::exposure::Facts {
+                hostd_login: args.hostd_dir.is_some(),
+                tls_listener: args.tls_listen.is_some(),
+                certificate_files: args.tls_cert.is_some(),
+                http_loopback_only: args.listen.ip().is_loopback(),
+            });
+        anyhow::ensure!(
+            problems.is_empty(),
+            "refusing to start in --public mode:\n  {}",
+            problems.join("\n  ")
+        );
+    }
+    blackroom_console::ice::install(ice_config);
     if let Some(socket) = &args.grab_socket {
         anyhow::ensure!(
             socket.is_absolute(),
@@ -151,8 +244,13 @@ async fn main() -> anyhow::Result<()> {
         restore_bin,
     });
 
+    enum Mode {
+        Hostd(std::sync::Arc<HostdAuth>),
+        Totp(std::sync::Arc<Login>),
+        Token(String),
+    }
     let hostd_login = args.hostd_dir.is_some();
-    let (token, app, login_account) = match (&args.hostd_dir, &args.auth_dir) {
+    let (token, mode, login_account) = match (&args.hostd_dir, &args.auth_dir) {
         (Some(dir), _) => {
             anyhow::ensure!(dir.is_absolute(), "--hostd-dir must be an absolute path");
             anyhow::ensure!(
@@ -161,7 +259,7 @@ async fn main() -> anyhow::Result<()> {
                 dir.display()
             );
             let hostd = std::sync::Arc::new(HostdAuth::new(dir.clone(), console.emergency_count()));
-            (String::new(), router_hostd(console.clone(), hostd), None)
+            (String::new(), Mode::Hostd(hostd), None)
         }
         (None, Some(dir)) => {
             let directory = remote_hostd::store::open_state_directory(dir)?;
@@ -181,21 +279,35 @@ async fn main() -> anyhow::Result<()> {
                 remote_hostd::totp::Limits::default(),
             )?;
             let login = std::sync::Arc::new(Login::new(&account, verifier));
-            (
-                String::new(),
-                router_totp(console.clone(), login),
-                Some(account),
-            )
+            (String::new(), Mode::Totp(login), Some(account))
         }
         (None, None) => {
             let token = match &args.token_file {
                 Some(path) => token_from_file(path)?,
                 None => random_token()?,
             };
-            let app = router(console.clone(), &token);
-            (token, app, None)
+            (token.clone(), Mode::Token(token), None)
         }
     };
+    let real_certificate = args.tls_cert.is_some();
+    let make_app = |hardening: Hardening| match &mode {
+        Mode::Hostd(hostd) => {
+            router_hostd_with(console.clone(), std::sync::Arc::clone(hostd), hardening)
+        }
+        Mode::Totp(login) => {
+            router_totp_with(console.clone(), std::sync::Arc::clone(login), hardening)
+        }
+        Mode::Token(token) => router_with(console.clone(), token, hardening),
+    };
+    let http_hardening = Hardening {
+        secure: args.public,
+        hsts: false,
+    };
+    let tls_hardening = Hardening {
+        secure: true,
+        hsts: args.public && real_certificate,
+    };
+    let app = make_app(http_hardening);
     let handle = axum_server::Handle::new();
 
     let http = tokio::net::TcpListener::bind(args.listen).await?;
@@ -209,17 +321,36 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(std::env::temp_dir)
                 .join(".local/share/blackroom-console")
         });
-        let mut names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
-        names.extend(lan_addresses());
-        names.extend(command_words("hostname", &[]));
-        let (cert, key) = tls::load_or_create(&cert_dir, &names)?;
-        let config = axum_server::tls_rustls::RustlsConfig::from_pem(cert, key).await?;
+        let config = match (&args.tls_cert, &args.tls_key) {
+            (Some(cert), Some(key)) => {
+                let config =
+                    axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
+                // A renewed certificate (Let's Encrypt every ~60 days) is picked up without a restart.
+                let (reloading, cert, key) = (config.clone(), cert.clone(), key.clone());
+                tokio::spawn(async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+                        match reloading.reload_from_pem_file(&cert, &key).await {
+                            Ok(()) => tracing::info!("tls certificate reloaded"),
+                            Err(error) => {
+                                tracing::warn!(%error, "tls certificate reload failed; keeping the old one")
+                            }
+                        }
+                    }
+                });
+                config
+            }
+            _ => {
+                let mut names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
+                names.extend(lan_addresses());
+                names.extend(command_words("hostname", &[]));
+                let (cert, key) = tls::load_or_create(&cert_dir, &names)?;
+                axum_server::tls_rustls::RustlsConfig::from_pem(cert, key).await?
+            }
+        };
         let server = axum_server::bind_rustls(addr, config)
             .handle(handle.clone())
-            .serve(
-                app.clone()
-                    .into_make_service_with_connect_info::<SocketAddr>(),
-            );
+            .serve(make_app(tls_hardening).into_make_service_with_connect_info::<SocketAddr>());
         tls_task = Some(tokio::spawn(server));
         all_urls.extend(urls("https", addr, &token));
     }

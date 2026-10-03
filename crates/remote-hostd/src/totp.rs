@@ -88,7 +88,8 @@ fn sha1(message: &[u8]) -> [u8; 20] {
     out
 }
 
-fn hmac_sha1(key: &[u8], message: &[u8]) -> [u8; 20] {
+/// HMAC-SHA-1 (RFC 2104), also used for coturn-style short-lived TURN credentials.
+pub fn hmac_sha1(key: &[u8], message: &[u8]) -> [u8; 20] {
     let mut block = Zeroizing::new([0_u8; 64]);
     if key.len() > 64 {
         let mut digest = Zeroizing::new(sha1(key));

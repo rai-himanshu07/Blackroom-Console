@@ -46,6 +46,26 @@ enum Auth {
 struct AppState {
     console: RemoteConsole,
     auth: Auth,
+    hardening: Hardening,
+}
+
+/// What differs between the plain-http listener and an https or public one.
+#[derive(Clone, Copy, Default)]
+pub struct Hardening {
+    /// Cookies get the `Secure` flag (only ever sent over https).
+    pub secure: bool,
+    /// Adds `Strict-Transport-Security` (only for a real certificate on a public name).
+    pub hsts: bool,
+}
+
+impl Hardening {
+    fn cookie_flags(self) -> &'static str {
+        if self.secure {
+            "; HttpOnly; SameSite=Strict; Path=/; Secure"
+        } else {
+            "; HttpOnly; SameSite=Strict; Path=/"
+        }
+    }
 }
 
 /// 48 hex characters from the OS random source.
@@ -141,21 +161,41 @@ fn guard(state: &AppState, headers: &HeaderMap) -> Option<Response> {
 }
 
 pub fn router(console: RemoteConsole, token: &str) -> Router {
-    build(console, Auth::Token(Arc::from(token)))
+    build(console, Auth::Token(Arc::from(token)), Hardening::default())
+}
+
+pub fn router_with(console: RemoteConsole, token: &str, hardening: Hardening) -> Router {
+    build(console, Auth::Token(Arc::from(token)), hardening)
 }
 
 /// The same routes behind a TOTP login instead of the URL token.
 pub fn router_totp(console: RemoteConsole, login: Arc<Login>) -> Router {
-    build(console, Auth::Totp(login))
+    build(console, Auth::Totp(login), Hardening::default())
+}
+
+pub fn router_totp_with(console: RemoteConsole, login: Arc<Login>, hardening: Hardening) -> Router {
+    build(console, Auth::Totp(login), hardening)
 }
 
 /// The same routes behind hostd's three-factor login.
 pub fn router_hostd(console: RemoteConsole, hostd: Arc<HostdAuth>) -> Router {
-    build(console, Auth::Hostd(hostd))
+    build(console, Auth::Hostd(hostd), Hardening::default())
 }
 
-fn build(console: RemoteConsole, auth: Auth) -> Router {
-    let state = AppState { console, auth };
+pub fn router_hostd_with(
+    console: RemoteConsole,
+    hostd: Arc<HostdAuth>,
+    hardening: Hardening,
+) -> Router {
+    build(console, Auth::Hostd(hostd), hardening)
+}
+
+fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
+    let state = AppState {
+        console,
+        auth,
+        hardening,
+    };
     Router::new()
         .route("/login", post(login).layer(DefaultBodyLimit::max(4096)))
         .route("/logout", post(logout))
@@ -176,7 +216,12 @@ fn build(console: RemoteConsole, auth: Auth) -> Router {
             "/quality",
             post(quality).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
         )
-        .with_state(state)
+        .route("/ice", get(ice))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            security_headers,
+        ))
         .layer(axum::middleware::map_request(host_from_authority))
 }
 
@@ -207,7 +252,7 @@ async fn index(
         if !tokens_equal(&given, token) {
             return (StatusCode::UNAUTHORIZED, "wrong token\n").into_response();
         }
-        let cookie = format!("{COOKIE_NAME}={given}; HttpOnly; SameSite=Strict; Path=/");
+        let cookie = format!("{COOKIE_NAME}={given}{}", state.hardening.cookie_flags());
         return (
             StatusCode::SEE_OTHER,
             [(SET_COOKIE, cookie), (LOCATION, "/".to_string())],
@@ -265,7 +310,7 @@ async fn login(
             StatusCode::NO_CONTENT,
             [(
                 SET_COOKIE,
-                format!("{SESSION_COOKIE}={id}; HttpOnly; SameSite=Strict; Path=/"),
+                format!("{SESSION_COOKIE}={id}{}", state.hardening.cookie_flags()),
             )],
         )
             .into_response(),
@@ -304,8 +349,8 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Peer {
     }
 }
 
-fn session_cookie(token: &str) -> String {
-    format!("{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/")
+fn session_cookie(token: &str, hardening: Hardening) -> String {
+    format!("{SESSION_COOKIE}={token}{}", hardening.cookie_flags())
 }
 
 async fn login_hostd(
@@ -338,7 +383,7 @@ async fn login_hostd(
             (
                 StatusCode::OK,
                 [
-                    (SET_COOKIE, session_cookie(&token)),
+                    (SET_COOKIE, session_cookie(&token, state.hardening)),
                     (CACHE_CONTROL, "no-store".to_string()),
                 ],
                 Json(reply),
@@ -377,8 +422,56 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
         StatusCode::NO_CONTENT,
         [(
             SET_COOKIE,
-            format!("{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"),
+            format!(
+                "{SESSION_COOKIE}={}; Max-Age=0",
+                state.hardening.cookie_flags()
+            ),
         )],
+    )
+        .into_response()
+}
+
+/// The page loads nothing from elsewhere and cannot be framed; the policy keeps inline script because the
+/// page is one self-contained file.
+const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; \
+style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; \
+object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+async fn security_headers(
+    State(state): State<AppState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    let mut set = |name: &'static str, value: &'static str| {
+        headers.insert(
+            axum::http::HeaderName::from_static(name),
+            axum::http::HeaderValue::from_static(value),
+        );
+    };
+    set("content-security-policy", CONTENT_SECURITY_POLICY);
+    set("x-content-type-options", "nosniff");
+    set("x-frame-options", "DENY");
+    set("referrer-policy", "no-referrer");
+    set(
+        "permissions-policy",
+        "camera=(), microphone=(), geolocation=(), payment=()",
+    );
+    if state.hardening.hsts {
+        set("strict-transport-security", "max-age=31536000");
+    }
+    response
+}
+
+/// `RTCConfiguration` for the logged-in browser: STUN and short-lived TURN credentials.
+async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&state, &headers) {
+        return refusal;
+    }
+    (
+        [(CACHE_CONTROL, "no-store")],
+        Json(crate::ice::config().browser_servers(std::time::SystemTime::now())),
     )
         .into_response()
 }
@@ -1036,6 +1129,94 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    fn hardened(hardening: Hardening) -> Router {
+        let console = RemoteConsole::spawn(ConsoleConfig {
+            grab_socket: None,
+            state_dir: std::env::temp_dir().join("br-console-server-test-hardening"),
+            headless: true,
+            quality: crate::console::Quality::Medium,
+            heartbeat_timeout: Duration::from_secs(15),
+            restore_bin: std::path::PathBuf::new(),
+        });
+        router_with(console, TOKEN, hardening)
+    }
+
+    #[tokio::test]
+    async fn every_response_carries_the_security_headers_and_hsts_only_when_asked() {
+        for (hardening, hsts) in [
+            (
+                Hardening {
+                    secure: false,
+                    hsts: false,
+                },
+                false,
+            ),
+            (
+                Hardening {
+                    secure: true,
+                    hsts: true,
+                },
+                true,
+            ),
+        ] {
+            let app = hardened(hardening);
+            for uri in ["/", "/status", "/nowhere"] {
+                let response = call(
+                    &app,
+                    Request::builder().uri(uri).body(Body::empty()).unwrap(),
+                )
+                .await;
+                let headers = response.headers();
+                let csp = headers["content-security-policy"].to_str().unwrap();
+                assert!(
+                    csp.contains("default-src 'self'") && csp.contains("frame-ancestors 'none'"),
+                    "{uri}"
+                );
+                assert_eq!(headers["x-content-type-options"], "nosniff");
+                assert_eq!(headers["x-frame-options"], "DENY");
+                assert_eq!(headers["referrer-policy"], "no-referrer");
+                assert_eq!(
+                    headers.contains_key("strict-transport-security"),
+                    hsts,
+                    "{uri}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_secure_flag_is_set_only_on_the_secure_listener_and_the_ice_list_needs_a_login() {
+        for secure in [false, true] {
+            let app = hardened(Hardening {
+                secure,
+                hsts: false,
+            });
+            let response = call(
+                &app,
+                Request::builder()
+                    .uri(format!("/?t={TOKEN}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            let cookie = response.headers()[SET_COOKIE].to_str().unwrap().to_string();
+            assert!(cookie.contains("HttpOnly") && cookie.contains("SameSite=Strict"));
+            assert_eq!(cookie.contains("; Secure"), secure, "{cookie}");
+
+            let anonymous = call(
+                &app,
+                Request::builder().uri("/ice").body(Body::empty()).unwrap(),
+            )
+            .await;
+            assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+            let authorised = call(&app, with_cookie("GET", "/ice", "")).await;
+            assert_eq!(authorised.status(), StatusCode::OK);
+            assert_eq!(authorised.headers()["cache-control"], "no-store");
+            let body = body_json(authorised).await;
+            assert!(body["iceServers"].is_array());
+        }
     }
 
     #[test]

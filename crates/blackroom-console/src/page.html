@@ -168,8 +168,17 @@ function waitFor(predicate, ms) {
   });
 }
 
+async function iceConfig() {
+  try {
+    const response = await fetch("/ice", { credentials: "same-origin" });
+    if (response.ok) return await response.json();
+  } catch (_) { /* LAN default below */ }
+  return { iceServers: [], waitMs: 2500 };
+}
+
 async function startWebRtc() {
-  const peer = new RTCPeerConnection({ iceServers: [] });
+  const ice = await iceConfig();
+  const peer = new RTCPeerConnection({ iceServers: ice.iceServers });
   pc = peer;
   peer.addTransceiver("video", { direction: "recvonly" });
   const channel = peer.createDataChannel("input");
@@ -180,7 +189,7 @@ async function startWebRtc() {
     try { event.receiver.playoutDelayHint = 0; event.receiver.jitterBufferTarget = 0; } catch (_) { /* optional */ }
   };
   await peer.setLocalDescription(await peer.createOffer());
-  await waitFor(() => peer.iceGatheringState === "complete", 2500).catch(() => {});
+  await waitFor(() => peer.iceGatheringState === "complete", ice.waitMs || 2500).catch(() => {});
   const response = await post("/webrtc", { sdp: peer.localDescription.sdp });
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || response.status);

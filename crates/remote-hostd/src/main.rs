@@ -212,11 +212,19 @@ fn auth_service(args: &[OsString]) -> io::Result<()> {
         ));
     }
     let store = blackroom_store::SecretStore::open(&directory).map_err(io::Error::other)?;
+    // Looser than the Doc 03 default for the per-account lock: on the internet a stranger who knows
+    // the account name could otherwise keep the owner locked out; a trusted device bypasses it too.
+    let limits = Limits {
+        account_failures: 30,
+        account_lock_secs: 300,
+        account_max_lock_secs: 3600,
+        ..Limits::default()
+    };
     let verifier = MultiFactorVerifier::new(
         store,
-        totp::load_verifier(&directory, Limits::default())?,
+        totp::load_verifier(&directory, limits)?,
         None,
-        FailureLimiter::new(Limits::default()),
+        FailureLimiter::new(limits),
     );
     let gate: Box<dyn EnableAuthorizer> = if args.iter().any(|arg| arg == OsStr::new("--polkit")) {
         Box::new(Polkit {

@@ -109,15 +109,28 @@ impl MultiFactorVerifier {
         {
             return Err(error(ErrorCode::AuthInvalid, "credential refused"));
         }
-        if self.limiter.is_locked(&attempt.account, &attempt.client_id)
+        let limited = || error(ErrorCode::AuthRateLimited, "too many failed attempts");
+        if self
+            .limiter
+            .client_locked(&attempt.account, &attempt.client_id)
             || !self.limiter.has_room(&attempt.account, &attempt.client_id)
         {
-            return Err(error(
-                ErrorCode::AuthRateLimited,
-                "too many failed attempts",
-            ));
+            return Err(limited());
+        }
+        // Strangers' guesses can lock the account for everyone; a valid trusted device is not
+        // locked out by that (it still needs the password and the code, and its own source limit).
+        if self.limiter.account_locked(&attempt.account) && !self.presents_trusted_device(attempt) {
+            return Err(limited());
         }
         Ok(())
+    }
+
+    fn presents_trusted_device(&self, attempt: &LoginAttempt) -> bool {
+        let Some(ClientFactor::Device { device_id, secret }) = &attempt.client else {
+            return false;
+        };
+        trusted_devices::check(&self.store, &attempt.account, device_id, secret)
+            .is_ok_and(|check| check == DeviceCheck::Trusted)
     }
 
     /// Second phase, given the password verdict (`None` when no password was presented).

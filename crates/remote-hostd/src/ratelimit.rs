@@ -47,14 +47,23 @@ impl FailureLimiter {
     }
 
     pub fn is_locked(&self, account: &str, client: &str) -> bool {
+        self.client_locked(account, client) || self.account_locked(account)
+    }
+
+    /// This source has failed too often for this account.
+    pub fn client_locked(&self, account: &str, client: &str) -> bool {
         let now = (self.now)();
         self.per_client
             .get(&(account.to_string(), client.to_string()))
             .is_some_and(|attempts| attempts.locked_until > now)
-            || self
-                .per_account
-                .get(account)
-                .is_some_and(|attempts| attempts.locked_until > now)
+    }
+
+    /// Failures across all sources locked the account (a stranger's guesses can cause this).
+    pub fn account_locked(&self, account: &str) -> bool {
+        let now = (self.now)();
+        self.per_account
+            .get(account)
+            .is_some_and(|attempts| attempts.locked_until > now)
     }
 
     fn prune(&mut self, now: u64) {

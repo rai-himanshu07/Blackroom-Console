@@ -668,6 +668,30 @@ fn rt_epoch_004_the_epoch_survives_a_restart_and_never_goes_back() {
     assert!(!check(&fx, &token, SystemTime::now()).ok);
 }
 
+#[test]
+fn a_strangers_guesses_lock_the_account_but_not_a_trusted_device() {
+    let fx = Fixture::new();
+    let (id, secret) = trusted(&fx);
+    // Ten sources each fail five times: the account itself is now locked.
+    for source in 0..10 {
+        let mut attempt = fx.good();
+        attempt.client = format!("stranger-{source}");
+        attempt.password = Some("guess".into());
+        assert!(!fx.send(attempt.request()).ok);
+    }
+    let mut by_key = fx.good();
+    by_key.client = "owner-new-browser".into();
+    refused(&fx.send(by_key.request()), "AUTH_RATE_LIMITED");
+    let mut by_device = fx.good();
+    by_device.client = "owner-trusted-browser".into();
+    by_device.key = None;
+    by_device.device = Some((id, secret));
+    assert!(
+        fx.send(by_device.request()).ok,
+        "a trusted device is not locked out by strangers"
+    );
+}
+
 // ---- operator control ----
 
 struct Deny;

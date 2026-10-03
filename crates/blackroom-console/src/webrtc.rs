@@ -14,7 +14,34 @@ use gstreamer_sdp as gst_sdp;
 use gstreamer_webrtc as gst_webrtc;
 
 const NEGOTIATE_TIMEOUT: Duration = Duration::from_secs(5);
-const GATHER_TIMEOUT: Duration = Duration::from_secs(4);
+/// Gathering waits for STUN/TURN answers when they are configured.
+fn gather_timeout() -> Duration {
+    Duration::from_secs(if crate::ice::config().is_empty() {
+        4
+    } else {
+        7
+    })
+}
+
+/// STUN, TURN and the UDP port range from `--stun`, `--turn` and `--ice-port-range`.
+fn apply_ice(rtc: &gst::Element) {
+    let config = crate::ice::config();
+    if let Some(stun) = config.server_stun() {
+        rtc.set_property("stun-server", stun.as_str());
+    }
+    for url in config.server_turn(std::time::SystemTime::now()) {
+        let _ = rtc.emit_by_name::<bool>("add-turn-server", &[&url]);
+    }
+    if let Some((low, high)) = config.port_range {
+        match rtc.property::<Option<gst::Object>>("ice-agent") {
+            Some(ice) if ice.find_property("min-rtp-port").is_some() => {
+                ice.set_property("min-rtp-port", low);
+                ice.set_property("max-rtp-port", high);
+            }
+            _ => tracing::warn!("this GStreamer cannot restrict the media port range"),
+        }
+    }
+}
 const PROBE_TIMEOUT: gst::ClockTime = gst::ClockTime::from_seconds(5);
 const MAX_OFFER_BYTES: usize = 64 * 1024;
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(3);
@@ -267,6 +294,7 @@ impl WebRtcSession {
             .downcast::<gst::Pipeline>()
             .map_err(|_| "pipeline is not a pipeline".to_string())?;
         let rtc = pipeline.by_name("rtc").ok_or("webrtcbin missing")?;
+        apply_ice(&rtc);
         let encoder_element = pipeline.by_name("enc").ok_or("encoder missing")?;
         let payloader = pipeline.by_name("pay").ok_or("payloader missing")?;
         let source = pipeline.by_name("src").ok_or("source missing")?;
@@ -394,7 +422,7 @@ impl WebRtcSession {
         self.rtc
             .emit_by_name::<()>("set-local-description", &[&answer, &None::<gst::Promise>]);
 
-        let deadline = Instant::now() + GATHER_TIMEOUT;
+        let deadline = Instant::now() + gather_timeout();
         while self
             .rtc
             .property::<gst_webrtc::WebRTCICEGatheringState>("ice-gathering-state")

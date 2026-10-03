@@ -28,7 +28,7 @@ a separate gateway process, a rendezvous/relay service run by us, remote credent
   operator step (`blackroom-grant-input`, root script; no udev rule, because a uaccess rule would let every app read your keyboard).
 
 ## Chunks (each ends with a check you can run)
-- [ ] **A. Internet-ready transport and hardening.** `--tls-cert/--tls-key` (+ reload), `Secure` cookie on the https router only, HSTS,
+- [x] **A. Internet-ready transport and hardening.** (done 2026-10-03; headless browser test passed with the CSP) `--tls-cert/--tls-key` (+ reload), `Secure` cookie on the https router only, HSTS,
   CSP, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`; `--ice-server`, `--turn-secret-file`, `/ice`; `--ice-port-range`;
   `--public`; account-lock tuning and device bypass; docs recipes. Check: server tests (headers, cookie flags, interlock), headless
   browser test still passes with the CSP.

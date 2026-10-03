@@ -74,3 +74,14 @@ does not.
 Nothing network-reachable executes a caller-chosen command: the helper and `pkcheck` are started with
 fixed arguments (the polkit process argument is built from a numeric pid and uid), no component runs
 with elevated privilege, and the two root-owned files installed by `install-security.sh` are static.
+
+## Internet exposure (docs/ops/internet-access.md)
+
+- Recommended: a mesh VPN (Tailscale) so nothing faces the internet. `--public` exists for a port-forwarded setup and refuses weak
+  settings instead of warning: login through hostd, https from a real certificate, plain http on loopback only.
+- What a stranger can reach: the login page and `/login` (body limit 4 KiB, per-source and per-account limits in hostd) and nothing else; every
+  other route answers 401 before parsing a body. Headers: Content-Security-Policy (no third-party loads, no framing), `nosniff`, no referrer, HSTS and
+  `Secure` cookies.
+- New residual risks: online guessing of the Linux password (needs the code and the key as well, but the first factor is attackable from anywhere);
+  a live phishing relay; a stranger locking the account for 5 minutes at a time (a trusted browser is exempt); the TURN relay is another public
+  service to keep patched (credentials expire in 1 hour by default and the relay denies private ranges in the sample config).
