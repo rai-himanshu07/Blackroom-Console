@@ -1,20 +1,16 @@
 [package]
 name = "pam-auth-helper"
 version = "0.1.0"
-edition = "2024"
-license = "GPL-3.0-or-later"
-rust-version = "1.96"
-publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
 description = "One-shot PAM password check for remote-hostd (reads the password from stdin)"
 
-# A workspace of its own: pam-sys generates its bindings with bindgen/libclang, which must not be
-# feature-unified with the PipeWire bindings of the main workspace.
-[workspace]
-
-[lints.rust]
-unsafe_code = "forbid"
+[lints]
+workspace = true
 
 [dependencies]
-pam-client = "0.5.0"
+nonstick = "0.1.2"
 rustix = { version = "1.1.4", features = ["process"] }
 zeroize = { version = "1.9.0", features = ["alloc"] }

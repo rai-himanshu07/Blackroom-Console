@@ -52,11 +52,10 @@ case "$mode" in
 --check) check; exit $? ;;
 --install)
   if [ "$build" = 1 ]; then
-    echo "== building (needs libpam0g-dev and libclang for the PAM bindings)"
-    (cd "$REPO" && cargo build --release -p remote-hostd -p blackroom-cli \
-      && cargo build --release --manifest-path crates/pam-auth-helper/Cargo.toml --target-dir target/pam-helper)
+    echo "== building (needs libpam0g-dev for the PAM library)"
+    (cd "$REPO" && cargo build --release -p remote-hostd -p blackroom-cli -p pam-auth-helper)
   fi
-  HELPER="$REPO/target/pam-helper/release/pam-auth-helper"
+  HELPER="$REPO/target/release/pam-auth-helper"
   for f in "$REPO/target/release/remote-hostd" "$REPO/target/release/blackroom" "$HELPER"; do [ -x "$f" ] || { echo "missing $f" >&2; exit 1; }; done
   install -d -m 700 "$LIB" "$STATE"; install -d -m 755 "$BIN" "$UNIT_DIR"
   install -m 755 "$REPO/target/release/remote-hostd" "$HELPER" "$LIB/"

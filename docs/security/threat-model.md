@@ -42,11 +42,10 @@ does not.
 - **No generic secret encryption at rest.** Verifiers are hashed; the TOTP secret must be readable
   to compute codes, so it is protected by file permissions only.
 
-- **PAM binding: `pam-client` 0.5.0, a deviation from `architecture.md`.** That record rejected
-  `pam`/`pam-client` as unmaintained and named `nonstick` (0.1.2, March 2026, young) as the alternative.
-  `pam-client` was used because it builds and works today, and the whole binding is one ~150-line file in
-  its own Cargo workspace (`crates/pam-auth-helper/src/main.rs`), so replacing it is a one-file change.
-  `cargo audit` and `cargo deny` are clean for it. Owner decision needed: keep, or switch to `nonstick`.
+- **PAM binding: `nonstick` 0.1.2**, as `architecture.md` recorded (`pam-client` was rejected as unmaintained;
+  it was used for the first build and replaced on the owner's decision). Only `TransactionBuilder` and
+  `authenticate` are used, in one ~120-line file (`crates/pam-auth-helper/src/main.rs`); the crate is young
+  and was checked by its API surface and `cargo audit`/`cargo deny`, not by a full code audit.
 
 ## Accepted (Doc 09 §101) and known limits
 

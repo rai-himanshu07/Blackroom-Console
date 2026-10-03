@@ -9,11 +9,14 @@
 //! It runs as the same user as hostd; `pam_unix` then verifies that user's own password through
 //! `unix_chkpwd`, so no privilege is needed and none is requested.
 
-use std::ffi::{CStr, CString};
+use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::process::ExitCode;
 
-use pam_client::{Context, ConversationHandler, ErrorCode, Flag};
+use nonstick::{
+    AuthnFlags, ConversationAdapter, ErrorCode, Result as PamResult, Transaction,
+    TransactionBuilder,
+};
 use zeroize::Zeroizing;
 
 const ACCEPTED: u8 = 0;
@@ -38,23 +41,23 @@ fn account_ok(account: &str) -> bool {
 }
 
 struct Answers {
-    account: CString,
-    password: Zeroizing<Vec<u8>>,
+    account: String,
+    password: Zeroizing<String>,
 }
 
-impl ConversationHandler for Answers {
-    fn prompt_echo_on(&mut self, _prompt: &CStr) -> Result<CString, ErrorCode> {
-        Ok(self.account.clone())
+impl ConversationAdapter for Answers {
+    fn prompt(&self, _request: impl AsRef<OsStr>) -> PamResult<OsString> {
+        Ok(OsString::from(&self.account))
     }
 
-    fn prompt_echo_off(&mut self, _prompt: &CStr) -> Result<CString, ErrorCode> {
-        CString::new(self.password.to_vec()).map_err(|_| ErrorCode::CONV_ERR)
+    fn masked_prompt(&self, _request: impl AsRef<OsStr>) -> PamResult<OsString> {
+        Ok(OsString::from(self.password.as_str()))
     }
 
     // Module messages could carry account details; they are dropped, never printed.
-    fn text_info(&mut self, _msg: &CStr) {}
+    fn error_msg(&self, _message: impl AsRef<OsStr>) {}
 
-    fn error_msg(&mut self, _msg: &CStr) {}
+    fn info_msg(&self, _message: impl AsRef<OsStr>) {}
 }
 
 fn read_request() -> Option<(String, Zeroizing<String>)> {
@@ -82,37 +85,33 @@ fn decide(service: &str) -> u8 {
     if !account_ok(&account) || password.contains('\0') {
         return REJECTED;
     }
-    let Ok(account_c) = CString::new(account.as_str()) else {
-        return REJECTED;
-    };
     let conversation = Answers {
-        account: account_c,
-        password: Zeroizing::new(password.as_bytes().to_vec()),
+        account: account.clone(),
+        password,
     };
-    let mut context = match Context::new(service, Some(&account), conversation) {
-        Ok(context) => context,
+    let mut transaction = match TransactionBuilder::new_with_service(service)
+        .username(&account)
+        .build(conversation.into_conversation())
+    {
+        Ok(transaction) => transaction,
         Err(_) => return UNDECIDED,
     };
-    let verdict = |result: Result<(), pam_client::Error>| match result {
-        Ok(()) => None,
-        Err(error) => Some(match error.code() {
-            ErrorCode::AUTH_ERR
-            | ErrorCode::USER_UNKNOWN
-            | ErrorCode::MAXTRIES
-            | ErrorCode::PERM_DENIED
-            | ErrorCode::ACCT_EXPIRED
-            | ErrorCode::NEW_AUTHTOK_REQD
-            | ErrorCode::CRED_EXPIRED => REJECTED,
-            _ => UNDECIDED,
-        }),
-    };
-    if let Some(code) = verdict(context.authenticate(Flag::DISALLOW_NULL_AUTHTOK)) {
-        return code;
+    // No account_management: pam_unix's account stage runs a helper that does setuid() and fails
+    // for a non-root caller ("setuid failed: Operation not permitted"), refusing every correct
+    // password. A locked account already fails authenticate; password-expiry checks need root.
+    match transaction.authenticate(AuthnFlags::DISALLOW_NULL_AUTHTOK) {
+        Ok(()) => ACCEPTED,
+        Err(
+            ErrorCode::AuthenticationError
+            | ErrorCode::UserUnknown
+            | ErrorCode::MaxTries
+            | ErrorCode::PermissionDenied
+            | ErrorCode::AccountExpired
+            | ErrorCode::NewAuthTokRequired
+            | ErrorCode::CredentialsExpired,
+        ) => REJECTED,
+        Err(_) => UNDECIDED,
     }
-    // No acct_mgmt: pam_unix's account stage runs a helper that does setuid() and fails for a
-    // non-root caller ("setuid failed: Operation not permitted"), refusing every correct password.
-    // A locked account already fails authenticate; password-expiry checks need root.
-    ACCEPTED
 }
 
 fn main() -> ExitCode {

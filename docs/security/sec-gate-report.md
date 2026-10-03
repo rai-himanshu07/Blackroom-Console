@@ -5,9 +5,7 @@ accept path needs the files installed by `docs/ops/install-security.sh` and is t
 
 Checks run: `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`,
 `cargo test --workspace --exclude gnome-session-agent` (481 tests pass) and
-`cargo test -p gnome-session-agent` (36 pass), `cargo deny check` (workspace and the separate
-`crates/pam-auth-helper`), `cargo audit`. The PAM helper has its own workspace: `cargo test --manifest-path
-crates/pam-auth-helper/Cargo.toml --target-dir target/pam-helper`.
+`cargo test -p gnome-session-agent` (36 pass), `cargo deny check` (workspace), `cargo audit`.
 
 ## Gates (Doc 09 §100)
 

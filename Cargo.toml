@@ -1,13 +1,11 @@
 [workspace]
 resolver = "3"
-# Built on its own (libpam bindings need libclang, and their build script breaks when unified with
-# the PipeWire bindings): see docs/ops/install-security.sh and docs/security/authentication.md.
-exclude = ["crates/pam-auth-helper"]
 members = [
     "crates/blackroom-cli",
     "crates/blackroom-console",
     "crates/blackroom-core",
     "crates/blackroom-store",
+    "crates/pam-auth-helper",
     "crates/blackroom-experiments",
     "crates/blackroom-gnome",
     "crates/blackroom-systest",

@@ -26,9 +26,8 @@ flowchart LR
 
 - `remote-hostd --auth-service` (user unit `remote-hostd.service`, runs as you) owns the sessions,
   the security epoch, the rate limits and the audit log.
-- `pam-auth-helper` (its own Cargo workspace, `crates/pam-auth-helper`, because the libpam bindings
-  need libclang and their build script cannot share a build with the PipeWire bindings) is a separate
-  one-shot executable. The password reaches it on standard input
+- `pam-auth-helper` is a separate
+  one-shot executable (PAM through the `nonstick` crate). The password reaches it on standard input
   only (never an argument, environment variable, file or log) and it answers with an exit status.
   It runs as you and calls only PAM's authenticate stage (pam_unix's account stage needs root and refuses every
   correct password otherwise; password-expiry checks are therefore not done). `pam_unix` checks your own password through `unix_chkpwd`, so no privilege is
