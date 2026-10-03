@@ -253,6 +253,33 @@ pub struct Watchdog {
     cwd: PathBuf,
     sequence: u32,
     current: Option<String>,
+    /// A service that waits for this process to vanish, then locks at once and restores; the timers
+    /// stay as the backstop if the guard itself dies.
+    guard: Option<String>,
+}
+
+/// `systemd-run` arguments of the crash guard (a service, not a timer), outside this process's cgroup.
+pub fn guard_args(
+    unit: &str,
+    cwd: &Path,
+    restore_bin: &Path,
+    backup: &Path,
+    pid: u32,
+) -> Vec<String> {
+    vec![
+        "--user".into(),
+        "--collect".into(),
+        format!("--unit={unit}"),
+        format!("--working-directory={}", cwd.display()),
+        "--".into(),
+        restore_bin.display().to_string(),
+        "--backup".into(),
+        backup.display().to_string(),
+        "--keep-live-virtual".into(),
+        "--lock-after".into(),
+        "--after-pid".into(),
+        pid.to_string(),
+    ]
 }
 
 impl Watchdog {
@@ -268,10 +295,22 @@ impl Watchdog {
             cwd: std::env::current_dir()?,
             sequence: 0,
             current: None,
+            guard: None,
         })
     }
 
     pub fn refresh(&mut self, seconds: u64) -> anyhow::Result<()> {
+        if self.guard.is_none() {
+            let pid = std::process::id();
+            let unit = format!("{WATCHDOG_PREFIX}-{pid}-guard");
+            let args = guard_args(&unit, &self.cwd, &self.restore_bin, &self.backup, pid);
+            let status = quiet(Command::new("systemd-run").args(&args))?;
+            anyhow::ensure!(
+                status.success(),
+                "systemd-run failed to arm the crash guard"
+            );
+            self.guard = Some(unit);
+        }
         self.sequence += 1;
         let unit = format!("{WATCHDOG_PREFIX}-{}-{}", std::process::id(), self.sequence);
         let args = systemd_run_args(&unit, seconds, &self.cwd, &self.restore_bin, &self.backup);
@@ -289,6 +328,13 @@ impl Watchdog {
     pub fn disarm(&mut self) {
         if let Some(unit) = self.current.take() {
             stop_timer(&unit);
+        }
+        if let Some(unit) = self.guard.take() {
+            let _ = quiet(Command::new("systemctl").args([
+                "--user",
+                "stop",
+                &format!("{unit}.service"),
+            ]));
         }
     }
 }
@@ -673,6 +719,28 @@ mod tests {
         assert_eq!(count(), before + 1);
         drop(lock);
         assert_eq!(count(), before);
+    }
+
+    #[test]
+    fn the_crash_guard_waits_for_the_pid_then_locks_and_restores() {
+        let args = guard_args(
+            "u",
+            Path::new("/repo"),
+            Path::new("/repo/target/release/exp07_restore"),
+            Path::new("/run/user/1000/blackroom-console/backup.json"),
+            4242,
+        );
+        assert!(args.contains(&"--collect".to_string()));
+        assert!(args.contains(&"--working-directory=/repo".to_string()));
+        assert!(!args.iter().any(|a| a.starts_with("--on-active")));
+        let tail = &args[args.iter().position(|a| a == "--").unwrap() + 1..];
+        assert!(tail[0].starts_with('/'));
+        assert!(tail.ends_with(&[
+            "--lock-after".to_string(),
+            "--after-pid".to_string(),
+            "4242".to_string()
+        ]));
+        assert!(tail.contains(&"--keep-live-virtual".to_string()));
     }
 
     #[test]

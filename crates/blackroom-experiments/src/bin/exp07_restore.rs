@@ -52,6 +52,10 @@ struct Args {
     /// the owner is gone, so nothing may be left unlocked). Never unlocks.
     #[arg(long)]
     lock_after: bool,
+    /// Guard mode: wait until this process (the console) is gone, then lock the session at once and
+    /// restore, so a crashed console never leaves the desktop visible and unlocked until a timer fires.
+    #[arg(long)]
+    after_pid: Option<u32>,
 }
 
 // ---------------------------------------------------------------------
@@ -565,9 +569,37 @@ fn attempt_restore(
     Ok(kept)
 }
 
+/// A process that no longer exists or is only a zombie awaiting its parent counts as gone.
+fn process_gone(pid: u32) -> bool {
+    match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        Err(_) => true,
+        Ok(stat) => stat
+            .rsplit_once(") ")
+            .is_some_and(|(_, rest)| rest.starts_with('Z')),
+    }
+}
+
+fn print_lock(session_id: &str) {
+    let locked = std::process::Command::new("loginctl")
+        .args(["lock-session", session_id])
+        .stdin(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    println!(
+        "lock-session {session_id}: {}",
+        if locked { "ok" } else { "FAILED" }
+    );
+}
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::try_init().ok();
     let args = Args::parse();
+    if let Some(pid) = args.after_pid {
+        while !process_gone(pid) {
+            thread::sleep(Duration::from_millis(100));
+        }
+        println!("guarded process {pid} is gone");
+    }
     let redact_on = args.common.redact_enabled();
     let now = OffsetDateTime::now_utc();
 
@@ -582,6 +614,9 @@ fn main() -> anyhow::Result<()> {
 
     let conn = Connection::session()?;
     verify_live_identity(&conn, &backup)?;
+    if args.after_pid.is_some() {
+        print_lock(&backup.session_id);
+    }
 
     let (_serial0, monitors0, _logical0) = read_state(&conn)?;
     let monitors_before_restore: Vec<String> = monitors0
@@ -640,16 +675,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     if args.lock_after {
-        let locked = std::process::Command::new("loginctl")
-            .args(["lock-session", &backup.session_id])
-            .stdin(std::process::Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success());
-        println!(
-            "lock-session {}: {}",
-            backup.session_id,
-            if locked { "ok" } else { "FAILED" }
-        );
+        print_lock(&backup.session_id);
     }
 
     let findings = Findings {
@@ -733,6 +759,21 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_running_process_is_not_gone_and_a_missing_or_zombie_one_is() {
+        assert!(!process_gone(std::process::id()));
+        assert!(process_gone(u32::MAX - 1));
+        let child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        // Unreaped, the exited child stays a zombie: still "gone".
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !process_gone(pid) && std::time::Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(process_gone(pid));
+        drop(child);
+    }
 
     #[test]
     fn failed_restore_reports_a_nonzero_process_result() {
