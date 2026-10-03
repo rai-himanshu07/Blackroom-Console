@@ -109,9 +109,9 @@ fn decide(service: &str) -> u8 {
     if let Some(code) = verdict(context.authenticate(Flag::DISALLOW_NULL_AUTHTOK)) {
         return code;
     }
-    if let Some(code) = verdict(context.acct_mgmt(Flag::NONE)) {
-        return code;
-    }
+    // No acct_mgmt: pam_unix's account stage runs a helper that does setuid() and fails for a
+    // non-root caller ("setuid failed: Operation not permitted"), refusing every correct password.
+    // A locked account already fails authenticate; password-expiry checks need root.
     ACCEPTED
 }
 

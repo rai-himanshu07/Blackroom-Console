@@ -3,4 +3,5 @@
 # It checks the owner's own Linux password through pam_unix and nothing else: no session is opened,
 # no password can be changed, no other module (fingerprint, keyring, network) is consulted.
 auth     required   pam_unix.so
+# The account stage is not consulted: pam_unix runs a setuid helper there that fails for a non-root caller.
 account  required   pam_unix.so

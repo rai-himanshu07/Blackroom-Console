@@ -30,7 +30,8 @@ flowchart LR
   need libclang and their build script cannot share a build with the PipeWire bindings) is a separate
   one-shot executable. The password reaches it on standard input
   only (never an argument, environment variable, file or log) and it answers with an exit status.
-  It runs as you; `pam_unix` checks your own password through `unix_chkpwd`, so no privilege is
+  It runs as you and calls only PAM's authenticate stage (pam_unix's account stage needs root and refuses every
+  correct password otherwise; password-expiry checks are therefore not done). `pam_unix` checks your own password through `unix_chkpwd`, so no privilege is
   needed and no password database is created.
 - Two sockets in `$XDG_RUNTIME_DIR/blackroom-hostd/`, mode 0600, same-uid peers only:
   `auth.sock` (login, check, logout) and `admin.sock` (operator verbs).
