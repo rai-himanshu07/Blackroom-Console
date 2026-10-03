@@ -10,8 +10,10 @@ pub mod exposure;
 pub mod hostd_auth;
 pub mod ice;
 pub mod login;
+pub mod options;
 pub mod server;
 pub mod tls;
 pub mod webrtc;
 
 pub use console::{ConsoleConfig, InputEvent, Phase, Quality, RemoteConsole, Status, StopReport};
+pub use options::SessionOptions;

@@ -25,7 +25,7 @@ fn two_sessions_stream_take_input_and_restore() {
     let console = RemoteConsole::spawn(config(Duration::from_secs(60)));
     for round in 1..=2 {
         let status = console
-            .start()
+            .start(blackroom_console::SessionOptions::default())
             .unwrap_or_else(|e| panic!("round {round} start: {e}"));
         assert_eq!(status.phase, Phase::Running);
         println!(
@@ -96,7 +96,9 @@ fn two_sessions_stream_take_input_and_restore() {
 #[ignore = "needs a headless Shell: docs/ops/headless-repro.sh"]
 fn a_silent_browser_runs_stop() {
     let console = RemoteConsole::spawn(config(Duration::from_secs(2)));
-    console.start().expect("start");
+    console
+        .start(blackroom_console::SessionOptions::default())
+        .expect("start");
     sleep(Duration::from_secs(5));
     let status = console.status();
     assert_eq!(status.phase, Phase::Idle);

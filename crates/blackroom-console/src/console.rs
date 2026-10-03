@@ -29,6 +29,7 @@ use zbus::blocking::Connection;
 use crate::clipboard::{self, ClipboardError};
 use crate::display::{self, Watchdog};
 use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote_with};
+use crate::options::SessionOptions;
 use crate::webrtc::{InputSink, WebRtcSession, pick_h264};
 
 const TICK: Duration = Duration::from_millis(25);
@@ -154,6 +155,11 @@ pub struct Status {
     /// Whether the page may offer the clipboard buttons.
     pub clipboard: bool,
     pub resources: Resources,
+    /// The options of the running session (the defaults while idle).
+    pub session: SessionOptions,
+    /// "private", "shared" or "custom".
+    pub mode: &'static str,
+    pub session_secs: u64,
 }
 
 /// One input event from the browser. Pointer positions are fractions of the screen.
@@ -215,6 +221,9 @@ struct Shared {
     /// Mutter accepted the clipboard for the running session.
     clipboard_live: AtomicBool,
     started_at: Instant,
+    options: Mutex<SessionOptions>,
+    session_started: Mutex<Option<Instant>>,
+    last_input: Mutex<Instant>,
     sessions_started: AtomicU64,
     sessions_stopped: AtomicU64,
     last_clipboard: Mutex<Option<Instant>>,
@@ -225,7 +234,7 @@ fn lock_ok<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 enum Command {
-    Start(Sender<Result<(), String>>),
+    Start(SessionOptions, Sender<Result<(), String>>),
     Stop(Sender<StopReport>),
     Input(Vec<InputEvent>),
     ClipboardSet(String, Sender<Result<(), ClipboardError>>),
@@ -258,6 +267,9 @@ impl RemoteConsole {
             clipboard_enabled: AtomicBool::new(false),
             clipboard_live: AtomicBool::new(false),
             started_at: Instant::now(),
+            options: Mutex::new(SessionOptions::default()),
+            session_started: Mutex::new(None),
+            last_input: Mutex::new(Instant::now()),
             sessions_started: AtomicU64::new(0),
             sessions_stopped: AtomicU64::new(0),
             last_clipboard: Mutex::new(None),
@@ -270,8 +282,14 @@ impl RemoteConsole {
         Self { commands, shared }
     }
 
+    /// What a Start without a body uses: private until a saved profile says otherwise.
+    pub fn default_options(&self) -> SessionOptions {
+        SessionOptions::default()
+    }
+
     /// Blocks until the session runs or setup failed (everything already undone).
-    pub fn start(&self) -> Result<Status, String> {
+    pub fn start(&self, options: SessionOptions) -> Result<Status, String> {
+        let options = options.validated()?;
         {
             let mut phase = lock_ok(&self.shared.phase);
             if *phase != Phase::Idle {
@@ -281,7 +299,7 @@ impl RemoteConsole {
         }
         let (reply, answer) = mpsc::channel();
         self.commands
-            .send(Command::Start(reply))
+            .send(Command::Start(options, reply))
             .map_err(|_| "console actor is gone".to_string())?;
         answer
             .recv()
@@ -317,6 +335,7 @@ impl RemoteConsole {
         if events.is_empty() {
             return Ok(());
         }
+        *lock_ok(&self.shared.last_input) = Instant::now();
         self.commands
             .send(Command::Input(events))
             .map_err(|_| "console actor is gone".to_string())
@@ -465,6 +484,7 @@ impl RemoteConsole {
 
     pub fn status(&self) -> Status {
         let phase = *lock_ok(&self.shared.phase);
+        let session = lock_ok(&self.shared.options).clone();
         let (width, height) = *lock_ok(&self.shared.size);
         let (webrtc_encoder, webrtc_error, webrtc_frames) =
             match lock_ok(&self.shared.webrtc).as_ref() {
@@ -493,6 +513,10 @@ impl RemoteConsole {
                 self.shared.clipboard_enabled.load(Ordering::Relaxed)
             },
             resources: self.resources(),
+            mode: session.label(),
+            session,
+            session_secs: lock_ok(&self.shared.session_started)
+                .map_or(0, |at| at.elapsed().as_secs()),
         }
     }
 }
@@ -530,6 +554,9 @@ struct Active<'c> {
     released_early: Vec<String>,
     /// Dropping it ends the logind inhibitor that stops suspend and idle sleep mid-session.
     sleep_inhibitor: Option<display::SleepLock>,
+    options: SessionOptions,
+    /// Top-left of the captured monitor in the shared layout: absolute pointer positions are layout coordinates.
+    origin: (f32, f32),
     /// Text the browser put on the laptop clipboard, served to every paste; dropped with the session.
     clipboard_text: Option<String>,
     /// Whether this session currently owns the laptop clipboard.
@@ -578,7 +605,7 @@ fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<Co
     let mut selection: Option<Receiver<SelectionEvent>> = None;
     loop {
         match receiver.recv_timeout(TICK) {
-            Ok(Command::Start(reply)) => {
+            Ok(Command::Start(options, reply)) => {
                 if selection.is_none()
                     && shared.clipboard_enabled.load(Ordering::Relaxed)
                     && let Ok(conn) = &conn
@@ -588,7 +615,7 @@ fn run_actor(receiver: &Receiver<Command>, shared: &Arc<Shared>, config: &Arc<Co
                 let result = match (&conn, active.is_some()) {
                     (_, true) => Err("already running".to_string()),
                     (Err(error), _) => Err(format!("session bus: {error}")),
-                    (Ok(conn), false) => match begin(conn, config, shared) {
+                    (Ok(conn), false) => match begin(conn, config, shared, options) {
                         Ok(started) => {
                             active = Some(started);
                             Ok(())
@@ -679,6 +706,7 @@ fn finish(active: Active<'_>, reason: &str) -> StopReport {
     }
     *lock_ok(&shared.slot) = None;
     *lock_ok(&shared.tuning) = None;
+    *lock_ok(&shared.session_started) = None;
     shared.clipboard_live.store(false, Ordering::Relaxed);
     shared.sessions_stopped.fetch_add(1, Ordering::Relaxed);
     *lock_ok(&shared.last_stop) = Some(report.clone());
@@ -690,6 +718,7 @@ fn begin<'c>(
     conn: &'c Connection,
     config: &Arc<ConsoleConfig>,
     shared: &Arc<Shared>,
+    options: SessionOptions,
 ) -> Result<Active<'c>, String> {
     if let Some(pending) = lock_ok(&shared.recovery_pending).clone() {
         return Err(format!("recovery pending: {pending}"));
@@ -728,6 +757,8 @@ fn begin<'c>(
         last_watchdog: Instant::now(),
         released_early: Vec::new(),
         sleep_inhibitor: None,
+        options,
+        origin: (0.0, 0.0),
         clipboard_text: None,
         clipboard_owned: false,
     };
@@ -735,6 +766,9 @@ fn begin<'c>(
         Ok(()) => {
             *lock_ok(&shared.beat) = Instant::now();
             *lock_ok(&shared.size) = active.size;
+            *lock_ok(&shared.options) = active.options.clone();
+            *lock_ok(&shared.session_started) = Some(Instant::now());
+            *lock_ok(&shared.last_input) = Instant::now();
             *lock_ok(&shared.phase) = Phase::Running;
             Ok(active)
         }
@@ -778,14 +812,32 @@ impl<'c> Active<'c> {
 
         let backup = display_config::snapshot(self.conn, &self.session.session_id)
             .map_err(|e| anyhow::anyhow!("display snapshot: {e}"))?;
-        let (width, height) = single_monitor(&backup, config.headless)?;
-        self.size = (width, height);
+        let blank = self.options.blank_panel;
+        let target = if blank {
+            let (width, height) = single_monitor(&backup, config.headless)?;
+            let (width, height) = self
+                .options
+                .resolution
+                .map_or((width, height), |size| (size.width, size.height));
+            self.size = (width, height);
+            None
+        } else {
+            let target = shared_target(&backup)?;
+            self.size = target.logical;
+            self.origin = (target.x as f32, target.y as f32);
+            Some(target)
+        };
         let shell_pid = display::gnome_shell_pid(self.conn)?;
-        let backup_path = display::write_backup(&config.state_dir, &backup, shell_pid)?;
-        tracing::info!(path = %backup_path.display(), "display backup written");
-        if !config.headless {
-            display::write_recovery_marker(&config.state_dir, &backup_path)?;
-        }
+        let backup_path = if blank {
+            let path = display::write_backup(&config.state_dir, &backup, shell_pid)?;
+            tracing::info!(path = %path.display(), "display backup written");
+            if !config.headless {
+                display::write_recovery_marker(&config.state_dir, &path)?;
+            }
+            Some(path)
+        } else {
+            None
+        };
         self.backup = Some(BackupCtx {
             canonical: backup,
             shell_pid,
@@ -816,15 +868,24 @@ impl<'c> Active<'c> {
 
         let before = display::connectors(self.conn)?;
         let sc = ScreenCastSession::create(self.conn)?;
-        let stream = sc.record_virtual(i32::try_from(width)?, i32::try_from(height)?, 60.0)?;
+        let (stream, shape) = match &target {
+            None => {
+                let (width, height) = self.size;
+                (
+                    sc.record_virtual(i32::try_from(width)?, i32::try_from(height)?, 60.0)?,
+                    (width, height),
+                )
+            }
+            Some(target) => (sc.record_monitor(&target.connector)?, target.native),
+        };
         let node = stream.start_and_wait_for_pipewire_node(&sc)?;
         self.sc = Some(sc);
         let slot = JpegSlot::new();
         let stop = Arc::new(AtomicBool::new(false));
         let quality = *lock_ok(&self.shared.quality);
         let options = VideoOptions {
-            preferred_width: i32::try_from(width)?,
-            preferred_height: i32::try_from(height)?,
+            preferred_width: i32::try_from(shape.0)?,
+            preferred_height: i32::try_from(shape.1)?,
             quality: quality.jpeg_quality(),
             max_fps: quality.max_fps(),
         };
@@ -838,23 +899,27 @@ impl<'c> Active<'c> {
         };
         self.video = Some(VideoHandle { stop, handle });
         *lock_ok(&self.shared.slot) = Some(slot);
-        // The connector only appears once a consumer streams.
-        let connector = poll_new_connector(self.conn, &before)?;
-        self.virtual_connector = Some(connector.clone());
 
-        if !config.headless {
-            let mut watchdog = Watchdog::new(config.restore_bin.clone(), backup_path)?;
-            watchdog.refresh(WATCHDOG_SECONDS)?;
-            self.last_watchdog = Instant::now();
-            self.watchdog = Some(watchdog);
+        if let Some(backup_path) = backup_path {
+            // The connector only appears once a consumer streams.
+            let connector = poll_new_connector(self.conn, &before)?;
+            self.virtual_connector = Some(connector.clone());
+
+            if !config.headless {
+                let mut watchdog = Watchdog::new(config.restore_bin.clone(), backup_path)?;
+                watchdog.refresh(WATCHDOG_SECONDS)?;
+                self.last_watchdog = Instant::now();
+                self.watchdog = Some(watchdog);
+            }
+
+            self.isolated = true;
+            display_config::disable_physical_outputs(self.conn, &connector)
+                .map_err(|e| anyhow::anyhow!("isolate the panel: {e}"))?;
         }
 
-        self.isolated = true;
-        display_config::disable_physical_outputs(self.conn, &connector)
-            .map_err(|e| anyhow::anyhow!("isolate the panel: {e}"))?;
-
-        if let Some(socket) = &config.grab_socket
+        if self.options.block_local_input
             && !config.headless
+            && let Some(socket) = &config.grab_socket
         {
             let mut client = Client::connect(socket, DAEMON_ISOLATE_REPLY)?;
             match client.isolate(GRAB_LEASE_MS)? {
@@ -882,21 +947,22 @@ impl<'c> Active<'c> {
 
     /// Returns whether the screen is locked; the password is then typed remotely, never bypassed.
     fn preflight_live(&mut self, config: &ConsoleConfig) -> anyhow::Result<bool> {
-        let socket = config
-            .grab_socket
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("a grab socket is required unless headless"))?;
-        let mut client = Client::connect(socket, Duration::from_secs(10))?;
-        let status = client.status()?;
-        anyhow::ensure!(
-            status.latched != Some(true),
-            "an emergency stop is latched: stop console.sh and start it again (the daemon restarts), then Start"
-        );
-        anyhow::ensure!(
-            status.phase.as_deref() == Some("idle") && status.grabs_enabled == Some(true),
-            "the emergency daemon is not idle with grabs enabled: {status:?}"
-        );
-        drop(client);
+        if self.options.block_local_input {
+            let socket = config.grab_socket.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("blocking local input needs the grab daemon (no --grab-socket)")
+            })?;
+            let mut client = Client::connect(socket, Duration::from_secs(10))?;
+            let status = client.status()?;
+            anyhow::ensure!(
+                status.latched != Some(true),
+                "an emergency stop is latched: stop the console and start it again (the daemon restarts), then Start"
+            );
+            anyhow::ensure!(
+                status.phase.as_deref() == Some("idle") && status.grabs_enabled == Some(true),
+                "the emergency daemon is not idle with grabs enabled: {status:?}"
+            );
+            drop(client);
+        }
         self.session = discover_session().map_err(|e| anyhow::anyhow!("session discovery: {e}"))?;
         let observed = lock::observe(&self.session)
             .map_err(|e| anyhow::anyhow!("lock state unreadable: {e}"))?;
@@ -1058,8 +1124,8 @@ impl<'c> Active<'c> {
             }
             InputEvent::Move { x, y } => remote.pointer_absolute(
                 &self.authority,
-                x.clamp(0.0, 1.0) * (width - 1.0).max(0.0),
-                y.clamp(0.0, 1.0) * (height - 1.0).max(0.0),
+                self.origin.0 + x.clamp(0.0, 1.0) * (width - 1.0).max(0.0),
+                self.origin.1 + y.clamp(0.0, 1.0) * (height - 1.0).max(0.0),
             ),
             InputEvent::Scroll { dx, dy } => remote.scroll(&self.authority, dx, dy),
         };
@@ -1088,8 +1154,21 @@ impl<'c> Active<'c> {
         if self.video.as_ref().is_some_and(|v| v.handle.is_finished()) {
             return Some("video stream ended".into());
         }
-        if lock_ok(&self.shared.beat).elapsed() > self.config.heartbeat_timeout {
+        let heartbeat = self
+            .options
+            .heartbeat_secs
+            .map_or(self.config.heartbeat_timeout, |secs| {
+                Duration::from_secs(u64::from(secs))
+            });
+        if lock_ok(&self.shared.beat).elapsed() > heartbeat {
             return Some("browser heartbeat lost".into());
+        }
+        let age = lock_ok(&self.shared.session_started).map_or(Duration::ZERO, |at| at.elapsed());
+        if let Some(reason) = self
+            .options
+            .expired(lock_ok(&self.shared.last_input).elapsed(), age)
+        {
+            return Some(reason);
         }
         if self.last_lease.elapsed() >= LEASE_EVERY
             && let Some(client) = self.grab.as_mut()
@@ -1221,7 +1300,7 @@ impl<'c> Active<'c> {
         stage("watchdog handled");
 
         self.renew_grab();
-        if self.isolated && !self.config.headless {
+        if self.options.lock_on_stop && !self.config.headless {
             report.locked = Some(display::lock_session(&self.session.session_id));
         }
         stage("lock requested");
@@ -1266,6 +1345,55 @@ fn single_monitor(backup: &DisplayBackup, headless: bool) -> anyhow::Result<(u32
         .find(|o| &o.connector == connector && &o.serial == serial)
         .ok_or_else(|| anyhow::anyhow!("the active monitor has no output entry"))?;
     Ok((u32::try_from(output.width)?, u32::try_from(output.height)?))
+}
+
+/// The monitor a shared session captures: the primary logical monitor, with its place in the layout.
+struct SharedTarget {
+    connector: String,
+    x: i32,
+    y: i32,
+    /// Logical pixels: the area the absolute pointer moves over.
+    logical: (u32, u32),
+    /// The monitor's own mode: what the capture delivers.
+    native: (u32, u32),
+}
+
+fn shared_target(backup: &DisplayBackup) -> anyhow::Result<SharedTarget> {
+    let logical = backup
+        .topology
+        .iter()
+        .find(|logical| logical.primary)
+        .or(backup.topology.first())
+        .ok_or_else(|| anyhow::anyhow!("no active monitor to share"))?;
+    let (connector, serial) = logical
+        .monitors
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("the active monitor has no output"))?;
+    let output = backup
+        .outputs
+        .iter()
+        .find(|o| &o.connector == connector && &o.serial == serial)
+        .ok_or_else(|| anyhow::anyhow!("the active monitor has no output entry"))?;
+    let (native_w, native_h) = (u32::try_from(output.width)?, u32::try_from(output.height)?);
+    let scale = if logical.scale > 0.0 {
+        logical.scale
+    } else {
+        1.0
+    };
+    let scaled = |value: u32| ((f64::from(value) / scale).round() as u32).max(1);
+    // Rotated by 90 or 270 degrees (with or without a flip): the sides swap.
+    let (w, h) = if logical.transform % 2 == 1 {
+        (scaled(native_h), scaled(native_w))
+    } else {
+        (scaled(native_w), scaled(native_h))
+    };
+    Ok(SharedTarget {
+        connector: connector.clone(),
+        x: logical.x,
+        y: logical.y,
+        logical: (w, h),
+        native: (native_w, native_h),
+    })
 }
 
 fn poll_new_connector(conn: &Connection, before: &[String]) -> anyhow::Result<String> {

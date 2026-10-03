@@ -21,12 +21,15 @@ use crate::clipboard::{self, ClipboardError};
 use crate::console::{InputEvent, Quality, RemoteConsole};
 use crate::hostd_auth::{HostdAuth, LoginForm, LoginOutcome};
 use crate::login::{Login, LoginError};
+use crate::options::SessionOptions;
 
 const PAGE: &str = include_str!("page.html");
 const LOGIN_PAGE: &str = include_str!("login.html");
 const LOGIN_FULL_PAGE: &str = include_str!("login_full.html");
 const LOGOUT_BUTTON: &str = r#"<button id="logout" onclick="fetch('/logout',{method:'POST',credentials:'same-origin'}).then(()=>location.reload())">Log out</button>"#;
 const SESSION_COOKIE: &str = "br_session";
+/// Start options and (later) settings: small JSON documents.
+const MAX_SETTINGS_BODY: usize = 16 * 1024;
 const COOKIE_NAME: &str = "br_token";
 const BOUNDARY: &str = "frame";
 /// A frame is resent at least this often so a still desktop does not look like a dead stream.
@@ -207,7 +210,10 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
             "/input",
             post(input).layer(DefaultBodyLimit::max(MAX_INPUT_BODY)),
         )
-        .route("/start", post(start))
+        .route(
+            "/start",
+            post(start).layer(DefaultBodyLimit::max(MAX_SETTINGS_BODY)),
+        )
         .route("/stop", post(stop))
         .route(
             "/webrtc",
@@ -625,12 +631,29 @@ async fn clipboard_get(State(state): State<AppState>, headers: HeaderMap) -> Res
     }
 }
 
-async fn start(State(state): State<AppState>, headers: HeaderMap) -> Response {
+async fn start(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
     if let Some(refusal) = guard(&state, &headers) {
         return refusal;
     }
+    let options = if body.iter().all(u8::is_ascii_whitespace) {
+        state.console.default_options()
+    } else {
+        match serde_json::from_slice::<SessionOptions>(&body)
+            .map_err(|error| error.to_string())
+            .and_then(SessionOptions::validated)
+        {
+            Ok(options) => options,
+            Err(error) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": format!("session options: {error}") })),
+                )
+                    .into_response();
+            }
+        }
+    };
     let console = state.console.clone();
-    match tokio::task::spawn_blocking(move || console.start()).await {
+    match tokio::task::spawn_blocking(move || console.start(options)).await {
         Ok(Ok(status)) => Json(status).into_response(),
         Ok(Err(message)) => (
             StatusCode::CONFLICT,
