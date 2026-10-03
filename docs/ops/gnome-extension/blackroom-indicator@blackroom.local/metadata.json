@@ -1,0 +1,7 @@
+{
+  "name": "Blackroom Console indicator",
+  "description": "A top-bar icon for the Blackroom console on this laptop: shows whether a remote session is running, and lets you disconnect it, lock the screen, or start and stop the console.",
+  "uuid": "blackroom-indicator@blackroom.local",
+  "shell-version": ["50"],
+  "session-modes": ["user"]
+}

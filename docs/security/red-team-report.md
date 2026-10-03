@@ -35,6 +35,9 @@ second Unix user, or a real phone are listed at the end as untested.
   nothing and only answers failed page loads.
 - Found by the browser walkthrough: the logout button's inline handler was silently blocked by the hash-based CSP, and
   typing in page text fields was swallowed by the global key handler. Both fixed; a unit test refuses inline handlers.
+- A second local entry point, the session-bus service `org.blackroom.Console` for the top-bar indicator: it returns a small fixed set of
+  facts about the session (a test pins the exact key set; no credentials) and can only end a running session. It cannot
+  start one or change a setting. Any process of the owner's user can call it, like `pkill` or `systemctl --user stop`.
 - New settings can lower the safety margin on purpose (Shared mode, no lock on disconnect, longer or unlimited timeouts):
   they are the owner's choices and the defaults stay safe. The emergency chord, the Stop button and heartbeat loss
   still end the session; with "lock on disconnect" off the screen is left unlocked afterwards.

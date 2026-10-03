@@ -438,6 +438,19 @@ async fn main() -> anyhow::Result<()> {
         state_dir.display()
     );
 
+    let local_url = match args.tls_listen {
+        Some(addr) => format!("https://localhost:{}/", addr.port()),
+        None => format!("http://localhost:{}/", http.local_addr()?.port()),
+    };
+    // Held until exit; the indicator shows "off" without it, so a failure here is only a warning.
+    let _control = match blackroom_console::control::serve(console.clone(), Some(local_url)) {
+        Ok(connection) => Some(connection),
+        Err(error) => {
+            tracing::warn!(%error, "the laptop indicator service is not available");
+            None
+        }
+    };
+
     let shutdown_console = console.clone();
     let shutdown_handle = handle.clone();
     axum::serve(

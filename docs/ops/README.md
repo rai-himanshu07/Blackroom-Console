@@ -63,6 +63,24 @@ Runbooks for the released product (incident response, recovery) live in
 `docs/plans/Detailed_Project_Plan/21_OPERATIONAL_RUNBOOK_RECOVERY_AND_INCIDENT_RESPONSE.md`;
 this directory holds the project's own dev-workstation procedures.
 
+### Laptop indicator (top bar)
+
+`gnome-extension/blackroom-indicator@blackroom.local` puts an icon in the GNOME top bar: dim when the console is off, normal
+when it is ready, orange with a timer while a remote session runs. Its menu shows the mode (private or shared), how long the
+session has run and whether laptop sound is sent, and offers **Disconnect the remote user**, **Lock this screen now**,
+**Open the console page**, and **Start/Stop the console** (`systemctl --user start|stop blackroom-console.service`, so the
+user unit must be installed). A notification appears when a session starts and when it ends. Install like the other
+extension (copy the directory to `~/.local/share/gnome-shell/extensions/`, log out and in; the `.deb` installs it under
+`/usr/share/gnome-shell/extensions/`), then `gnome-extensions enable blackroom-indicator@blackroom.local`. Unlike the
+locked-remote extension it may stay enabled: it changes nothing about access.
+
+It talks to the console over the session D-Bus (`org.blackroom.Console`, `Status` and `Disconnect`). That service can only
+report state and end a session; any process of your own user can call it, which is no more than `pkill` or
+`systemctl --user stop` already allow. In Private mode the panel is blank, so the icon is for Shared mode and for before and
+after a session. Proof without hardware: `docs/ops/headless-indicator-test.sh` (the console's D-Bus service, the extension
+loaded into a throwaway Shell, a click on its menu's Disconnect) and `node docs/ops/indicator-logic-test.mjs`. Not observed:
+the real top bar, notifications, Lock and Start/Stop from the menu.
+
 ### Modes, settings and the web app
 
 The page opens on a connect screen with Private and Shared modes and a settings sheet whose choices are saved on the

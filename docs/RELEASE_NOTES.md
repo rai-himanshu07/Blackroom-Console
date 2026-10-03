@@ -12,6 +12,8 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
   disconnect, virtual monitor size, laptop pointer, laptop sound, frame rate and bitrate limits, heartbeat, idle and
   length limits, scale modes, Mac keys, text typing), in-session menu, toasts and a session timer. See
   `docs/ops/settings-guide.md`.
+- **Laptop top-bar indicator (new):** a GNOME extension shows whether a remote session runs (icon, timer, notices) and lets
+  you disconnect it, lock the screen, open the console page, or start and stop the console. See `docs/ops/README.md`.
 - **Laptop sound** to the tablet (Opus over WebRTC, off by default) and an **installable web app** (manifest, icons,
   pass-through service worker; needs a trusted https address or localhost).
 - **Safety:** the display is restored and the screen locked on Stop, on heartbeat loss, on the emergency chord
@@ -47,7 +49,7 @@ only output, Chrome on the tablet. Everything else is in `docs/ops/compatibility
 
 ## Your live steps
 
-0. New in this version: Shared mode on the real screen (check the pointer lands correctly with fractional scaling or an
+0. New in this version (also: enable the top-bar indicator and try its menu on the real desktop): Shared mode on the real screen (check the pointer lands correctly with fractional scaling or an
    external monitor), Private mode with the blank/block switches each off and on, sound from the laptop's real default
    output, each setting on the tablet, installing the web app over a trusted https address.
 

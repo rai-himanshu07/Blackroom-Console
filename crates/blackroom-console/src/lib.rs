@@ -4,6 +4,7 @@
 pub mod clipboard;
 pub mod compat;
 pub mod console;
+pub mod control;
 pub mod display;
 pub mod eis_support;
 pub mod exposure;

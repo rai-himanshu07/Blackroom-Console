@@ -40,9 +40,16 @@ launcher, multi-monitor selection UI, file transfer, remote power control, mutin
   manifest and worker checks, curl.
 - [x] **R. Docs, gate, package, notes.** settings guide, runbook, release notes, compatibility matrix, workspace gate, `.deb`.
 
+- [x] **S. Laptop indicator.** (done 2026-10-03; `headless-indicator-test.sh` INDICATOR OK, `indicator-logic-test.mjs`) a
+  D-Bus service `org.blackroom.Console` (`control.rs`: `Status`, `Disconnect`; no start, no settings, no credentials) and a
+  GNOME top-bar extension `blackroom-indicator@blackroom.local` (icon, timer, menu: disconnect, lock, open page, start and
+  stop the console; notices when a session starts and ends). Check: throwaway Shell loads the extension, shows the session,
+  and its menu's Disconnect ends it.
+
 ## Owner live steps (new)
 Shared mode on the real screen; private mode with blank panel off/on; sound from the laptop to the tablet; install the web
-app from a Tailscale https address; each setting on the tablet.
+app from a Tailscale https address; each setting on the tablet; the top-bar indicator on the real desktop
+(enable it, connect, read the icon and notices, Disconnect and Lock from its menu, Start/Stop the console from it).
 
 ## Risks
 Shared mode maps pointer coordinates to the logical monitor: unproven live with fractional scaling or an external monitor.

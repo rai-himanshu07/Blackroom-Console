@@ -1,0 +1,48 @@
+// Tests the indicator's pure logic: node docs/ops/indicator-logic-test.mjs
+import assert from 'node:assert/strict';
+import {formatDuration, parseStatus, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
+
+const idle = {phase: 'idle', mode: 'private', session_secs: 0, blank_panel: true, block_local_input: true, audio: 'off',
+    version: '0.1.0', local_url: 'https://localhost:8443/', last_stop: null};
+const running = {...idle, phase: 'running', session_secs: 754, audio: 'on'};
+const shared = {...running, mode: 'shared', blank_panel: false, block_local_input: false, audio: 'off'};
+
+assert.equal(formatDuration(0), '0:00');
+assert.equal(formatDuration(754), '12:34');
+assert.equal(formatDuration(3725), '1:02:05');
+assert.equal(formatDuration(-5), '0:00');
+assert.equal(formatDuration('x'), '0:00');
+
+assert.equal(parseStatus('{"phase":"idle"}').phase, 'idle');
+for (const bad of ['', 'nope', '[1]', 'null', '3']) assert.equal(parseStatus(bad), null, bad);
+
+assert.deepEqual([null, idle, {phase: 'starting'}, running, {phase: 'stopping'}, {phase: 'weird'}].map(stateOf),
+    ['off', 'idle', 'starting', 'running', 'stopping', 'idle']);
+
+const off = view(null);
+assert.ok(off.canStart && !off.canStop && !off.canDisconnect && !off.canOpen);
+const ready = view(idle);
+assert.ok(ready.canStop && ready.canOpen && !ready.canDisconnect && ready.badge === '');
+const live = view(running);
+assert.ok(live.canDisconnect && live.canStop && live.badge === '12:34');
+assert.match(live.lines[0], /^Private mode: screen blank, laptop keyboard and touchpad blocked$/);
+assert.ok(live.lines.some(line => /sound/.test(line)));
+assert.match(view(shared).lines[0], /^Shared mode: screen visible, laptop keyboard and touchpad usable$/);
+assert.ok(!view(shared).lines.some(line => /sound/.test(line)));
+assert.ok(!view({...idle, local_url: null}).canOpen);
+
+assert.equal(transitionNotice(undefined, running), null, 'no message for the first reading');
+assert.equal(transitionNotice(idle, idle), null);
+assert.equal(transitionNotice(null, idle), null, 'console start is silent');
+assert.equal(transitionNotice(idle, null), null, 'console stop while idle is silent');
+assert.match(transitionNotice(idle, running).body, /blank/);
+assert.match(transitionNotice(idle, shared).body, /both use/);
+assert.equal(transitionNotice(idle, {...idle, phase: 'starting'}).title, 'Remote session started');
+assert.equal(transitionNotice(running, {...idle, phase: 'stopping'}), null);
+assert.equal(transitionNotice({phase: 'stopping'}, idle).title, 'Remote session ended', 'a Disconnect is seen as stopping, then idle');
+const ended = transitionNotice(running, {...idle, last_stop: {reason: 'x', locked: true, restored: true}});
+assert.equal(ended.title, 'Remote session ended');
+assert.equal(ended.body, 'The screen was restored and the laptop was locked.');
+assert.equal(transitionNotice(running, idle).body, 'The remote device is disconnected.');
+assert.match(transitionNotice(running, null).title, /stopped during a remote session/);
+console.log('INDICATOR LOGIC OK');

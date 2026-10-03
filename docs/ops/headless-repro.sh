@@ -20,9 +20,18 @@ log=$(mktemp /tmp/br-headless-shell.XXXXXX)
 runner=()
 [ -n "${BR_GDB:-}" ] && runner=(gdb -batch -nx -ex 'handle SIGPIPE nostop noprint pass' -ex run -ex 'bt 14' \
   -ex 'info sharedlibrary libmutter' -ex 'info registers rip rax' -ex 'x/6i $pc' --args)
-timeout -k 3 "${BR_SHELL_TIMEOUT:-150}" "${runner[@]}" gnome-shell --headless --wayland --no-x11 --wayland-display=blackroom-repro \
+shell_env=()
+# For the throwaway Shell only: BR_SHELL_DATA_DIR is an extra XDG data dir (for example one holding gnome-shell/extensions);
+# BR_SHELL_CONFIG_DIR is a private config dir whose glib-2.0/settings/keyfile holds its settings (for example
+# enabled-extensions), instead of the empty in-memory settings.
+if [ -n "${BR_SHELL_DATA_DIR:-}${BR_SHELL_CONFIG_DIR:-}" ]; then
+  shell_env=(env -u JOURNAL_STREAM "XDG_DATA_DIRS=${BR_SHELL_DATA_DIR:-/nonexistent}:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}")
+  [ -n "${BR_SHELL_CONFIG_DIR:-}" ] && shell_env+=(GSETTINGS_BACKEND=keyfile "XDG_CONFIG_HOME=$BR_SHELL_CONFIG_DIR")
+fi
+timeout -k 3 "${BR_SHELL_TIMEOUT:-150}" "${runner[@]}" "${shell_env[@]}" gnome-shell --headless --wayland --no-x11 --wayland-display=blackroom-repro \
   --virtual-monitor 1920x1080 >"$log" 2>&1 &
 shell=$!
+export BR_SHELL_LOG=$log
 ready=0
 for _ in $(seq 1 80); do
   if busctl --user --no-pager list 2>/dev/null | grep -q org.gnome.Mutter.DisplayConfig; then ready=1; break; fi

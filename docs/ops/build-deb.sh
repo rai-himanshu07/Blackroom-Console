@@ -33,7 +33,8 @@ install -m 755 packaging/blackroom-grant-input "$root/usr/sbin/blackroom-grant-i
 install -m 644 packaging/units/*.service "$root/usr/lib/systemd/user/"
 install -m 644 pam/blackroom-console "$root/etc/pam.d/blackroom-console"
 install -m 644 polkit/org.blackroom.console.policy "$root/usr/share/polkit-1/actions/"
-cp -r docs/ops/gnome-extension/blackroom-locked-remote@blackroom.local "$root/usr/share/gnome-shell/extensions/"
+cp -r docs/ops/gnome-extension/blackroom-locked-remote@blackroom.local docs/ops/gnome-extension/blackroom-indicator@blackroom.local \
+  "$root/usr/share/gnome-shell/extensions/"
 find "$root" -type d -exec chmod 755 {} +
 find "$root/usr/share/gnome-shell/extensions" -type f -exec chmod 644 {} +
 for d in docs/ops/README.md docs/ops/runbook.md docs/ops/internet-access.md docs/ops/settings-guide.md docs/security/authentication.md docs/security/credential-lifecycle.md \

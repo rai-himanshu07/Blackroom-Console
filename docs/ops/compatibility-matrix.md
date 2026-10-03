@@ -23,6 +23,7 @@ Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused
 | Browser: Chrome/Chromium on Linux, Android Chrome | PASS (Chrome headless on this laptop); tablet Chrome by the owner | headless browser test; owner's tablet |
 | Shared mode (panel and input left alone) on the real screen | UNKNOWN | proven only on the headless Shell; pointer mapping with fractional scaling or an external monitor not observed |
 | Laptop sound to the browser | UNKNOWN | headless: a 440 Hz tone arrives and decodes at 439 Hz; the real default output was not tried |
+| Laptop top-bar indicator on the real desktop | UNKNOWN | headless: the extension loads in a throwaway Shell, shows the session and its menu's Disconnect ends it; the real top bar and notifications were not observed |
 | Installing the page as an app | UNKNOWN | headless Chrome finds no installability problem; a tablet over a trusted https address was not tried |
 | Browser: Safari, iOS Safari | UNKNOWN | fallbacks exist (no Keyboard Lock, prefixed fullscreen, blocked storage) and are exercised with a stub only |
 | Browser: Firefox | UNKNOWN | |
