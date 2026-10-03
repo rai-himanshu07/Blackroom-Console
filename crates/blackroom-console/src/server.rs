@@ -776,6 +776,16 @@ async fn start(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -
             }
         }
     };
+    let options = match state.console.apply_policy(options) {
+        Ok(options) => options,
+        Err(message) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": message })),
+            )
+                .into_response();
+        }
+    };
     let console = state.console.clone();
     match tokio::task::spawn_blocking(move || console.start(options)).await {
         Ok(Ok(status)) => Json(status).into_response(),

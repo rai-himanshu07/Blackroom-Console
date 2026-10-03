@@ -215,7 +215,7 @@ async fn main() -> anyhow::Result<()> {
     // kill the process with the panel still black.
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
-    let args = Args::parse();
+    let mut args = Args::parse();
     // The console acts for one user's desktop: root would add nothing but blast radius.
     anyhow::ensure!(
         !rustix::process::geteuid().is_root(),
@@ -246,6 +246,50 @@ async fn main() -> anyhow::Result<()> {
             anyhow::bail!("this host cannot run the console: {}", reasons.join("; "))
         }
     }
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let state_dir = args
+        .state_dir
+        .clone()
+        .unwrap_or_else(|| runtime.join("blackroom-console"));
+    let profile_dir = args.profile_dir.clone().unwrap_or_else(|| {
+        if args.headless {
+            state_dir.clone()
+        } else {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(std::env::temp_dir)
+                .join(".local/share/blackroom-console")
+        }
+    });
+    // The owner's saved host settings win over the command line (the page that edits them restarts the console).
+    let (host, host_note) = blackroom_console::host::HostConfig::load(&profile_dir);
+    if let Some(note) = host_note {
+        tracing::warn!("{note}");
+    }
+    let parse = |text: &str| text.parse::<SocketAddr>();
+    if let Some(text) = &host.http_listen {
+        args.listen = parse(text)?;
+    }
+    match host.tls_listen.as_deref() {
+        Some("") => args.tls_listen = None,
+        Some(text) => args.tls_listen = Some(parse(text)?),
+        None => {}
+    }
+    if let (Some(cert), Some(key)) = (&host.tls_cert, &host.tls_key) {
+        args.tls_cert = Some(cert.clone());
+        args.tls_key = Some(key.clone());
+    }
+    if let Some(public) = host.public {
+        args.public = public;
+    }
+    if let Some(clipboard) = host.allow_clipboard {
+        args.clipboard = clipboard;
+    }
+    if host.audio_sink.is_some() {
+        args.audio_sink.clone_from(&host.audio_sink);
+    }
     let ice_config = ice_config_from(&args)?;
     if args.public {
         let problems =
@@ -268,12 +312,6 @@ async fn main() -> anyhow::Result<()> {
             "--grab-socket must be an absolute path"
         );
     }
-    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    let state_dir = args
-        .state_dir
-        .unwrap_or_else(|| runtime.join("blackroom-console"));
     let restore_bin = match args.restore_bin {
         Some(path) => path,
         None => std::env::current_exe()?.with_file_name("exp07_restore"),
@@ -293,17 +331,7 @@ async fn main() -> anyhow::Result<()> {
     });
     console.set_clipboard_enabled(args.clipboard);
     console.set_audio_sink(args.audio_sink.clone());
-    let profile_dir = args.profile_dir.clone().unwrap_or_else(|| {
-        if args.headless {
-            state_dir.clone()
-        } else {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(std::env::temp_dir)
-                .join(".local/share/blackroom-console")
-        }
-    });
-    if let Some(note) = console.load_profile(profile_dir) {
+    if let Some(note) = console.load_profile(profile_dir.clone()) {
         tracing::warn!("{note}");
     }
 

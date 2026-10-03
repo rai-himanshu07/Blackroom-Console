@@ -8,6 +8,7 @@ pub mod control;
 pub mod display;
 pub mod eis_support;
 pub mod exposure;
+pub mod host;
 pub mod hostd_auth;
 pub mod ice;
 pub mod keysym;

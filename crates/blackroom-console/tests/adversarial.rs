@@ -619,3 +619,41 @@ async fn install_files_are_public_static_and_still_hardened() {
             .is_some_and(|icons| icons.len() >= 3)
     );
 }
+
+#[tokio::test]
+async fn the_owners_limits_refuse_what_a_client_asks_for() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("host.json"),
+        r#"{"allow_shared":false,"max_fps":30,"allow_text":false}"#,
+    )
+    .unwrap();
+    let console = RemoteConsole::spawn(ConsoleConfig {
+        grab_socket: None,
+        state_dir: dir.path().to_path_buf(),
+        headless: true,
+        quality: Quality::Medium,
+        heartbeat_timeout: Duration::from_secs(15),
+        restore_bin: std::path::PathBuf::new(),
+    });
+    assert_eq!(console.load_profile(dir.path().to_path_buf()), None);
+    let app = router_with(console, TOKEN, Hardening::default());
+    let json = [("content-type", "application/json")];
+    let shared =
+        br#"{"blank_panel":false,"block_local_input":false,"lock_on_stop":false}"#.to_vec();
+    let response = send(&app, request(Method::POST, "/start", true, &json, shared)).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = axum::body::to_bytes(response.into_body(), 1 << 16)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("only Private"));
+    let status = send(&app, request(Method::GET, "/status", true, &[], vec![])).await;
+    let body = axum::body::to_bytes(status.into_body(), 1 << 16)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["phase"], "idle", "a refused start changes nothing");
+    assert_eq!(json["policy"]["allow_shared"], false);
+    assert_eq!(json["policy"]["max_fps"], 30);
+    assert_eq!(json["policy"]["allow_text"], false);
+}

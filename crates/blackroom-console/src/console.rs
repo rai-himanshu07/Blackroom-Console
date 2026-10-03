@@ -29,6 +29,7 @@ use zbus::blocking::Connection;
 use crate::clipboard::{self, ClipboardError};
 use crate::display::{self, Watchdog};
 use crate::eis_support::{Authority, DeviceSeen, Remote, open_remote_with};
+use crate::host::HostConfig;
 use crate::options::SessionOptions;
 use crate::profile::Profile;
 use crate::webrtc::{AudioPlan, audio_available, pick_opus};
@@ -139,15 +140,26 @@ fn hostname() -> String {
         .unwrap_or_default()
 }
 
-fn effective_fps(quality: Quality, cap: u32) -> u32 {
-    if cap == 0 { quality.max_fps() } else { cap }
+/// `host_max` is the owner's ceiling (0 = none).
+fn effective_fps(quality: Quality, cap: u32, host_max: u32) -> u32 {
+    let wanted = if cap == 0 { quality.max_fps() } else { cap };
+    if host_max == 0 {
+        wanted
+    } else {
+        wanted.min(host_max)
+    }
 }
 
-fn effective_bitrate(quality: Quality, override_kbps: u32) -> u32 {
-    if override_kbps == 0 {
+fn effective_bitrate(quality: Quality, override_kbps: u32, host_max: u32) -> u32 {
+    let wanted = if override_kbps == 0 {
         quality.bitrate_kbps()
     } else {
         override_kbps
+    };
+    if host_max == 0 {
+        wanted
+    } else {
+        wanted.min(host_max)
     }
 }
 
@@ -177,6 +189,8 @@ pub struct Status {
     pub resources: Resources,
     /// The options of the running session (the defaults while idle).
     pub session: SessionOptions,
+    /// What the laptop owner allows; the page greys out the rest.
+    pub policy: crate::host::Policy,
     /// "private", "shared" or "custom".
     pub mode: &'static str,
     /// "off", "waiting" (asked for, no WebRTC yet), "on" or "unavailable" (with `audio_note`).
@@ -266,6 +280,7 @@ struct Shared {
     options: Mutex<SessionOptions>,
     profile: Mutex<Profile>,
     profile_dir: Mutex<Option<PathBuf>>,
+    host: Mutex<HostConfig>,
     audio_sink: Mutex<Option<String>>,
     audio_note: Mutex<Option<String>>,
     session_started: Mutex<Option<Instant>>,
@@ -316,6 +331,7 @@ impl RemoteConsole {
             options: Mutex::new(SessionOptions::default()),
             profile: Mutex::new(Profile::default()),
             profile_dir: Mutex::new(None),
+            host: Mutex::new(HostConfig::default()),
             audio_sink: Mutex::new(None),
             audio_note: Mutex::new(None),
             session_started: Mutex::new(None),
@@ -340,10 +356,35 @@ impl RemoteConsole {
     /// Reads the saved settings from `dir` (and keeps writing there). Returns a note when the file was unusable.
     pub fn load_profile(&self, dir: PathBuf) -> Option<String> {
         let (profile, note) = Profile::load(&dir);
+        let (host, host_note) = HostConfig::load(&dir);
         *lock_ok(&self.shared.quality) = profile.client.quality;
         *lock_ok(&self.shared.profile) = profile;
+        *lock_ok(&self.shared.host) = host;
         *lock_ok(&self.shared.profile_dir) = Some(dir);
-        note
+        match (note, host_note) {
+            (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+            (a, b) => a.or(b),
+        }
+    }
+
+    /// The owner's limits, read once at start: a change is saved and takes effect when the console restarts.
+    pub fn host_config(&self) -> HostConfig {
+        lock_ok(&self.shared.host).clone()
+    }
+
+    /// Where the settings files live (None until `load_profile`).
+    pub fn settings_dir(&self) -> Option<PathBuf> {
+        lock_ok(&self.shared.profile_dir).clone()
+    }
+
+    /// What a client may ask for, after the owner's limits.
+    pub fn apply_policy(&self, options: SessionOptions) -> Result<SessionOptions, String> {
+        lock_ok(&self.shared.host).apply(options.validated()?)
+    }
+
+    fn host_caps(&self) -> (u32, u32) {
+        let host = lock_ok(&self.shared.host);
+        (host.max_fps, host.max_bitrate_kbps)
     }
 
     /// The PipeWire output whose sound is sent (default: the system's default output).
@@ -353,6 +394,7 @@ impl RemoteConsole {
 
     /// Turns the laptop's sound on or off for the next WebRTC connection (the page reconnects its video).
     pub fn set_audio(&self, enabled: bool) {
+        let enabled = enabled && lock_ok(&self.shared.host).allow_audio;
         lock_ok(&self.shared.options).audio = enabled;
         *lock_ok(&self.shared.audio_note) = None;
     }
@@ -376,7 +418,7 @@ impl RemoteConsole {
 
     /// Blocks until the session runs or setup failed (everything already undone).
     pub fn start(&self, options: SessionOptions) -> Result<Status, String> {
-        let options = options.validated()?;
+        let options = self.apply_policy(options)?;
         {
             let mut phase = lock_ok(&self.shared.phase);
             if *phase != Phase::Idle {
@@ -417,6 +459,13 @@ impl RemoteConsole {
             .collect::<Result<Vec<_>, _>>()?;
         if *lock_ok(&self.shared.phase) != Phase::Running {
             return Err("not running".into());
+        }
+        if !lock_ok(&self.shared.host).allow_text
+            && events
+                .iter()
+                .any(|event| matches!(event, InputEvent::Text { .. }))
+        {
+            return Err("typing text is not allowed by the laptop owner".into());
         }
         self.beat();
         if events.is_empty() {
@@ -527,7 +576,14 @@ impl RemoteConsole {
     pub fn set_rates(&self, fps_cap: u32, bitrate_kbps: u32) -> Result<(), String> {
         let mut probe = lock_ok(&self.shared.options).clone();
         (probe.fps_cap, probe.bitrate_kbps) = (fps_cap, bitrate_kbps);
-        let probe = probe.validated()?;
+        let mut probe = probe.validated()?;
+        let (max_fps, max_bitrate) = self.host_caps();
+        if max_fps != 0 && probe.fps_cap > max_fps {
+            probe.fps_cap = max_fps;
+        }
+        if max_bitrate != 0 && probe.bitrate_kbps > max_bitrate {
+            probe.bitrate_kbps = max_bitrate;
+        }
         {
             let mut options = lock_ok(&self.shared.options);
             (options.fps_cap, options.bitrate_kbps) = (probe.fps_cap, probe.bitrate_kbps);
@@ -542,11 +598,15 @@ impl RemoteConsole {
             let options = lock_ok(&self.shared.options);
             (options.fps_cap, options.bitrate_kbps)
         };
+        let (max_fps, max_bitrate) = self.host_caps();
         if let Some(tuning) = lock_ok(&self.shared.tuning).as_ref() {
-            tuning.set(quality.jpeg_quality(), effective_fps(quality, fps_cap));
+            tuning.set(
+                quality.jpeg_quality(),
+                effective_fps(quality, fps_cap, max_fps),
+            );
         }
         if let Some(session) = lock_ok(&self.shared.webrtc).as_ref() {
-            session.set_bitrate(effective_bitrate(quality, bitrate));
+            session.set_bitrate(effective_bitrate(quality, bitrate, max_bitrate));
         }
     }
 
@@ -566,7 +626,11 @@ impl RemoteConsole {
         let h264 = pick_h264(offer_sdp).ok_or("the browser offers no usable H.264")?;
         let console = self.clone();
         let input: InputSink = Arc::new(move |text| console.input_json(text));
-        let bitrate = effective_bitrate(quality, lock_ok(&self.shared.options).bitrate_kbps);
+        let bitrate = effective_bitrate(
+            quality,
+            lock_ok(&self.shared.options).bitrate_kbps,
+            self.host_caps().1,
+        );
         let (want_audio, sink) = (
             lock_ok(&self.shared.options).audio,
             lock_ok(&self.shared.audio_sink).clone(),
@@ -655,6 +719,7 @@ impl RemoteConsole {
                 self.shared.clipboard_enabled.load(Ordering::Relaxed)
             },
             resources: self.resources(),
+            policy: lock_ok(&self.shared.host).policy(),
             mode: session.label(),
             audio: audio_state,
             audio_note,
@@ -1041,7 +1106,11 @@ impl<'c> Active<'c> {
             preferred_width: i32::try_from(shape.0)?,
             preferred_height: i32::try_from(shape.1)?,
             quality: quality.jpeg_quality(),
-            max_fps: effective_fps(quality, self.options.fps_cap),
+            max_fps: effective_fps(
+                quality,
+                self.options.fps_cap,
+                lock_ok(&self.shared.host).max_fps,
+            ),
         };
         let tuning = VideoTuning::new(&options);
         *lock_ok(&self.shared.tuning) = Some(Arc::clone(&tuning));
