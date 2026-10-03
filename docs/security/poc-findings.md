@@ -12,7 +12,7 @@ decides which become work items. "Observed" means seen on this laptop.
 | 5 | Input is validated (key range, a blocked-key list, pointer and scroll limits) but a logged-in tablet can type anything else, including shell commands, once the desktop is unlocked. | `console.rs` | By design: it is a remote console. |
 | 6 | Physical input isolation uses `EVIOCGRAB` through a daemon running as the user with ACLs on four nodes granted by `sudo setfacl`; the user is not in `input`. A same-uid process can open those nodes while the ACLs exist. | exp09, `docs/ops/console.sh` | Accepted; ACLs are removed after each run. |
 | 7 | The panel is blank only through DPMS and a virtual-only topology; a failed restore leaves it black until the watchdog (60 s) or SSH. | exp06/07, run 13 | Mitigated by the dead-man restore (observed once). |
-| 8 | A console killed mid-Stop (SIGHUP, live) left the restore watchdog armed; the restore then ran 61 s later and locked. Open defect. | run 13, `last_stop.json` added for diagnosis | Fail-safe worked; the cause is open. |
+| 8 | A console killed mid-Stop (SIGHUP, live) left the restore watchdog armed; the restore then ran 61 s later and locked. Fixed by registering the signal handlers first; one live re-run stopped cleanly in 0.8 s. | runs 13 and 14, `last_stop.json` | Fail-safe worked; the root cause is not proven. |
 | 9 | The state directory (`$XDG_RUNTIME_DIR/blackroom-console`) holds the display backup, `last_stop.json`, `recovery.json` and the token URL, all mode 0600 in a 0700 directory. | `display.rs` | Low; tmpfs, same uid. |
 | 10 | The emergency daemon and its client use unix sockets only and link only libc-level libraries (tested). | `tests/process.rs` | Low. |
 

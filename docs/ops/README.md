@@ -21,7 +21,7 @@ the panel and grabs the built-in keyboard and touchpad; typing, pointer, click a
 display, locks the screen and releases the grab; 15 s without a heartbeat ran Stop with a clean restore; Start on a
 locked screen with the extension enabled beforehand showed the lock screen and the account password unlocked it.
 Not observed: Safari or Android decode, iOS fullscreen, enabling the extension on an already locked screen, idle
-screen blanking during a session, a console crash or `kill -9` (dead-man restore plus lock), SIGHUP, input over the
+screen blanking during a session, a `kill -9` on purpose (the dead-man restore plus lock was seen once after an unclean exit), input over the
 WebRTC data channel on the tablet, a started-by-systemd run, suspend, logout, long runs, other displays or layouts.
 
 Kill switches while a session is live: the chord (Left Ctrl + Left Shift + Left Alt + Esc, held 2 s), the Stop

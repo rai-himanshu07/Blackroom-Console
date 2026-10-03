@@ -11,7 +11,7 @@ Mutter 50.1, built-in eDP-1 at scale 1.0, built-in input nodes event2-5, one uid
 | FEAS-C physical display isolation | PASS-WITH-LIMITS | exp06/07, `docs/gnome/display-isolation.md`, product Start/Stop live | eDP-1 only, scale 1.0; the restore keeps the virtual monitor until ScreenCast stops (Mutter NULL-view crash, root-caused). HDMI unsupported. |
 | FEAS-D remote input | PASS-WITH-LIMITS | exp08, product input live (keys, pointer, buttons, scroll) | Same-session EIS on the built-in layout; data-channel transport seen on the tablet only as "worked". |
 | FEAS-E physical input isolation | PASS-WITH-LIMITS | exp09, daemon runs, product live | Built-in nodes only; same uid plus ACLs set by the operator; dongles and hotplug unproven. |
-| FEAS-F fail-safe | OPEN | Observed: owner kill with the grab (Gate F, once); heartbeat loss Stop; dead-man restore fired and locked (run 13); headless 100 cycles, 8 race rounds, 2 SIGKILLs without leaks or Shell loss | Not observed: PipeWire and Mutter failure injection, suspend, logout, power loss, 1 h soak. Open defect: SIGHUP in a live session killed the console mid-Stop (see the plan log, run 13). |
+| FEAS-F fail-safe | OPEN | Observed: owner kill with the grab (Gate F, once); heartbeat loss Stop; dead-man restore fired and locked (run 13); headless 100 cycles, 8 race rounds, 2 SIGKILLs without leaks or Shell loss | Not observed: PipeWire and Mutter failure injection, suspend, logout, power loss, 1 h soak. SIGHUP in a live session once killed the console mid-Stop (run 13); after registering the signal handlers first, one live re-run stopped cleanly (run 14). |
 | FEAS-G emergency | OPEN | The chord releases the grab (observed); matrix in `docs/security/emergency-matrix.md`; daemon links only libc-level libraries (tested) | No lock, epoch or marker in the product chain; chord with the network down not run in a namespace; Phase 10 live runs not done. |
 | FEAS-H same-session recovery | OPEN | The dead-man restore returned the same session locked (once); recovery marker and start-up recovery written and unit-tested | Not exercised on a real crash; session survival across suspend or logout unknown. |
 
@@ -25,7 +25,7 @@ Mutter 50.1, built-in eDP-1 at scale 1.0, built-in input nodes event2-5, one uid
 
 ## What the Go/No-Go needs from evidence
 
-FEAS-F, FEAS-G and FEAS-H live runs (Phase 9 and 10 lists in the roadmap), the SIGHUP defect fixed and re-observed,
+FEAS-F, FEAS-G and FEAS-H live runs (Phase 9 and 10 lists in the roadmap), the SIGHUP fix re-observed more than once,
 and the owner's acceptance of the single-uid and eDP-only limits.
 
 **Decision (Go / No-Go / Modify), date and reason: to be recorded by the owner.**

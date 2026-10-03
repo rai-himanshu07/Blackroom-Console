@@ -60,7 +60,7 @@ chord (Left Ctrl+Left Shift+Left Alt+Esc, 2 s) is held, or the tablet sends no h
 display and locks the screen; the grab is released after the lock. If the screen is locked at Start (extension
 enabled), the page shows the lock screen: type the account password there; it is never bypassed. While the
 extension is enabled, locking does not end remote sessions. Not yet observed: Safari/Android decode, iOS fullscreen,
-idle blanking, a crashed console (the 60 s dead-man restore also locks), SIGHUP.
+idle blanking, a crashed console (the 60 s dead-man restore also locks; seen once).
 EOF
 read -r -p "Type START to begin: " answer
 [ "$answer" = "START" ] || { echo "Aborted."; exit 1; }
