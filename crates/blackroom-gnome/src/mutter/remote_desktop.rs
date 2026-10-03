@@ -93,6 +93,19 @@ impl<'a> RemoteDesktopSession<'a> {
             .map_err(mutter_unavailable)
     }
 
+    /// `NotifyKeyboardKeysym(u, b)`: presses or releases the key that types `keysym` in the laptop's current layout.
+    pub fn notify_keyboard_keysym(&self, keysym: u32, pressed: bool) -> Result<(), BlackroomError> {
+        if !self.started {
+            return Err(BlackroomError::new(
+                ErrorCode::LeaseInvalid,
+                "remote desktop session must be started before keyboard input",
+            ));
+        }
+        self.session_proxy()?
+            .call::<_, _, ()>("NotifyKeyboardKeysym", &(keysym, pressed))
+            .map_err(mutter_unavailable)
+    }
+
     /// Makes this session the clipboard owner offering `mime_types`; Mutter then
     /// raises `SelectionTransfer` for every paste.
     pub fn set_selection(&self, mime_types: &[&str]) -> Result<(), BlackroomError> {

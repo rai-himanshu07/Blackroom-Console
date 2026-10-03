@@ -9,6 +9,7 @@ pub mod eis_support;
 pub mod exposure;
 pub mod hostd_auth;
 pub mod ice;
+pub mod keysym;
 pub mod login;
 pub mod options;
 pub mod profile;

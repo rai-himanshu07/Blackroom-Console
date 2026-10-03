@@ -57,6 +57,11 @@ events='[{"t":"move","x":0.5,"y":0.5},{"t":"key","code":42,"down":true},{"t":"ke
 check "input" "$(curl -s -b "$jar" "${json[@]}" -X POST -d "$events" -o /dev/null -w '%{http_code}' "$base/input")" 204
 sleep 1
 check "input accepted" "$(status | jq -r '.input_accepted >= 3')" true
+check "text typed as keysyms" "$(curl -s -b "$jar" "${json[@]}" -X POST -d '[{"t":"text","s":"h\u00e9llo \u20ac\n"}]' -o /dev/null -w '%{http_code}' "$base/input")" 204
+sleep 1
+check "keysym typing accepted by Mutter" "$(status | jq -r '"\(.input_accepted >= 4) \(.input_refused)"')" "true 0"
+check "control characters in text refused" "$(curl -s -b "$jar" "${json[@]}" -X POST -d '[{"t":"text","s":"a\u0007"}]' -o /dev/null -w '%{http_code}' "$base/input")" 400
+check "overlong text refused" "$(python3 -c 'import json;print(json.dumps([{"t":"text","s":"x"*300}]))' | curl -s -b "$jar" "${json[@]}" -X POST -d @- -o /dev/null -w '%{http_code}' "$base/input")" 400
 check "shared stop" "$(stop)" 200
 check "nothing to restore" "$(jq -r '.topology_restored' /tmp/br-modes-stop.json)" null
 check "no errors" "$(jq -r '.errors | length' /tmp/br-modes-stop.json)" 0

@@ -180,13 +180,29 @@ pub struct Status {
 }
 
 /// One input event from the browser. Pointer positions are fractions of the screen.
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum InputEvent {
-    Key { code: u32, down: bool },
-    Button { code: u32, down: bool },
-    Move { x: f32, y: f32 },
-    Scroll { dx: f32, dy: f32 },
+    Key {
+        code: u32,
+        down: bool,
+    },
+    Button {
+        code: u32,
+        down: bool,
+    },
+    Move {
+        x: f32,
+        y: f32,
+    },
+    Scroll {
+        dx: f32,
+        dy: f32,
+    },
+    /// Soft-keyboard text, typed as characters whatever the laptop's layout.
+    Text {
+        s: String,
+    },
 }
 
 const KEY_MAX: u32 = 0x2ff;
@@ -213,6 +229,7 @@ impl InputEvent {
             {
                 Err("scroll out of range")
             }
+            Self::Text { s } => crate::keysym::keysyms(&s).map(|_| Self::Text { s }),
             other => Ok(other),
         }
     }
@@ -1255,6 +1272,7 @@ impl<'c> Active<'c> {
                 self.origin.1 + y.clamp(0.0, 1.0) * (height - 1.0).max(0.0),
             ),
             InputEvent::Scroll { dx, dy } => remote.scroll(&self.authority, dx, dy),
+            InputEvent::Text { ref s } => type_text(remote, &self.authority, s),
         };
         if let Err(error) = result {
             self.shared.input_refused.fetch_add(1, Ordering::Relaxed);
@@ -1474,6 +1492,19 @@ fn single_monitor(backup: &DisplayBackup, headless: bool) -> anyhow::Result<(u32
     Ok((u32::try_from(output.width)?, u32::try_from(output.height)?))
 }
 
+/// Types `text` through Mutter's keysym path; stops at the first key it refuses.
+fn type_text(remote: &Remote<'_>, authority: &Authority, text: &str) -> Result<(), BlackroomError> {
+    authority.authorization(false).validate()?;
+    let symbols = crate::keysym::keysyms(text).map_err(|reason| {
+        BlackroomError::new(blackroom_core::error::ErrorCode::LeaseInvalid, reason)
+    })?;
+    for symbol in symbols {
+        remote.session().notify_keyboard_keysym(symbol, true)?;
+        remote.session().notify_keyboard_keysym(symbol, false)?;
+    }
+    Ok(())
+}
+
 /// The monitor a shared session captures: the primary logical monitor, with its place in the layout.
 struct SharedTarget {
     connector: String,
@@ -1617,7 +1648,7 @@ mod tests {
             InputEvent::Scroll { dx: 0.0, dy: -15.0 },
         ];
         for event in ok {
-            assert!(event.validate().is_ok(), "{event:?}");
+            assert!(event.clone().validate().is_ok(), "{event:?}");
         }
         let bad = [
             InputEvent::Key {
@@ -1650,7 +1681,7 @@ mod tests {
             },
         ];
         for event in bad {
-            assert!(event.validate().is_err(), "{event:?}");
+            assert!(event.clone().validate().is_err(), "{event:?}");
         }
     }
 

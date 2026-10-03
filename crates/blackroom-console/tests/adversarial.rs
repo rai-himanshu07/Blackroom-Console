@@ -520,6 +520,7 @@ fn input_validation_holds_for_every_generated_event() {
                 dx.is_finite() && dy.is_finite() && dx.abs() <= 1000.0 && dy.abs() <= 1000.0,
                 "{text}"
             ),
+            InputEvent::Text { s } => assert!(s.chars().count() <= 256, "{text}"),
         }
     }
     assert!(
@@ -544,6 +545,6 @@ fn input_validation_holds_for_every_generated_event() {
             dy: 0.0,
         },
     ] {
-        assert!(event.validate().is_err(), "{event:?}");
+        assert!(event.clone().validate().is_err(), "{event:?}");
     }
 }
