@@ -308,7 +308,7 @@ pub fn diagnostics(
     })
 }
 
-fn prompt(prompt: &str, echo: bool) -> io::Result<Zeroizing<String>> {
+pub(crate) fn prompt(prompt: &str, echo: bool) -> io::Result<Zeroizing<String>> {
     use rustix::termios::{LocalModes, OptionalActions, tcgetattr, tcsetattr};
     let tty = File::options().read(true).write(true).open("/dev/tty")?;
     (&tty).write_all(prompt.as_bytes())?;

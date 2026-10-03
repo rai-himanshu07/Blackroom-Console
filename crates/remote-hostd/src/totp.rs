@@ -595,6 +595,19 @@ pub fn enroll(directory: &File, account: &str) -> io::Result<Zeroizing<String>> 
     Ok(encoded)
 }
 
+/// Removes an account and its authenticator secret; false when it was not enrolled.
+pub fn remove(directory: &File, account: &str) -> io::Result<bool> {
+    let _lock = lock_store(directory)?;
+    let mut stored = read_store(directory)?;
+    let before = stored.accounts.len();
+    stored.accounts.retain(|entry| entry.account != account);
+    if stored.accounts.len() == before {
+        return Ok(false);
+    }
+    write_store(directory, &stored)?;
+    Ok(true)
+}
+
 /// Account names in the store, for listing; never the secrets.
 pub fn enrolled_accounts(directory: &File) -> io::Result<Vec<String>> {
     Ok(read_store(directory)?

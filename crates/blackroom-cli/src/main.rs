@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod security;
+mod setup;
 
 use remote_emergencyd::client::Client;
 use remote_hostd::audit::AUDIT_FILE;
@@ -26,7 +27,7 @@ use rustix::fs::{Mode, OFlags};
 const DEFAULT_TAIL: usize = 20;
 const MAX_TAIL: usize = 1000;
 const MAX_LOG_BYTES: u64 = 2 * 1024 * 1024;
-const USAGE: &str = "usage: blackroom --state-dir <absolute path> [--runtime-dir <absolute path>] <verb>\n  verbs: status | logs [--tail <1-1000>] | doctor | accounts | enroll --account <name>\n         sessions | revoke-session <id> | revoke-all | disable [--reason <text>] | enable\n         rotate-key --account <name> [--revoke-devices] | recovery-codes --account <name>\n         devices --account <name> | revoke-device <id> | login-check --account <name>\n         compatibility | diagnostics\n       blackroom emergency-status --socket <absolute path>";
+const USAGE: &str = "usage: blackroom --state-dir <absolute path> [--runtime-dir <absolute path>] <verb>\n  verbs: status | logs [--tail <1-1000>] | doctor | accounts | enroll --account <name>\n         sessions | revoke-session <id> | revoke-all | disable [--reason <text>] | enable\n         rotate-key --account <name> [--revoke-devices] | recovery-codes --account <name>\n         devices --account <name> | revoke-device <id> | login-check --account <name>\n         compatibility | diagnostics\n       blackroom emergency-status --socket <absolute path>\n       blackroom setup | reset <soft|security|full> | repair [--fix]   (first run, credential resets, repair; blackroom setup --help style options in docs)";
 
 enum Verb {
     Status,
@@ -424,6 +425,15 @@ fn run(args: &[OsString]) -> Result<ExitCode, (u8, String)> {
 
 fn main() -> ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if let Some(result) = setup::dispatch(&args) {
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err((code, message)) => {
+                eprintln!("{message}");
+                ExitCode::from(code)
+            }
+        };
+    }
     match run(&args) {
         Ok(code) => code,
         Err((code, message)) => {

@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 blackroom-store = { version = "0.1.0", path = "../blackroom-store" }
+qrcode = { version = "0.14.1", default-features = false }
 remote-emergencyd = { version = "0.1.0", path = "../remote-emergencyd" }
 remote-hostd = { version = "0.1.0", path = "../remote-hostd" }
 rustix = { version = "1.1.4", features = ["fs", "process", "termios"] }

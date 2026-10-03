@@ -36,7 +36,7 @@ install -m 644 polkit/org.blackroom.console.policy "$root/usr/share/polkit-1/act
 cp -r docs/ops/gnome-extension/blackroom-locked-remote@blackroom.local "$root/usr/share/gnome-shell/extensions/"
 find "$root" -type d -exec chmod 755 {} +
 find "$root/usr/share/gnome-shell/extensions" -type f -exec chmod 644 {} +
-for d in docs/ops/README.md docs/ops/internet-access.md docs/security/authentication.md docs/security/credential-lifecycle.md \
+for d in docs/ops/README.md docs/ops/runbook.md docs/ops/internet-access.md docs/security/authentication.md docs/security/credential-lifecycle.md \
   docs/security/threat-model.md docs/security/emergency-daemon.md; do
   [ -f "$d" ] && install -m 644 "$d" "$root/usr/share/doc/$PKG/$(basename "$d")"
 done

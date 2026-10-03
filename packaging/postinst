@@ -8,7 +8,7 @@ Blackroom Console is installed. Remote access stays OFF until you set it up as t
   blackroom setup                        enrol your authenticator, create the Remote Access Key, start the login authority
   sudo blackroom-grant-input grant       let the console grab the built-in keyboard and touchpad (ACLs; reset at reboot)
   systemctl --user start blackroom-console.service
-Read /usr/share/doc/blackroom-console/README.md. Remove with: apt remove blackroom-console
+Read /usr/share/doc/blackroom-console/runbook.md. Remove with: apt remove blackroom-console
 
 MSG
 fi
