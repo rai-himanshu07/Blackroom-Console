@@ -120,3 +120,26 @@ Direct marked untested. W2 (deferred review findings, read against the live code
 - Menus: VPN first with "recommended" and a one-line reason, Home, then Direct with its risk; the default answer stays home only.
 - **Checked by:** wizard, repair and host page tests, the headless host page suite (password steps), the real-binary internet script.
 - **Not covered:** a real `tailscale` (only the JSON parse is tested), and no changed look of the menus was seen on a screen.
+
+## W4 of the final plan (2026-10-04): UI and accessibility
+- **Client:** the session menu has a "what this session did to the laptop" block (screen, keyboard, lock) built from `/status`
+  (`isolation` = what the console confirmed, next to `session` = what was asked), and a gap is a warning; the chip keeps only link
+  quality. A labelled **End session** control stays on screen in a Private session with the menu closed. A failed Disconnect keeps a
+  banner with Try again and the recovery steps (not an 8 s toast), and Disconnect cannot run twice at once. The settings sheet states
+  the chord exactly and carries the same recovery steps; the page behind an open sheet is inert (focus containment); the tabs follow
+  the keyboard model (arrows, Home, End, named panes); a limit set by the laptop owner is also written next to the setting it clamps; the
+  menu groups picture, sound, special keys and clipboard behind sections; the tab row wraps and the last tab reads "Session limits";
+  the pointer marker hides under the menu or sheet and outside the picture; a wrong token gets a page that says how to recover.
+- **Host page:** section menu, sign-in and credentials first; "Listening now" shows the real interfaces instead of claiming nothing is
+  exposed; "Pending settings" apart from "Currently running"; copyable host-specific VPN commands; fingerprint steps before a
+  self-signed Direct login; trusted browsers as rows with Forget; each action's error shows inside its card; credential changes and
+  Save cannot run twice at once; Sign out asks when changes are unsaved.
+- **Contrast measured before changing anything:** muted text is 6.2 to 7.4:1 (passes 4.5:1); form-field borders were 1.17 to 1.29:1
+  (fails 3:1), so only form-field borders were raised (#707a8c, 3.6 to 4.4:1). The palette is otherwise unchanged.
+- **Checked by:** the headless browser suite (69 checks, among them key focus, isolation block, End session, failed Disconnect with Retry,
+  inert sheet, tab keys, limit notes, pointer marker), the host page suite, the adversarial network script, console unit tests,
+  clippy and fmt. Screenshots were captured with `BR_SHOT_DIR` (client 1-6, host 1-3) and looked at.
+- **Not done or not covered:** a keyboard-only way to open the menu from a running session (Tab is forwarded to the laptop, so a
+  reserved key is an owner decision); screenshots of the three-factor sign-in page and of "isolation starting"; a "working guide
+  link" (no public address exists yet, the host page names the installed file); nothing was tried on a tablet or phone, and
+  gestures, touch target sizes and the pointer marker on a real device are unchanged from the earlier owner runs.

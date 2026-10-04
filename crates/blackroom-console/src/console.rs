@@ -174,6 +174,15 @@ fn proc_status_value(text: &str, key: &str) -> u64 {
         .unwrap_or(0)
 }
 
+/// What the running session has actually done to this laptop, apart from what was asked for (`session`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct IsolationView {
+    /// The panel was switched off and the virtual monitor took over.
+    pub screen_blanked: bool,
+    /// The grab daemon holds the built-in keyboard and touchpad.
+    pub input_blocked: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Status {
     pub phase: Phase,
@@ -192,6 +201,8 @@ pub struct Status {
     pub resources: Resources,
     /// The options of the running session (the defaults while idle).
     pub session: SessionOptions,
+    /// What the session confirmed doing: the page compares it with `session` and shows any gap as a warning.
+    pub isolation: IsolationView,
     /// What the laptop owner allows; the page greys out the rest.
     pub policy: crate::host::Policy,
     /// A connection waiting for the laptop owner's Accept or Deny.
@@ -270,6 +281,7 @@ struct Shared {
     recovery_pending: Mutex<Option<String>>,
     /// Emergency chords seen; a TOTP session opened before one is no longer valid.
     emergencies: AtomicU64,
+    isolation: Mutex<IsolationView>,
     beat: Mutex<Instant>,
     notes: Mutex<Vec<String>>,
     size: Mutex<(u32, u32)>,
@@ -344,6 +356,7 @@ impl RemoteConsole {
             last_stop: Mutex::new(None),
             recovery_pending: Mutex::new(None),
             emergencies: AtomicU64::new(0),
+            isolation: Mutex::new(IsolationView::default()),
             beat: Mutex::new(Instant::now()),
             notes: Mutex::new(Vec::new()),
             size: Mutex::new((0, 0)),
@@ -798,6 +811,7 @@ impl RemoteConsole {
             audio: audio_state,
             audio_note,
             session,
+            isolation: *lock_ok(&self.shared.isolation),
             host: hostname(),
             version: env!("CARGO_PKG_VERSION"),
             session_secs: lock_ok(&self.shared.session_started)
@@ -993,6 +1007,7 @@ fn finish(active: Active<'_>, reason: &str) -> StopReport {
     *lock_ok(&shared.slot) = None;
     *lock_ok(&shared.tuning) = None;
     *lock_ok(&shared.session_started) = None;
+    *lock_ok(&shared.isolation) = IsolationView::default();
     shared.clipboard_live.store(false, Ordering::Relaxed);
     shared.sessions_stopped.fetch_add(1, Ordering::Relaxed);
     *lock_ok(&shared.last_stop) = Some(report.clone());
@@ -1054,6 +1069,10 @@ fn begin<'c>(
             *lock_ok(&shared.size) = active.size;
             *lock_ok(&shared.options) = active.options.clone();
             *lock_ok(&shared.session_started) = Some(Instant::now());
+            *lock_ok(&shared.isolation) = IsolationView {
+                screen_blanked: active.isolated,
+                input_blocked: active.grab.is_some(),
+            };
             *lock_ok(&shared.last_input) = Instant::now();
             *lock_ok(&shared.phase) = Phase::Running;
             Ok(active)

@@ -263,9 +263,13 @@ function placeDot() {
   // The laptop's own pointer is drawn into the picture when cursor_in_video is on: a second marker would double it.
   const embedded = () => !!(lastState && lastState.session && lastState.session.cursor_in_video);
   if (!running || touchMode !== "trackpad" || embedded()) { dot.style.display = "none"; return; }
-  const r = contentRect();
-  dot.style.left = (r.left + cursor.x * r.width) + "px";
-  dot.style.top = (r.top + cursor.y * r.height) + "px";
+  // Under the menu or the settings it would float over them; outside the picture's visible part it would mark nothing.
+  if (!$("menu").hidden || !$("sheet").hidden) { dot.style.display = "none"; return; }
+  const r = contentRect(), view = $("stage").getBoundingClientRect();
+  const x = r.left + cursor.x * r.width, y = r.top + cursor.y * r.height;
+  if (x < view.left || x > view.right || y < view.top || y > view.bottom) { dot.style.display = "none"; return; }
+  dot.style.left = x + "px";
+  dot.style.top = y + "px";
   dot.style.display = "block";
 }
 function setCursor(x, y) {
@@ -576,6 +580,7 @@ function show(state) {
   running = state.phase === "running";
   remote = { w: state.width || remote.w, h: state.height || remote.h };
   $("clip").hidden = !state.clipboard;
+  $("clipGroup").hidden = !state.clipboard;
   chip.classList.toggle("live", running);
   if (document.activeElement !== $("quality")) $("quality").value = state.quality;
   if (running) {
@@ -591,6 +596,7 @@ function show(state) {
     chip.textContent = `running ${statsText}`;
     placeDot();
   } else {
+    $("endfail").hidden = true;
     if (videoStarted) { videoStarted = false; stopVideo(); }
     chip.textContent = state.phase;
     // Nothing armed or typed in one session may carry into the next (a right-click tap, clipboard text).
@@ -631,7 +637,13 @@ async function refresh() {
 window.addEventListener("online", () => { refresh(); });
 mjpeg.addEventListener("error", () => { if (running && videoStarted && !usingRtc) { videoStarted = false; stopVideo(); } });
 
-$("stop").addEventListener("click", async () => {
+// One in-flight Disconnect at a time; a failed one keeps a banner (not a toast) until it succeeds or the session is gone.
+let ending = false;
+async function endSession() {
+  if (ending) return;
+  ending = true;
+  const buttons = ["stop", "endBtn", "endRetry"].map($);
+  buttons.forEach((button) => { button.disabled = true; });
   releaseAll();
   await flush();
   running = false;
@@ -639,11 +651,21 @@ $("stop").addEventListener("click", async () => {
   let confirmed = false;
   try { confirmed = (await post("/stop")).ok; } catch (_) { /* reported below */ }
   await refresh();
-  if (!confirmed) {
-    // Not confirmed: the laptop may still be controlled until it notices this device is gone.
-    running = !!(lastState && lastState.phase === "running");
-    toast("Disconnect was not confirmed. The laptop may still be controlled until it notices this device is gone. Try Disconnect again.", "bad");
-  }
+  ending = false;
+  buttons.forEach((button) => { button.disabled = false; });
+  if (confirmed) { $("endfail").hidden = true; return; }
+  // Not confirmed: the laptop may still be controlled until it notices this device is gone.
+  running = !!(lastState && lastState.phase === "running");
+  $("endfail").hidden = false;
+  $("endRetry").focus();
+}
+$("stop").addEventListener("click", endSession);
+$("endBtn").addEventListener("click", endSession);
+$("endRetry").addEventListener("click", endSession);
+$("endHow").addEventListener("click", () => {
+  const open = $("endHelp").hidden;
+  $("endHelp").hidden = !open;
+  $("endHow").setAttribute("aria-expanded", String(open));
 });
 
 // The laptop stops the session if this heartbeat is silent for 30 s (--heartbeat-secs).

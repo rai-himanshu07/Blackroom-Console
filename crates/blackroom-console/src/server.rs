@@ -37,6 +37,7 @@ const ICON_192: &[u8] = include_bytes!("web/icons/icon-192.png");
 const ICON_512: &[u8] = include_bytes!("web/icons/icon-512.png");
 const ICON_MASKABLE: &[u8] = include_bytes!("web/icons/icon-maskable-512.png");
 const LOGIN_PAGE: &str = include_str!("login.html");
+const TOKEN_ERROR_PAGE: &str = include_str!("token_error.html");
 const LOGIN_FULL_PAGE: &str = include_str!("login_full.html");
 // No inline handler: the page's CSP allows only its own script files; ui.js wires this button by id.
 const LOGOUT_BUTTON: &str = r#"<button type="button" id="logout" class="ghost">Log out</button>"#;
@@ -211,6 +212,15 @@ async fn authorize(state: &AppState, headers: &HeaderMap) -> Access {
     } else {
         Access::Denied
     }
+}
+
+fn token_error() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        [(CACHE_CONTROL, "no-store")],
+        Html(TOKEN_ERROR_PAGE),
+    )
+        .into_response()
 }
 
 fn busy() -> Response {
@@ -483,7 +493,7 @@ async fn index(
         && let Some(given) = query.t
     {
         if !tokens_equal(&given, token) {
-            return (StatusCode::UNAUTHORIZED, "wrong token\n").into_response();
+            return token_error();
         }
         let cookie = format!("{COOKIE_NAME}={given}{}", state.hardening.cookie_flags());
         return (
@@ -497,9 +507,7 @@ async fn index(
         Access::Busy => return busy(),
         Access::Denied => {
             return match state.auth {
-                Auth::Token(_) => {
-                    (StatusCode::UNAUTHORIZED, "open the URL printed at start\n").into_response()
-                }
+                Auth::Token(_) => token_error(),
                 Auth::Totp(_) => ([(CACHE_CONTROL, "no-store")], Html(LOGIN_PAGE)).into_response(),
                 Auth::Hostd(_) => {
                     ([(CACHE_CONTROL, "no-store")], Html(LOGIN_FULL_PAGE)).into_response()
@@ -1869,6 +1877,14 @@ mod tests {
         assert_eq!(bare.status(), StatusCode::UNAUTHORIZED);
         let wrong = call(&app, Request::get("/?t=nope").body(Body::empty()).unwrap()).await;
         assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+        for page in [bare, wrong] {
+            let text = text_of(page).await;
+            assert!(
+                text.contains("This link did not work") && text.contains("XDG_RUNTIME_DIR"),
+                "{text}"
+            );
+            assert!(!text.contains(TOKEN), "the page never echoes a token");
+        }
 
         let right = call(
             &app,

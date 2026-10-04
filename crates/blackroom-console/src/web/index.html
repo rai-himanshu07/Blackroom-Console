@@ -66,6 +66,20 @@
     <video id="rtc" class="media" autoplay muted playsinline webkit-playsinline aria-label="Remote desktop video" disablepictureinpicture></video>
     <div id="msg" role="status" aria-live="polite"></div>
   </div>
+  <button type="button" id="endBtn" class="danger" hidden>End session</button>
+  <div id="endfail" role="alert" hidden>
+    <strong>Disconnect was not confirmed.</strong> The laptop may still be controlled, and a Private session may still hold its screen and keyboard, until it notices this device is gone.
+    <div class="row"><button type="button" id="endRetry" class="danger">Try again</button><button type="button" id="endHow" class="ghost" aria-expanded="false" aria-controls="endHelp">Recovery steps</button></div>
+    <div id="endHelp" hidden>
+      <ol class="steps">
+        <li>Wait about 30 seconds: the laptop ends a session by itself when this device goes silent.</li>
+        <li>On the laptop, hold <b>Left Ctrl + Left Shift + Left Alt + Esc</b> for 2 seconds. This works only while the keyboard is blocked (Private with "Block this laptop's keyboard and touchpad" on). It releases the keyboard and ends every remote login until the owner reopens it at the laptop.</li>
+        <li>From another device with SSH: <code>systemctl --user stop blackroom-console.service</code></li>
+        <li>A blank panel after that is restored by the laptop; you then see its lock screen: type the laptop password. Do not unlock it from SSH.</li>
+        <li>Full steps: <code>emergency-recovery.md</code> in <code>/usr/share/doc/blackroom-console/</code> on the laptop.</li>
+      </ol>
+    </div>
+  </div>
   <button type="button" id="menuBtn" aria-label="Open the menu" aria-expanded="false" aria-controls="menu">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     <span id="timer">00:00</span>
@@ -77,6 +91,7 @@
       <button type="button" id="stop" class="danger">Disconnect</button>
       <button type="button" id="menuClose" class="ghost" aria-label="Close the menu">Close</button>
     </div>
+    <div id="isolation" class="isolation" role="group" aria-label="What this session did to the laptop"></div>
     <pre id="diag" aria-live="off"></pre>
 
     <div class="row">
@@ -86,6 +101,7 @@
       <button type="button" id="rclick" aria-label="Right-click the next tap" aria-pressed="false">Right-click</button>
     </div>
 
+    <details class="group" open><summary>Picture and transport</summary>
     <div class="row">
       <label class="field">Scale
         <select id="scale" aria-label="Picture scale">
@@ -103,13 +119,17 @@
         </select>
       </label>
     </div>
+    </details>
 
+    <details class="group"><summary>Sound</summary>
     <div class="row" id="soundrow">
       <button type="button" id="soundBtn" aria-pressed="false">Sound off</button>
       <label class="field grow">Volume <input type="range" id="volume" min="0" max="100" aria-label="Volume"></label>
       <span id="soundnote" class="note"></span>
     </div>
+    </details>
 
+    <details class="group"><summary>Special keys</summary>
     <div class="row" id="mods">
       <button type="button" data-mod="ControlLeft">Ctrl</button>
       <button type="button" data-mod="AltLeft">Alt</button>
@@ -122,13 +142,16 @@
       <button type="button" data-tap="ArrowDown">&darr;</button>
       <button type="button" data-tap="ArrowRight">&rarr;</button>
     </div>
+    </details>
 
+    <details class="group" id="clipGroup"><summary>Clipboard</summary>
     <div class="row" id="clip">
       <textarea id="cliptext" placeholder="Clipboard text" aria-label="Clipboard text" spellcheck="false" autocomplete="off"></textarea>
       <button type="button" id="clipsend" title="Put this text on the laptop clipboard">Send to laptop</button>
       <button type="button" id="clipget" title="Show the laptop clipboard text here and copy it on this device">Get from laptop</button>
       <span id="clipmsg" role="status"></span>
     </div>
+    </details>
 
     <div class="row"><button type="button" id="menuSettings" class="ghost">Settings</button></div>
   </div>
@@ -142,13 +165,22 @@
       <button type="button" role="tab" data-tab="display" aria-selected="false">Display</button>
       <button type="button" role="tab" data-tab="sound" aria-selected="false">Sound</button>
       <button type="button" role="tab" data-tab="input" aria-selected="false">Input</button>
-      <button type="button" role="tab" data-tab="limits" aria-selected="false">Session</button>
+      <button type="button" role="tab" data-tab="limits" aria-selected="false">Session limits</button>
     </nav>
 
     <div class="pane" data-pane="conn" role="tabpanel">
       <label class="switch"><input type="checkbox" data-key="session.blank_panel"><span><b>Blank this laptop's screen</b><small>Hides the desktop from anyone in the room. The screen is restored when you disconnect.</small></span></label>
       <label class="switch"><input type="checkbox" data-key="session.block_local_input"><span><b>Block this laptop's keyboard and touchpad</b><small>Only you can type. While this is on, holding Left Ctrl + Left Shift + Left Alt + Esc on the laptop for 2 seconds should release the keyboard and end the session. It does nothing when this is off.</small></span></label>
       <label class="switch"><input type="checkbox" data-key="session.lock_on_stop"><span><b>Lock the laptop when I disconnect</b><small>Recommended when the screen was blanked.</small></span></label>
+      <details class="recovery"><summary>If the laptop stays blank or blocked</summary>
+      <ol class="steps">
+        <li>Wait about 30 seconds: the laptop ends a session by itself when this device goes silent.</li>
+        <li>On the laptop, hold <b>Left Ctrl + Left Shift + Left Alt + Esc</b> for 2 seconds. This works only while the keyboard is blocked (Private with "Block this laptop's keyboard and touchpad" on). It releases the keyboard and ends every remote login until the owner reopens it at the laptop.</li>
+        <li>From another device with SSH: <code>systemctl --user stop blackroom-console.service</code></li>
+        <li>A blank panel after that is restored by the laptop; you then see its lock screen: type the laptop password. Do not unlock it from SSH.</li>
+        <li>Full steps: <code>emergency-recovery.md</code> in <code>/usr/share/doc/blackroom-console/</code> on the laptop.</li>
+      </ol>
+      </details>
     </div>
 
     <div class="pane" data-pane="display" role="tabpanel" hidden>

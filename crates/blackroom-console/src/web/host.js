@@ -104,15 +104,38 @@ function fillAccess(config) {
 // Switching to or from Direct changes who can find the login page, so the laptop asks for its password.
 function directChanges() { return !!saved && ($("accessMode").value === "direct") !== (saved.public === true); }
 
+const MODE_LABEL = { home: "home network only", vpn: "a private VPN", direct: "direct from the internet" };
+const RUNNING_MODE = { direct: "direct", "private-network": "vpn" };
+
+// The settings in the form (pending until saved and restarted) against what the running console reports.
+function renderPending() {
+  const running = RUNNING_MODE[state?.effective?.internet?.access] ?? "home";
+  const chosen = $("accessMode").value;
+  const waiting = !!state?.restart_needed;
+  $("pendingAccess").hidden = !(chosen !== running || waiting);
+  $("pendingAccess").textContent = `Pending settings: ${MODE_LABEL[chosen]}. Currently running: ${MODE_LABEL[running]}. Nothing changes until you save and restart the console, which ends a running session.`;
+  $("vpnCommands").textContent = vpnCommands($("vpnName").value.trim());
+  $("fpSteps").hidden = !($("accessMode").value === "direct" && $("directCert").value === "self_signed");
+}
+
+function vpnCommands(name) {
+  const dir = "~/.config/blackroom/tls";
+  const full = name || "laptop.tailnet-name.ts.net";
+  return [`mkdir -p ${dir} && chmod 700 ${dir}`,
+    `sudo tailscale cert --cert-file ${dir}/cert.pem --key-file ${dir}/key.pem ${full}`,
+    `sudo chown $USER: ${dir}/*.pem && chmod 600 ${dir}/*.pem`].join("\n");
+}
+
 function showAccess() {
   const mode = $("accessMode").value;
+  renderPending();
   $("accessPasswordRow").hidden = !directChanges();
   $("accessVpn").hidden = mode !== "vpn";
   $("accessDirect").hidden = mode !== "direct";
   $("directFiles").hidden = $("directCert").value === "self_signed";
   $("accessHelp").textContent = {
-    home: "Only devices on your own network can reach the console. Nothing is exposed.",
-    vpn: "Your phone and this laptop join the same private network (Tailscale, NetBird, Headscale). Nothing is opened to the internet; the VPN's relay is used when no direct path exists.",
+    home: "Meant for your own network only. This is what is configured; \"Listening now\" below shows which network interfaces the running console actually answers on.",
+    vpn: "Your phone and this laptop join the same private network (Tailscale, NetBird, Headscale). No port is forwarded to the internet by this setting; the VPN's relay is used when no direct path exists. The console still answers on the interfaces under \"Listening now\".",
     direct: "The router forwards ports to this laptop, so anyone who finds the address can reach the login page. Needs a static IP address or a name that follows your address, and a router that accepts incoming connections.",
   }[mode];
 }
@@ -205,7 +228,16 @@ function renderLock(snapshot) {
     : "Off: locking the laptop ends remote sessions. A session already open on a locked screen keeps running until it ends.";
 }
 
+// Where the running console actually answers, in words: a bind address is not the same as "private".
+function describeListen(address) {
+  if (!address) return "off";
+  const host = address.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+  const reach = ["127.0.0.1", "::1", "localhost"].includes(host) ? "this laptop only" : ["0.0.0.0", "::"].includes(host) ? "every network interface: the whole local network and any VPN" : `the interface ${host}`;
+  return `${address} (${reach})`;
+}
+
 function renderInternet(snapshot) {
+  $("listenLine").textContent = `Listening now: plain http on ${describeListen(snapshot.effective.http_listen)}; https on ${describeListen(snapshot.effective.tls_listen)}.`;
   const report = snapshot.effective.internet;
   const list = $("internetList");
   list.replaceChildren();
@@ -226,6 +258,33 @@ function renderInternet(snapshot) {
   $("certBanner").textContent = report.renew_note ? report.renew_note.charAt(0).toUpperCase() + report.renew_note.slice(1) + "." : "";
 }
 
+function renderDevices(text) {
+  const list = $("deviceList");
+  list.replaceChildren();
+  for (const line of text.split("\n")) {
+    const [id, label, , used, status] = line.split("\t");
+    if (!id || status === undefined) continue;
+    const item = document.createElement("li");
+    const info = document.createElement("span");
+    info.textContent = `${label || "Unnamed browser"} `;
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = `${status}; ${(used || "").replace("last_used=", "last used ")}`;
+    info.append(meta);
+    item.append(info);
+    if (status === "trusted") {
+      const forget = document.createElement("button");
+      forget.type = "button";
+      forget.textContent = "Forget";
+      forget.setAttribute("aria-label", `Forget ${label || "this browser"}`);
+      forget.addEventListener("click", () => change("revoke_device", { device: id }, `Forget ${label || "this browser"}?`));
+      item.append(forget);
+    }
+    list.append(item);
+  }
+  if (!list.children.length) { const none = document.createElement("li"); none.textContent = "No trusted browsers."; list.append(none); }
+}
+
 function renderStatus(snapshot) {
   const status = snapshot.status;
   const lines = { idle: "Ready: nobody is connected", starting: "A remote session is starting", running: `A ${status.mode} session is running`, stopping: "A session is ending" };
@@ -237,6 +296,7 @@ function renderStatus(snapshot) {
     $("askBox").dataset.id = String(pending.id);
   }
   $("hint").textContent = snapshot.restart_needed ? "Saved settings are not in effect yet: restart the console." : "";
+  renderPending();
 }
 
 function dirty() { return saved !== null && JSON.stringify(collect()) !== JSON.stringify(saved); }
@@ -290,7 +350,10 @@ $("loginForm").addEventListener("submit", async (event) => {
   loadCredentials();
 });
 
+window.addEventListener("beforeunload", (event) => { if (dirty()) { event.preventDefault(); event.returnValue = ""; } });
+
 $("logout").addEventListener("click", async () => {
+  if (dirty() && !window.confirm("There are changes you have not saved. Sign out and lose them?")) return;
   await api("POST", "/host/totp/cancel", {}).catch(() => {});
   await api("POST", "/host/logout", {});
   hideSecret();
@@ -303,7 +366,9 @@ $("logout").addEventListener("click", async () => {
 document.addEventListener("input", updateDirty);
 document.addEventListener("change", updateDirty);
 
+let saving = false;
 async function save() {
+  if (saving) return false;
   const config = collect();
   if (directChanges()) {
     if ($("accessPassword").value === "") { $("saveNote").textContent = "Type your laptop password to switch to or from Direct."; return false; }
@@ -314,14 +379,30 @@ async function save() {
     $("saveNote").textContent = "Not saved.";
     return false;
   }
-  const { ok, data } = await api("POST", "/host/config", config);
+  saving = true;
+  $("save").disabled = $("restart").disabled = true;
+  let reply;
+  try { reply = await api("POST", "/host/config", config); } finally { saving = false; }
+  const { ok, data } = reply;
+  updateDirty();
   $("accessPassword").value = "";
+  cardNote("internetCard", ok ? "" : (data.error ?? "Could not save."));
   $("saveNote").textContent = ok ? "Saved." : (data.error ?? "Could not save.");
   if (ok) await load(true);
   return ok;
 }
 
 $("save").addEventListener("click", save);
+
+$("copyVpn").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("vpnCommands").textContent);
+    $("saveNote").textContent = "Commands copied. Run them in a terminal on this laptop.";
+  } catch {
+    window.getSelection().selectAllChildren($("vpnCommands"));
+    $("saveNote").textContent = "Select the commands above and copy them.";
+  }
+});
 
 $("restart").addEventListener("click", async () => {
   // The laptop refuses to end a running session without `confirm`: it is sent only after the owner agreed.
@@ -356,6 +437,7 @@ $("autostart").addEventListener("change", async () => {
   const wanted = $("autostart").checked;
   const { ok, data } = await api("POST", "/host/autostart", { enabled: wanted });
   $("saveNote").textContent = ok ? (wanted ? "The console will start when you log in." : "The console will not start at login.") : (data.error ?? "Could not change it.");
+  cardNote("laptopCard", ok ? "" : (data.error ?? "Could not change it."));
   if (!ok) $("autostart").checked = !wanted;
 });
 
@@ -371,7 +453,8 @@ $("lockOn").addEventListener("change", async () => {
   if (wanted && !window.confirm("Allow remote sessions on the lock screen? While this is on, locking the laptop no longer ends a remote session.")) { $("lockOn").checked = false; return; }
   const reply = await api("POST", "/host/lockscreen", { enabled: wanted, password: $("lockPassword").value });
   $("lockPassword").value = "";
-  if (!reply.ok) { $("lockOn").checked = !wanted; $("saveNote").textContent = reply.data.error ?? "That did not work."; return; }
+  if (!reply.ok) { $("lockOn").checked = !wanted; $("saveNote").textContent = reply.data.error ?? "That did not work."; cardNote("lockCard", reply.data.error ?? "That did not work."); return; }
+  cardNote("lockCard", "");
   $("saveNote").textContent = wanted ? "Remote use on the lock screen is on." : "Remote use on the lock screen is off. A session already open on a locked screen keeps running until it ends.";
   await load(false);
 });
@@ -390,7 +473,8 @@ function closeTotp() {
 $("totpStart").addEventListener("click", async () => {
   const reply = await api("POST", "/host/totp/start", { password: $("totpPassword").value });
   $("totpPassword").value = "";
-  if (!reply.ok) { $("saveNote").textContent = reply.data.error ?? "That did not work."; return; }
+  if (!reply.ok) { $("saveNote").textContent = reply.data.error ?? "That did not work."; cardNote("totpCard", reply.data.error ?? "That did not work."); return; }
+  cardNote("totpCard", "");
   $("totpQr").src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(reply.data.svg);
   $("totpSecret").textContent = reply.data.secret;
   $("totpAccount").textContent = "Blackroom Console:" + reply.data.account;
@@ -426,21 +510,48 @@ function hideSecret() {
   $("secretBox").hidden = true;
 }
 
+// An action's own outcome shows inside its card (the save bar at the bottom may be off screen); empty text clears it.
+function cardNote(cardId, text) {
+  const card = $(cardId);
+  let note = card.querySelector(".actionnote");
+  if (!note) {
+    note = document.createElement("p");
+    note.className = "note warn actionnote";
+    note.setAttribute("role", "alert");
+    card.querySelector("h2").after(note);
+  }
+  note.textContent = text;
+  note.hidden = text === "";
+}
+
+// One credential command at a time: its buttons stay off until the laptop answers.
+let credBusy = false;
 async function credential(action, extra = {}, needsPassword = true) {
+  if (needsPassword && credBusy) return null;
   const body = { action, ...extra };
   if (needsPassword) {
     body.password = $("credPassword").value;
-    if (body.password === "") { $("saveNote").textContent = "Type your laptop password first."; return null; }
+    if (body.password === "") { $("saveNote").textContent = "Type your laptop password first."; cardNote("credCard", "Type your laptop password first."); return null; }
   }
-  const reply = await api("POST", "/host/credentials", body);
+  // Reads (status, devices) may run together; a change holds the card's buttons until the laptop answers.
+  const buttons = needsPassword ? [...$("credCard").querySelectorAll("button")] : [];
+  if (needsPassword) credBusy = true;
+  buttons.forEach((button) => { button.disabled = true; });
+  let reply;
+  try { reply = await api("POST", "/host/credentials", body); } finally {
+    if (needsPassword) credBusy = false;
+    buttons.forEach((button) => { button.disabled = false; });
+  }
   if (needsPassword) $("credPassword").value = "";
-  if (!reply.ok) { $("saveNote").textContent = reply.data.error ?? "That did not work."; return null; }
+  if (!reply.ok) { const text = reply.data.error ?? "That did not work."; $("saveNote").textContent = text; cardNote("credCard", text); return null; }
+  cardNote("credCard", "");
   return reply.data;
 }
 
 async function loadCredentials() {
   const [status, devices] = await Promise.all([credential("status", {}, false), credential("devices", {}, false)]);
-  const text = [status, devices].filter(Boolean).map((part) => (part.output || part.notice || "").trim()).filter(Boolean).join("\n\n");
+  renderDevices(((devices && devices.output) || "").trim());
+  const text = [status].filter(Boolean).map((part) => (part.output || part.notice || "").trim()).filter(Boolean).join("\n\n");
   $("credStatus").textContent = text || "Nothing to show: the login authority is not set up (run blackroom setup).";
 }
 
@@ -450,6 +561,7 @@ async function change(action, extra, question) {
   if (!data) return;
   const out = [data.output.trim(), data.notice].filter(Boolean).join("\n\n");
   $("saveNote").textContent = data.ok ? "Done." : "The command reported a problem.";
+  cardNote("credCard", data.ok ? "" : "The command reported a problem. Read its output below.");
   if (out) {
     $("credOut").textContent = out;
     $("secretBox").hidden = false;

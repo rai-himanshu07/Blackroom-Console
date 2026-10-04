@@ -4,6 +4,13 @@
 #home { padding-bottom: 90px; max-width: 760px; margin: 0 auto; }
 .card h2 { margin: 0 0 8px; font-size: 16px; }
 .card .field { margin-top: 10px; }
-.card input[type="text"], .card input[type="password"] { background: #1f232c; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.card input[type="text"], .card input[type="password"] { background: #1f232c; border: 1px solid var(--field-line); border-radius: 8px; padding: 8px 10px; }
 .card .secret { font: 14px ui-monospace, monospace; background: #0c0e12; border: 1px solid var(--line); border-radius: 8px; padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 code { background: #1f232c; padding: 1px 5px; border-radius: 4px; }
+
+.sections { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.sections a { color: var(--accent-hi); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+.pending { background: #3a2a0c; border: 1px solid #f5c26b; border-radius: 8px; padding: 8px 10px; font-weight: 600; }
+.devices { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 6px; }
+.devices li { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #1f232c; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.devices .meta { color: var(--dim); font-size: 12.5px; }

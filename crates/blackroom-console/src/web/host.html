@@ -36,8 +36,79 @@
         <div class="actions"><button type="button" id="askAccept" class="primary">Accept</button><button type="button" id="askDeny" class="danger">Deny</button></div>
       </div>
     </section>
-
-    <section class="card">
+    <nav class="sections" aria-label="Settings sections">
+      <a href="#statusCard">Status</a><a href="#loginCard">Sign-in and credentials</a><a href="#lockCard">Lock screen</a><a href="#whoCard">Who may connect</a><a href="#limitsCard">Limits</a><a href="#internetCard">Outside access</a><a href="#networkCard">Network</a><a href="#laptopCard">This laptop</a>
+    </nav>
+    <section class="card" id="loginCard">
+      <h2>How clients sign in</h2>
+      <label class="field">Sign-in method
+        <select data-key="login" data-type="string-or-null">
+          <option value="">Keep the way the console was started</option>
+          <option value="hostd">Linux password + authenticator code + Remote Access Key (recommended)</option>
+          <option value="token">One-time address with a token (no sign-in page)</option>
+        </select>
+      </label>
+      <p class="note" id="loginNote"></p>
+      <p class="note">The first method needs the login authority: use "Set up the login authority" under Credentials below once, then choose it here, Save and restart the console.</p>
+    </section>
+    <section class="card" id="totpCard">
+      <h2>Authenticator app</h2>
+      <p class="note" id="totpStatus"></p>
+      <p class="note">Clients type a 6-digit code from an authenticator app (Google Authenticator, Aegis, 1Password, Microsoft Authenticator and others). You scan a QR code, or type the setup key by hand, then confirm with one code from the app. The old authenticator keeps working until you confirm.</p>
+      <label class="field">Your laptop password, to start <input type="password" id="totpPassword" autocomplete="current-password"></label>
+      <div class="actions"><button type="button" id="totpStart">Add or replace the authenticator</button></div>
+      <div id="totpBox" hidden>
+        <p><b>1.</b> In your authenticator app choose "scan a QR code" and point it at this:</p>
+        <img id="totpQr" alt="QR code to add this laptop to your authenticator app" width="256" height="256">
+        <p><b>Can't scan?</b> In the app choose "enter a setup key" and type this key (spaces do not matter). Account name <code id="totpAccount"></code>, key type "time based", 6 digits, 30 seconds:</p>
+        <pre class="secret" id="totpSecret"></pre>
+        <p><b>2.</b> Type the 6-digit code the app shows now to confirm that it works:</p>
+        <div class="row">
+          <label class="field grow">Code from the app <input type="text" id="totpCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" spellcheck="false"></label>
+          <button type="button" id="totpVerify" class="primary">Confirm</button>
+          <button type="button" id="totpCancel" class="ghost">Cancel</button>
+        </div>
+        <p class="note" id="totpMsg" role="status"></p>
+      </div>
+    </section>
+    <section class="card" id="credCard">
+      <h2>Login and credentials</h2>
+      <p class="note">A client signs in with your Linux password, an authenticator code and the Remote Access Key, or from a trusted browser. New secrets appear below once and are never stored here.</p>
+      <pre id="credStatus" class="secret">Loading...</pre>
+      <label class="field">Your laptop password, needed for every change below <input type="password" id="credPassword" autocomplete="current-password"></label>
+      <div class="actions">
+        <button type="button" id="loginSetup">Set up the login authority</button>
+        <button type="button" id="credKey">New remote access key</button>
+        <button type="button" id="credCodes">New recovery codes</button>
+        <button type="button" id="credReset" class="danger">New authenticator, key and codes</button>
+      </div>
+      <div class="toggles"><label class="switch"><input type="checkbox" id="credForget"><span><b>Also forget trusted browsers</b><small>With a new remote access key.</small></span></label></div>
+      <div class="actions">
+        <button type="button" id="credSignOut">Sign out every remote login</button>
+        <button type="button" id="credOff" class="danger">Switch remote access off</button>
+        <button type="button" id="credOn">Switch remote access on</button>
+      </div>
+      <h3>Trusted browsers</h3>
+      <ul id="deviceList" class="devices"></ul>
+      <details><summary>Forget a browser by its id</summary>
+        <div class="row">
+          <label class="field grow">Trusted device id <input type="text" id="credDevice" spellcheck="false"></label>
+          <button type="button" id="credRevoke">Forget this device</button>
+        </div>
+      </details>
+      <div id="secretBox" hidden>
+        <p class="note">Shown once. Copy it now: it disappears when you press Hide, sign out or after two minutes.</p>
+        <pre id="credOut" class="secret"></pre>
+        <button type="button" id="credHide">Hide</button>
+      </div>
+    </section>
+    <section class="card" id="lockCard">
+      <h2>Remote use while the laptop is locked</h2>
+      <div class="toggles"><label class="switch"><input type="checkbox" id="lockOn"><span><b>Allow remote sessions on the lock screen</b><small>Lets you sign in from the tablet while the laptop is locked. While this is on, locking the laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it on only when you need it.</small></span></label></div>
+      <label class="field">Your laptop password, to turn it on <input type="password" id="lockPassword" autocomplete="current-password"></label>
+      <p class="note" id="lockNote"></p>
+    </section>
+    <section class="card" id="whoCard">
       <h2>Who may connect</h2>
       <div class="toggles">
         <label class="switch"><input type="checkbox" data-key="allow_private"><span><b>Private sessions</b><small>The laptop screen goes blank and its keyboard and touchpad are blocked.</small></span></label>
@@ -51,8 +122,7 @@
       </label>
       <p class="note">With "Ask", nobody can connect while you are away from the laptop.</p>
     </section>
-
-    <section class="card">
+    <section class="card" id="limitsCard">
       <h2>Limits a client cannot exceed</h2>
       <label class="field">When a session ends, lock the laptop
         <select data-key="force_lock_on_stop" data-type="bool-or-null">
@@ -76,8 +146,7 @@
         </label>
       </div>
     </section>
-
-    <section class="card">
+    <section class="card" id="useCard">
       <h2>What a client may use</h2>
       <div class="toggles">
         <label class="switch"><input type="checkbox" data-key="allow_audio"><span><b>Laptop sound</b><small>Send what the laptop plays to the remote device.</small></span></label>
@@ -88,7 +157,6 @@
         <select data-key="audio_sink" data-type="string-or-null" id="sinkSelect"><option value="">The laptop's default output</option></select>
       </label>
     </section>
-
     <section class="card" id="internetCard">
       <h2>Access from outside</h2>
       <label class="field">How this laptop is reached
@@ -99,6 +167,7 @@
         </select>
       </label>
       <p class="note" id="accessHelp"></p>
+      <p class="note warn pending" id="pendingAccess" role="status" hidden></p>
       <label class="field" id="accessPasswordRow" hidden>Your laptop password, needed to switch to or from Direct <input type="password" id="accessPassword" autocomplete="current-password"></label>
       <div id="accessVpn" hidden>
         <label class="field">This laptop's VPN name <input type="text" id="vpnName" spellcheck="false" placeholder="laptop.tailnet-name.ts.net"></label>
@@ -106,7 +175,9 @@
           <label class="field">Certificate file <input type="text" id="vpnCert" spellcheck="false" placeholder="/home/you/.config/blackroom/tls/cert.pem"></label>
           <label class="field">Key file <input type="text" id="vpnKey" spellcheck="false" placeholder="/home/you/.config/blackroom/tls/key.pem"></label>
         </div>
-        <p class="note">Nothing is opened to the internet. For Tailscale, make the files with <code>sudo tailscale cert</code> (the commands are in docs/ops/internet-access.md) and renew them about every 60 days. Without files the console keeps its own certificate and browsers warn once.</p>
+        <p class="note">The VPN keeps strangers out; the console itself still listens where "Listening now" below says. For Tailscale, make the files with the commands below (run them yourself: they need sudo) and renew them about every 60 days. Without files the console keeps its own certificate and browsers warn once. Guide: <code>internet-access.md</code> in <code>/usr/share/doc/blackroom-console/</code> (<code>docs/ops/</code> in the source tree).</p>
+        <pre id="vpnCommands" class="secret"></pre>
+        <button type="button" id="copyVpn" class="ghost">Copy the commands</button>
       </div>
       <div id="accessDirect" hidden>
         <label class="field">The address or name your devices type <input type="text" id="directName" spellcheck="false" placeholder="home.example.org or 203.0.113.7"></label>
@@ -121,93 +192,28 @@
           <label class="field">Key file <input type="text" id="directKeyFile" spellcheck="false"></label>
         </div>
         <label class="field">UDP media ports to forward <input type="text" id="directPorts" spellcheck="false" placeholder="50000-50100"></label>
+        <ol class="note" id="fpSteps" hidden>
+          <li>Save and restart the console: it makes its own certificate for this address.</li>
+          <li>On this laptop run <code>blackroom internet --check</code> and keep the certificate fingerprint it prints.</li>
+          <li>On the first visit from a device, open the certificate details in the browser warning and compare the fingerprint <b>before</b> you type any password, code or key. A changed fingerprint later means stop.</li>
+        </ol>
         <p class="note">Strangers' scanners can reach this. Saving is refused unless login goes through the login authority, the plain-http address is loopback only, https is on and the certificate checks out. Forward the https port and the media ports on the router: <code>blackroom internet</code> prints the exact list.</p>
       </div>
       <p class="note">Settings for the two modes you are not using are remembered, so switching back is one step. A change needs a restart, which ends a running session.</p>
-      <h3>What the running console checked</h3>
+      <h3>Currently running</h3>
+      <p id="listenLine"></p>
       <p id="internetLine"></p>
       <ul id="internetList" class="note"></ul>
       <p class="note">Local checks only; nothing here is tested from the internet. A phone on mobile data is the real test.</p>
     </section>
-
-    <section class="card">
+    <section class="card" id="networkCard">
       <h2>Network</h2>
       <label class="field">Plain http address <input type="text" data-key="http_listen" data-type="string" spellcheck="false" placeholder="127.0.0.1:8080"></label>
       <div class="toggles"><label class="switch"><input type="checkbox" id="tlsOn"><span><b>Serve https</b><small>Needed for full keyboard capture and for installing the web app.</small></span></label></div>
       <label class="field">https address <input type="text" id="tlsListen" spellcheck="false" placeholder="0.0.0.0:8443"></label>
       <p class="note">The certificate files and Internet mode are chosen under "Access from outside". Network changes need a restart. A wrong address stops the console from starting: check them before restarting.</p>
     </section>
-
-    <section class="card" id="loginCard">
-      <h2>How clients sign in</h2>
-      <label class="field">Sign-in method
-        <select data-key="login" data-type="string-or-null">
-          <option value="">Keep the way the console was started</option>
-          <option value="hostd">Linux password + authenticator code + Remote Access Key (recommended)</option>
-          <option value="token">One-time address with a token (no sign-in page)</option>
-        </select>
-      </label>
-      <p class="note" id="loginNote"></p>
-      <p class="note">The first method needs the login authority: use "Set up the login authority" under Credentials below once, then choose it here, Save and restart the console.</p>
-    </section>
-
-    <section class="card" id="totpCard">
-      <h2>Authenticator app</h2>
-      <p class="note" id="totpStatus"></p>
-      <p class="note">Clients type a 6-digit code from an authenticator app (Google Authenticator, Aegis, 1Password, Microsoft Authenticator and others). You scan a QR code, or type the setup key by hand, then confirm with one code from the app. The old authenticator keeps working until you confirm.</p>
-      <label class="field">Your laptop password, to start <input type="password" id="totpPassword" autocomplete="current-password"></label>
-      <div class="actions"><button type="button" id="totpStart">Add or replace the authenticator</button></div>
-      <div id="totpBox" hidden>
-        <p><b>1.</b> In your authenticator app choose "scan a QR code" and point it at this:</p>
-        <img id="totpQr" alt="QR code to add this laptop to your authenticator app" width="256" height="256">
-        <p><b>Can't scan?</b> In the app choose "enter a setup key" and type this key (spaces do not matter). Account name <code id="totpAccount"></code>, key type "time based", 6 digits, 30 seconds:</p>
-        <pre class="secret" id="totpSecret"></pre>
-        <p><b>2.</b> Type the 6-digit code the app shows now to confirm that it works:</p>
-        <div class="row">
-          <label class="field grow">Code from the app <input type="text" id="totpCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" spellcheck="false"></label>
-          <button type="button" id="totpVerify" class="primary">Confirm</button>
-          <button type="button" id="totpCancel" class="ghost">Cancel</button>
-        </div>
-        <p class="note" id="totpMsg" role="status"></p>
-      </div>
-    </section>
-
-    <section class="card" id="credCard">
-      <h2>Login and credentials</h2>
-      <p class="note">A client signs in with your Linux password, an authenticator code and the Remote Access Key, or from a trusted browser. New secrets appear below once and are never stored here.</p>
-      <pre id="credStatus" class="secret">Loading...</pre>
-      <label class="field">Your laptop password, needed for every change below <input type="password" id="credPassword" autocomplete="current-password"></label>
-      <div class="actions">
-        <button type="button" id="loginSetup">Set up the login authority</button>
-        <button type="button" id="credKey">New remote access key</button>
-        <button type="button" id="credCodes">New recovery codes</button>
-        <button type="button" id="credReset" class="danger">New authenticator, key and codes</button>
-      </div>
-      <div class="toggles"><label class="switch"><input type="checkbox" id="credForget"><span><b>Also forget trusted browsers</b><small>With a new remote access key.</small></span></label></div>
-      <div class="actions">
-        <button type="button" id="credSignOut">Sign out every remote login</button>
-        <button type="button" id="credOff" class="danger">Switch remote access off</button>
-        <button type="button" id="credOn">Switch remote access on</button>
-      </div>
-      <div class="row">
-        <label class="field grow">Trusted device to forget (its id, from the list above) <input type="text" id="credDevice" spellcheck="false"></label>
-        <button type="button" id="credRevoke">Forget this device</button>
-      </div>
-      <div id="secretBox" hidden>
-        <p class="note">Shown once. Copy it now: it disappears when you press Hide, sign out or after two minutes.</p>
-        <pre id="credOut" class="secret"></pre>
-        <button type="button" id="credHide">Hide</button>
-      </div>
-    </section>
-
-    <section class="card" id="lockCard">
-      <h2>Remote use while the laptop is locked</h2>
-      <div class="toggles"><label class="switch"><input type="checkbox" id="lockOn"><span><b>Allow remote sessions on the lock screen</b><small>Lets you sign in from the tablet while the laptop is locked. While this is on, locking the laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it on only when you need it.</small></span></label></div>
-      <label class="field">Your laptop password, to turn it on <input type="password" id="lockPassword" autocomplete="current-password"></label>
-      <p class="note" id="lockNote"></p>
-    </section>
-
-    <section class="card">
+    <section class="card" id="laptopCard">
       <h2>This laptop</h2>
       <div class="toggles">
         <label class="switch"><input type="checkbox" data-key="indicator.notify"><span><b>Notifications</b><small>When a session starts or ends.</small></span></label>

@@ -16,7 +16,7 @@ cat > "$state/blackroom-stub" <<STUB
 echo "\$@" >> "$state/cli-calls"
 case "\$*" in
   *" status") echo "stub status: remote access enabled" ;;
-  *devices*) echo "device dev-1 (Chrome on tablet)" ;;
+  *devices*) printf 'dev-1\tChrome on tablet\tcreated=1\tlast_used=2\ttrusted\n' ;;
   *rotate-key*) echo "remote access key: ABCD-EFGH-IJKL" ;;
   setup*) echo "authenticator secret: STUB-SECRET" ;;
 esac

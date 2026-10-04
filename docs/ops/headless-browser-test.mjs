@@ -77,6 +77,14 @@ await js("document.querySelector('.mode[data-preset=private]').click()");
 check("the Private preset blanks and blocks", (await js("settings.session.blank_panel && settings.session.block_local_input && currentPreset() === 'private'")) === true);
 await js("document.getElementById('openSettings').click()");
 check("the settings sheet opens", (await js("!document.getElementById('sheet').hidden")) === true);
+// U18/U19: focus stays in the open sheet; the tabs follow the keyboard model (one tab stop, arrows, Home, End).
+check("the page behind the sheet is inert and focus cannot leave it", (await js("(() => { const h = document.getElementById('home'); document.getElementById('connect').focus(); return h.inert === true && !!document.activeElement.closest('#sheet'); })()")) === true);
+check("only the selected tab is a tab stop and each tab names its pane", (await js("(() => { const t = [...document.querySelectorAll('.tabs [data-tab]')]; return t.filter((x) => x.tabIndex === 0).length === 1 && t.every((x) => document.getElementById(x.getAttribute('aria-controls')).getAttribute('aria-labelledby') === x.id); })()")) === true);
+await js("(() => { const t = document.querySelector('.tabs [data-tab=conn]'); t.focus(); t.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true, cancelable: true})); })()");
+check("the right arrow moves to the next tab and shows its pane", (await js("document.activeElement.dataset.tab")) === "display" && (await js("!document.querySelector('[data-pane=display]').hidden")) === true);
+await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'End', bubbles: true, cancelable: true}))");
+check("End goes to the last tab, which is labelled as session limits", (await js("document.activeElement.textContent")) === "Session limits");
+await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Home', bubbles: true, cancelable: true}))");
 await js("document.querySelector('.tabs [data-tab=display]').click()");
 check("tabs switch panes", (await js("!document.querySelector('[data-pane=display]').hidden && document.querySelector('[data-pane=conn]').hidden")) === true);
 await shot("client-2-settings-display-tab");
@@ -89,6 +97,7 @@ check("no limits from the laptop owner means no note", (await js("document.getEl
 await js("(() => { const el = document.querySelector('[data-key=\"client.scale\"]'); el.value = 'fit'; el.dispatchEvent(new Event('change', {bubbles: true})); })()");
 await js("document.getElementById('sheetClose').click()");
 check("the settings sheet closes", (await js("document.getElementById('sheet').hidden")) === true);
+check("closing the sheet makes the page usable again", (await js("!document.getElementById('home').inert && !document.getElementById('session').inert")) === true);
 await sleep(600);
 
 const withAudio = process.env.BR_AUDIO_TEST === "1";
@@ -114,9 +123,11 @@ check("the menu opens from its button", (await js("(() => { document.getElementB
 // with the menu closed and nothing focused it goes to the laptop.
 await js("globalThis.__keys = 0; const realKey = keyEvent; keyEvent = (code, down) => { __keys++; return realKey(code, down); }");
 const press = (target) => js(`(() => { const t = ${target}; t.dispatchEvent(new KeyboardEvent("keydown", {code: "KeyA", key: "a", bubbles: true, cancelable: true})); t.dispatchEvent(new KeyboardEvent("keyup", {code: "KeyA", key: "a", bubbles: true, cancelable: true})); return __keys; })()`);
+check("the pointer marker is hidden under the open menu", (await js("document.getElementById('dot').style.display")) === "none");
 check("menu open and a button focused: keys are not forwarded", (await press("document.activeElement")) === 0);
 check("Escape closes the menu from the keyboard", (await js("(() => { document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', code: 'Escape', bubbles: true, cancelable: true})); return document.getElementById('menu').hidden; })()")) === true);
 check("menu closed and nothing focused: keys reach the laptop", (await press("document.body")) === 2);
+check("the pointer marker is back inside the picture with the menu closed", (await js("(() => { const d = document.getElementById('dot'); if (touchMode !== 'trackpad' || lastState.session.cursor_in_video) return 'skipped'; const r = document.getElementById('stage').getBoundingClientRect(), x = parseFloat(d.style.left), y = parseFloat(d.style.top); return d.style.display === 'block' && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; })()")) !== false);
 await js("document.getElementById('menuBtn').focus()");
 check("a focused control keeps the keys on the page", (await press("document.activeElement")) === 2);
 await js("document.getElementById('menuBtn').click()");
@@ -155,6 +166,12 @@ if (withAudio) {
 
 // Input over the data channel: accepted by the server without a single HTTP /input batch.
 const statusJson = "fetch('/status',{credentials:'same-origin'}).then(r=>r.json())";
+// W4: the menu shows what the session did to the laptop, apart from the connection quality.
+const iso = await js("(() => ({ lines: [...document.querySelectorAll('#isolation .iso')].map((n) => n.textContent), bad: document.querySelectorAll('#isolation .iso.bad').length, chip: document.getElementById('chip').textContent }))()");
+const live = await js(statusJson);
+check("the menu has a session safety block with screen, keyboard and lock lines", iso.lines.length === 3 && /^Screen:/.test(iso.lines[0]) && /^Laptop keyboard/.test(iso.lines[1]) && /^On disconnect:/.test(iso.lines[2]), JSON.stringify(iso));
+check("a gap between what was asked and what was confirmed is a warning", iso.bad === ((live.session.blank_panel && !live.isolation.screen_blanked ? 1 : 0) + (live.session.block_local_input && !live.isolation.input_blocked ? 1 : 0)), JSON.stringify([live.session, live.isolation]));
+check("connection quality stays in the chip, not in the safety block", !/blank|blocked/i.test(iso.chip));
 check("input data channel is open", (await js("!!inputChannel && inputChannel.readyState === 'open'")) === true);
 const acceptedBefore = (await js(statusJson)).input_accepted;
 await js("globalThis.__httpBatches = 0; const orig = post; post = (path, body) => { if (path === '/input' && body && body.length) __httpBatches++; return orig(path, body); }; tap('ShiftLeft')");
@@ -220,8 +237,27 @@ await sleep(3000);
 const mj = await js("({shown: getComputedStyle(document.getElementById('mjpeg')).display, w: document.getElementById('mjpeg').naturalWidth})");
 check("MJPEG fallback shows frames", mj.shown === "block" && mj.w === 1920, JSON.stringify(mj));
 
-await js("document.getElementById('stop').click()");
+// W4: the End session control, and a failed Disconnect that keeps a persistent warning with Retry and the recovery steps.
+await js("closeMenu()");
+const endShown = await js("(() => { const b = document.getElementById('endBtn'); return !b.hidden && /End session/.test(b.textContent); })()");
+check("End session is on screen with the menu closed in a Private session", endShown === true);
+await shot("client-4-private-session-menu-closed");
+await js("document.getElementById('menuBtn').click()");
+check("it steps aside while the menu is open", (await js("document.getElementById('endBtn').hidden")) === true);
+await js("closeMenu()");
+await js("globalThis.__post = post; post = (path, body) => path === '/stop' ? Promise.resolve({ ok: false, status: 503 }) : __post(path, body)");
+await js("document.getElementById('endBtn').click()");
+await sleep(2500);
+check("a failed Disconnect keeps a warning with Retry", (await js("!document.getElementById('endfail').hidden && !document.getElementById('endRetry').hidden")) === true);
+await shot("client-5-disconnect-failed");
+await sleep(9000);
+check("the warning outlives the old 8 second toast and the session still runs", (await js("!document.getElementById('endfail').hidden && running === true")) === true);
+await js("document.getElementById('endHow').click()");
+check("the recovery steps name the chord and the SSH command", /Left Ctrl \+ Left Shift \+ Left Alt \+ Esc/.test(await js("document.getElementById('endHelp').textContent")) && /systemctl --user stop blackroom-console/.test(await js("document.getElementById('endHelp').textContent")));
+await js("post = __post; true");
+await js("document.getElementById('endRetry').click()");
 await sleep(4000);
+check("Try again ends the session and clears the warning", (await js("document.getElementById('endfail').hidden && document.body.dataset.view === 'home'")) === true);
 const end = await js("({view: document.body.dataset.view, pill: document.getElementById('hoststate').textContent, note: document.getElementById('hostnote').textContent})");
 check("back on the connect screen after Disconnect", end.view === "home" && end.pill === "Ready", JSON.stringify(end));
 check("the screen was restored", /screen was restored/.test(end.note), JSON.stringify(end));
@@ -237,6 +273,10 @@ const limited = await js(`({
   note: document.getElementById('policynote').textContent })`);
 check("limits grey out what the owner switched off", limited.privateOff && limited.sharedOn && limited.preset === "shared" && limited.lockForced && limited.fps60Off && limited.audioOff && limited.textOff, JSON.stringify(limited));
 check("a session length and idle time inside the limit are chosen", limited.hours === 2 && limited.idle === 15, JSON.stringify([limited.hours, limited.idle]));
+await js("openSheet(); document.querySelector('.tabs [data-tab=conn]').click()");
+await shot("client-6-owner-restrictions-sheet");
+await js("closeSheet()");
+check("each clamped setting says so next to itself", (await js("document.querySelectorAll('.limitnote').length")) >= 4 && /laptop owner/.test(await js("document.querySelector('[data-key=\"session.lock_on_stop\"]').closest('label').textContent")));
 check("the page says who set them", /^Set by the laptop owner:/.test(limited.note) && /accept each connection/.test(limited.note), limited.note);
 await js("applyPolicy({allow_private: true, allow_shared: true, force_lock_on_stop: null, max_session_hours: 0, max_idle_minutes: 0, max_fps: 0, max_bitrate_kbps: 0, allow_audio: true, allow_text: true, approval: 'never'}); true");
 check("lifting the limits offers everything again", (await js("!document.querySelector('.mode[data-preset=private]').disabled && !document.getElementById('homeLock').disabled && document.getElementById('policynote').hidden")) === true);

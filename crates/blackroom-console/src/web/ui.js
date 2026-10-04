@@ -258,6 +258,8 @@ function onState(state) {
     $("soundnote").textContent = state.audio_note || (audioBlocked ? "Tap Sound to allow it in this browser." : "");
     $("soundrow").hidden = false;
     if (state.mode) document.body.dataset.mode = state.mode;
+    renderIsolation(state);
+    syncEnd();
     return;
   }
   const busy = state.phase === "starting" || state.phase === "stopping";
@@ -275,16 +277,50 @@ function onState(state) {
   }
 }
 
+// What the session did to the laptop (confirmed by the laptop), kept apart from the connection quality in the chip.
+function isolationLines(state) {
+  const asked = state.session || {}, done = state.isolation || {};
+  return [
+    !asked.blank_panel ? { text: "Screen: visible on the laptop (not blanked).", ok: true }
+      : done.screen_blanked ? { text: "Screen: blanked on the laptop.", ok: true }
+      : { text: "Screen: blanking was asked for but is NOT confirmed. Check the laptop.", ok: false },
+    !asked.block_local_input ? { text: "Laptop keyboard and touchpad: not blocked.", ok: true }
+      : done.input_blocked ? { text: "Laptop keyboard and touchpad: blocked.", ok: true }
+      : { text: "Laptop keyboard and touchpad: blocking was asked for but is NOT confirmed.", ok: false },
+    { text: asked.lock_on_stop ? "On disconnect: the laptop is locked." : "On disconnect: the laptop is not locked.", ok: true },
+  ];
+}
+
+function renderIsolation(state) {
+  const box = $("isolation");
+  box.replaceChildren(...isolationLines(state).map((line) => {
+    const row = document.createElement("div");
+    row.className = "iso " + (line.ok ? "ok" : "bad");
+    row.textContent = line.text;
+    return row;
+  }));
+}
+
+// A labelled End session control stays on screen in a Private session, where the screen is blank and the keyboard blocked.
+function syncEnd() {
+  const asked = (lastState && lastState.session) || {};
+  $("endBtn").hidden = !running || !(asked.blank_panel || asked.block_local_input) || !$("menu").hidden;
+}
+
 // ---- in-session menu ----
 function openMenu() {
   releaseAll();
   $("menu").hidden = false;
   $("menuBtn").setAttribute("aria-expanded", "true");
+  syncEnd();
+  placeDot();
   $("menuClose").focus();
 }
 function closeMenu() {
   $("menu").hidden = true;
   $("menuBtn").setAttribute("aria-expanded", "false");
+  syncEnd();
+  placeDot();
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
 }
 $("menuBtn").addEventListener("click", () => ($("menu").hidden ? openMenu() : closeMenu()));
@@ -305,14 +341,19 @@ $("menuSettings").addEventListener("click", () => openSheet());
 
 // ---- settings sheet ----
 let sheetReturn = null;
+// While the sheet is open the page behind it is inert, so focus cannot leave the dialog.
 function openSheet() {
   fillSheet();
   sheetReturn = document.activeElement;
   $("sheet").hidden = false;
+  $("home").inert = $("session").inert = true;
+  placeDot();
   $("sheetClose").focus();
 }
 function closeSheet() {
   $("sheet").hidden = true;
+  $("home").inert = $("session").inert = false;
+  placeDot();
   if (sheetReturn && sheetReturn.focus) sheetReturn.focus();
 }
 $("openSettings").addEventListener("click", openSheet);
@@ -322,10 +363,24 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !$("sheet").hidden) { event.stopPropagation(); event.preventDefault(); closeSheet(); }
   else if (event.key === "Escape" && !$("menu").hidden) { event.stopPropagation(); event.preventDefault(); closeMenu(); }
 }, true);
-document.querySelectorAll(".tabs [data-tab]").forEach((tab) => tab.addEventListener("click", () => {
-  document.querySelectorAll(".tabs [data-tab]").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
+// Tabs: one tab stop, arrow keys, Home and End; every tab names its pane and every pane its tab.
+const tabs = [...document.querySelectorAll(".tabs [data-tab]")];
+function selectTab(tab, focus) {
+  tabs.forEach((t) => { t.setAttribute("aria-selected", String(t === tab)); t.tabIndex = t === tab ? 0 : -1; });
   document.querySelectorAll(".pane").forEach((pane) => { pane.hidden = pane.dataset.pane !== tab.dataset.tab; });
-}));
+  if (focus) tab.focus();
+}
+tabs.forEach((tab, index) => {
+  tab.id = "tab-" + tab.dataset.tab;
+  tab.setAttribute("aria-controls", "pane-" + tab.dataset.tab);
+  tab.tabIndex = tab.getAttribute("aria-selected") === "true" ? 0 : -1;
+  tab.addEventListener("click", () => selectTab(tab));
+  tab.addEventListener("keydown", (event) => {
+    const next = { ArrowRight: tabs[(index + 1) % tabs.length], ArrowLeft: tabs[(index + tabs.length - 1) % tabs.length], Home: tabs[0], End: tabs[tabs.length - 1] }[event.key];
+    if (next) { event.preventDefault(); selectTab(next, true); }
+  });
+});
+document.querySelectorAll(".pane").forEach((pane) => { pane.id = "pane-" + pane.dataset.pane; pane.setAttribute("aria-labelledby", "tab-" + pane.dataset.pane); });
 $("settingsReset").addEventListener("click", async () => {
   if (!window.confirm("Forget this device's choices and go back to the laptop's defaults?")) return;
   try {
@@ -431,6 +486,25 @@ function applyPolicy(p) {
   limitOptions("session.max_hours", p.max_session_hours, false);
   if (p.max_session_hours) notes.push(`A session lasts ${p.max_session_hours} hour${p.max_session_hours === 1 ? "" : "s"} at most.`);
   if (p.approval === "ask") notes.push("The laptop owner has to accept each connection.");
+  // The same limits, next to the setting they clamp (the sheet is where a choice is made).
+  document.querySelectorAll(".limitnote").forEach((n) => n.remove());
+  const near = (key, text) => {
+    const el = bySel(key), label = el && el.closest("label");
+    const holder = label && (label.classList.contains("switch") ? label.querySelector("span") : label);
+    if (!holder) return;
+    const small = document.createElement("small");
+    small.className = "limitnote";
+    small.textContent = "Set by the laptop owner: " + text;
+    holder.appendChild(small);
+  };
+  if (only) { near("session.blank_panel", "only " + only + " sessions are allowed."); near("session.block_local_input", "only " + only + " sessions are allowed."); }
+  if (forced !== null && forced !== undefined) near("session.lock_on_stop", forced ? "the laptop always locks when you disconnect." : "the laptop never locks when you disconnect.");
+  if (!p.allow_audio) near("session.audio", "laptop sound is switched off.");
+  if (!p.allow_text) near("client.text_mode", "typing text is switched off.");
+  if (p.max_fps) near("session.fps_cap", `at most ${p.max_fps} frames per second.`);
+  if (p.max_bitrate_kbps) near("session.bitrate_kbps", `at most ${(p.max_bitrate_kbps / 1000).toFixed(1).replace(/\.0$/, "")} Mbit/s.`);
+  if (p.max_idle_minutes) near("session.idle_minutes", `at most ${p.max_idle_minutes} idle minutes.`);
+  if (p.max_session_hours) near("session.max_hours", `at most ${p.max_session_hours} hour${p.max_session_hours === 1 ? "" : "s"}.`);
   const note = notes.filter(Boolean).join(" ");
   $("policynote").hidden = note === "";
   $("policynote").textContent = note === "" ? "" : "Set by the laptop owner: " + note;

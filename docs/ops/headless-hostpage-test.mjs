@@ -109,18 +109,22 @@ const config = () => js("fetch('/host/state', {credentials: 'same-origin'}).then
 const shotOf = async (name, selector) => {
   const dir = process.env.BR_SHOT_DIR;
   if (!dir) return;
-  await cdp("Emulation.setDeviceMetricsOverride", { width: 1000, height: 2400, deviceScaleFactor: 1, mobile: false });
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 1000, height: 5200, deviceScaleFactor: 1, mobile: false });
   await sleep(400);
   const box = await js(`(() => { const r = ${selector ? `document.querySelector(${JSON.stringify(selector)})` : "document.documentElement"}.getBoundingClientRect(); return { x: r.x, y: r.y + scrollY, width: r.width, height: r.height }; })()`);
   const r = await cdp("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { ...box, scale: 1 } });
   writeFileSync(`${dir}/${name}.png`, Buffer.from(r.result.data, "base64"));
   await cdp("Emulation.clearDeviceMetricsOverride");
 };
+check("sign-in and credentials come before the limits, with a section menu", (await js("(() => { const ids = [...document.querySelectorAll('#appView > section')].map((s) => s.id); return ids.indexOf('credCard') < ids.indexOf('whoCard') && document.querySelectorAll('#appView nav.sections a').length >= 6 && [...document.querySelectorAll('#appView nav.sections a')].every((a) => document.querySelector(a.getAttribute('href'))); })()")) === true);
+check("what is listening is shown by interface, not claimed private", /Listening now: plain http on 127\.0\.0\.1:\d+ \(this laptop only\)/.test(await js("document.getElementById('listenLine').textContent")));
 await shotOf("host-1-full-page");
 check("the access switch starts on home only, without a renewal banner", (await js("document.getElementById('accessMode').value")) === "home" && !(await visible("certBanner")));
 await setAccess("accessMode", "vpn");
+check("a pending choice is labelled apart from what is running", /Pending settings: a private VPN\. Currently running: home network only/.test(await js("document.getElementById('pendingAccess').textContent")) && (await visible("pendingAccess")));
 check("choosing a VPN shows its fields and hides the direct ones", (await visible("accessVpn")) && !(await visible("accessDirect")));
 await setAccess("vpnName", "laptop.tailnet.ts.net");
+check("the VPN card has copyable commands for this host's name", /sudo tailscale cert --cert-file ~\/\.config\/blackroom\/tls\/cert\.pem --key-file ~\/\.config\/blackroom\/tls\/key\.pem laptop\.tailnet\.ts\.net/.test(await js("document.getElementById('vpnCommands').textContent")));
 await shotOf("host-2-access-vpn", "#internetCard");
 check("a mode change turns Save on", (await js("!document.getElementById('save').disabled")) === true);
 await js("document.getElementById('save').click()");
@@ -137,6 +141,7 @@ check("switching back brings the remembered name back", (await js("document.getE
 await setAccess("accessMode", "direct");
 await setAccess("directName", "203.0.113.7");
 await setAccess("directCert", "self_signed");
+check("self-signed direct mode shows the fingerprint steps before any credentials", (await visible("fpSteps")) && /before/.test(await js("document.getElementById('fpSteps').textContent")));
 check("a self-signed direct mode hides the certificate files", !(await visible("directFiles")) && (await visible("accessDirect")));
 await shotOf("host-3-access-direct", "#internetCard");
 check("switching to Direct asks for the laptop password", await visible("accessPasswordRow"));
@@ -185,18 +190,28 @@ check("the warning goes away once the file is valid again", !(await visible("con
 
 // Credentials: the page asks the laptop's own command; a change needs the password again; secrets are shown once.
 await js("window.confirm = () => true; true");
-check("the credential status is shown", /stub status/.test(await js("document.getElementById('credStatus').textContent")) && /dev-1/.test(await js("document.getElementById('credStatus').textContent")));
+check("the credential status is shown", /stub status/.test(await js("document.getElementById('credStatus').textContent")));
+check("trusted browsers are rows with a Forget button", (await js("[...document.querySelectorAll('#deviceList li')].map((li) => li.textContent).join('|')")).includes("Chrome on tablet") && (await js("document.querySelectorAll('#deviceList button').length")) === 1);
+await js("document.getElementById('credPassword').value = 'hostpass'; document.querySelector('#deviceList button').click(); true");
+await sleep(1200);
+check("Forget runs the fixed revoke command for that device", /revoke-device dev-1/.test(readFileSync(`${stateDir}/cli-calls`, "utf8")) || /revoke_device|revoke-device/.test(readFileSync(`${stateDir}/cli-calls`, "utf8")));
 await js("document.getElementById('credKey').click()");
 await sleep(500);
 check("a change without the password does nothing", /password/i.test(await js("document.getElementById('saveNote').textContent")) && (await js("document.getElementById('secretBox').hidden")) === true);
 await js("document.getElementById('credPassword').value = 'wrong'; document.getElementById('credKey').click(); true");
 await sleep(900);
 check("a wrong password is refused", /wrong/i.test(await js("document.getElementById('saveNote').textContent")) && (await js("document.getElementById('secretBox').hidden")) === true);
+check("the error also shows inside the credentials card", /wrong/i.test(await js("document.querySelector('#credCard .actionnote').textContent")) && (await js("!document.querySelector('#credCard .actionnote').hidden")) === true);
 await js("document.getElementById('credPassword').value = 'hostpass'; document.getElementById('credKey').click(); true");
 await sleep(1500);
 check("the new key is shown once", /ABCD-EFGH-IJKL/.test(await js("document.getElementById('credOut').textContent")) && (await js("document.getElementById('secretBox').hidden")) === false);
 check("the password field is emptied", (await js("document.getElementById('credPassword').value")) === "");
 check("the laptop ran the fixed command", /rotate-key --account \S+/.test(readFileSync(`${stateDir}/cli-calls`, "utf8")));
+const rotations = () => (readFileSync(`${stateDir}/cli-calls`, "utf8").match(/rotate-key/g) || []).length;
+const rotatedBefore = rotations();
+await js("document.getElementById('credPassword').value = 'hostpass'; document.getElementById('credKey').click(); document.getElementById('credKey').click(); true");
+await sleep(1500);
+check("a double click runs the command once", rotations() - rotatedBefore === 1, String(rotations() - rotatedBefore));
 await js("document.getElementById('credHide').click()");
 check("Hide removes the secret from the page", (await js("document.getElementById('credOut').textContent")) === "" && (await js("document.getElementById('secretBox').hidden")) === true);
 
@@ -261,6 +276,12 @@ check("off with a session running is shown as pending off", /Pending off/.test(a
 await js("renderLock({lockscreen: {installed: true, enabled: false, active: false, pending_off: false}})");
 check("off with no session is plain off", /^Off:/.test(await js("document.getElementById('lockNote').textContent")));
 
+// U15: unsaved changes are not lost to a stray Sign out.
+await js("(() => { const el = document.querySelector('[data-key=\"allow_clipboard\"]'); el.checked = !el.checked; el.dispatchEvent(new Event('change', {bubbles: true})); })()");
+await js("window.confirm = () => false; document.getElementById('logout').click(); true");
+await sleep(500);
+check("Sign out with unsaved changes asks first and stays when declined", (await visible("appView")) === true && (await js("!document.getElementById('save').disabled")) === true);
+await js("window.confirm = () => true; true");
 await js("document.getElementById('logout').click()");
 await sleep(800);
 check("Sign out returns to the sign-in view", (await visible("loginView")) && !(await visible("appView")));
