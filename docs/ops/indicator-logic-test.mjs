@@ -1,6 +1,6 @@
 // Tests the indicator's pure logic: node docs/ops/indicator-logic-test.mjs
 import assert from 'node:assert/strict';
-import {formatDuration, parseStatus, pendingNotice, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
+import {exitOutcome, formatDuration, parseStatus, pendingNotice, stateOf, transitionNotice, view} from './gnome-extension/blackroom-indicator@blackroom.local/logic.js';
 
 const idle = {phase: 'idle', mode: 'private', session_secs: 0, blank_panel: true, block_local_input: true, audio: 'off',
     version: '0.1.0', last_stop: null};
@@ -76,4 +76,9 @@ assert.equal(transitionNotice(quiet, {...running, indicator: quiet.indicator}), 
 assert.equal(view({...running, indicator: quiet.indicator}).badge, '', 'the timer can be hidden');
 assert.equal(view({...running, indicator: {notify: true, show_timer: true}}).badge, '12:34');
 assert.equal(view({phase: 'starting', indicator: quiet.indicator}).badge, '…', 'progress dots stay');
+// R24: only a bus error that says the name has no owner proves the console is gone.
+assert.equal(exitOutcome(true, false), 'running');
+assert.equal(exitOutcome(false, true), 'gone');
+assert.equal(exitOutcome(false, false), 'unknown');
+
 console.log('INDICATOR LOGIC OK');

@@ -675,6 +675,29 @@ mod tests {
     }
 
     #[test]
+    fn removing_the_marker_and_restarting_reopens_access_with_the_epoch_kept() {
+        let directory = private_dir();
+        let dirfd = File::open(directory.path()).unwrap();
+        let host = PersistentHostAuthority::open(&dirfd).unwrap();
+        let before = host.epoch();
+        let stopped = PersistentHostAuthority::emergency_stop(&dirfd).unwrap();
+        drop(host);
+        let mut blocked = PersistentHostAuthority::open(&dirfd).unwrap();
+        assert!(blocked.emergency_required());
+        drop(blocked);
+        std::fs::remove_file(directory.path().join(EMERGENCY_FILE)).unwrap();
+        let mut reopened = PersistentHostAuthority::open(&dirfd).unwrap();
+        assert!(
+            !reopened.emergency_required(),
+            "documented recovery: remove the marker, restart hostd"
+        );
+        assert!(
+            reopened.epoch() >= stopped && stopped > before,
+            "old sessions stay void"
+        );
+    }
+
+    #[test]
     fn concurrent_emergency_requests_converge_on_one_persisted_stop() {
         let directory = private_dir();
         let dirfd = File::open(directory.path()).unwrap();

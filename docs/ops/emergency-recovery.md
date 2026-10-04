@@ -27,9 +27,11 @@ Hold **Left Ctrl + Left Shift + Left Alt + Esc** on the laptop's built-in keyboa
   display, lock if the lock setting is on, release) and refuses every browser login that existed before the chord.
 - The daemon then refuses new grabs until it is restarted on purpose: run `systemctl --user restart
   blackroom-console.service` (this also restarts the daemon) before the next session.
-- The packaged daemon is not given a state directory and `--lock-on-emergency`, so the chord itself does not lock the
-  screen. The lock comes from the console's own stop and only when the session's lock setting is on. If the chord ends a Shared
-  session, the laptop is not locked unless you lock it.
+- The packaged daemon is given the login authority's state directory, so the chord also writes a durable stop marker
+  (`emergency-stop`) there and bumps the security epoch: **every remote login stays refused, also after a restart, until you
+  clear the marker locally** (below). It is not given `--lock-on-emergency`, so the chord itself does not lock the screen: the
+  lock comes from the console's own stop and only when the session's lock setting is on. A Shared session ended by the chord
+  leaves the laptop unlocked unless you lock it. Locking from the daemon waits for one supervised live run.
 - What is **not** guaranteed: that the chord works if the keyboard that you press is not one of the grabbed built-in nodes
   (an external USB keyboard is not covered), or if the daemon is frozen (the watchdog then needs up to 10 s).
 - The chord was not tried with the packaged console on the real desktop yet. Treat it as a second line, not the first.
@@ -55,6 +57,19 @@ Hold **Left Ctrl + Left Shift + Left Alt + Esc** on the laptop's built-in keyboa
 **Do not unlock the screen to "fix" a black panel.** After a stop or a restore the laptop is normally *locked*, so you see the
 lock screen: type your password there. `loginctl unlock-session` over SSH removes the lock for everyone in the room: use it only
 when you are at the laptop and the lock screen itself cannot be used. A dead console never needs it.
+
+## After the chord: remote login is closed until you reopen it
+
+Do this at the laptop, once you know why the chord was needed. Removing the marker is the only way back; nothing clears it
+automatically, and `blackroom reset full` refuses while it exists.
+```
+systemctl --user stop remote-hostd.service blackroom-console.service
+ls ~/.local/share/blackroom-console/hostd          # look for emergency-stop (and recovery-pending)
+rm ~/.local/share/blackroom-console/hostd/emergency-stop
+systemctl --user start blackroom-console.service    # starts the login authority and the grab daemon too
+```
+Old browser sessions stay void (the epoch was bumped); log in again. Offline test only: the marker removal and restart were
+checked against the store, not on the real desktop.
 
 ## Network lost
 

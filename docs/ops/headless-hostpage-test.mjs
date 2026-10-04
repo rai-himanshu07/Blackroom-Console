@@ -248,6 +248,11 @@ check("and the page says what that means", /On:/.test(await js("document.getElem
 await js("document.getElementById('lockOn').click()");
 await sleep(1500);
 check("turning it off needs no password", !existsSync(`${stateDir}/ext-on`) && /Off:/.test(await js("document.getElementById('lockNote').textContent")));
+// R23: "Off" is only pending while a remote session still runs.
+await js("renderLock({lockscreen: {installed: true, enabled: false, active: false, pending_off: true}})");
+check("off with a session running is shown as pending off", /Pending off/.test(await js("document.getElementById('lockNote').textContent")));
+await js("renderLock({lockscreen: {installed: true, enabled: false, active: false, pending_off: false}})");
+check("off with no session is plain off", /^Off:/.test(await js("document.getElementById('lockNote').textContent")));
 
 await js("document.getElementById('logout').click()");
 await sleep(800);

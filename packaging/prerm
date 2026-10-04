@@ -1,0 +1,45 @@
+#!/bin/sh
+# A package removal or upgrade must never strand a blank panel: a running console is asked to stop first (SIGTERM runs its
+# normal Stop: restore the display, lock when the session says so, release the keyboard), and the package change is
+# refused if it does not exit in time. Nothing else is touched.
+set -e
+case "$1" in
+  remove|upgrade|deconfigure) ;;
+  *) exit 0 ;;
+esac
+
+# BLACKROOM_PRERM_PIDFILE is a test hook (pids to stop, one per line); the real run matches the process name, which the
+# kernel truncates to 15 characters.
+pids() {
+  if [ -n "${BLACKROOM_PRERM_PIDFILE:-}" ]; then
+    cat "$BLACKROOM_PRERM_PIDFILE" 2>/dev/null || true
+  else
+    pgrep -x blackroom-conso 2>/dev/null || true
+  fi
+}
+
+running=$(pids)
+[ -z "$running" ] && exit 0
+
+echo "Blackroom Console is running: asking it to stop first (the display is restored and the laptop locked as set for the session)." >&2
+for pid in $running; do kill -TERM "$pid" 2>/dev/null || true; done
+
+waited=0
+limit="${BLACKROOM_PRERM_WAIT:-90}"
+while [ "$waited" -lt "$limit" ]; do
+  alive=""
+  for pid in $(pids); do
+    kill -0 "$pid" 2>/dev/null && alive="$alive $pid"
+  done
+  [ -z "$alive" ] && exit 0
+  sleep 1
+  waited=$((waited + 1))
+done
+
+cat >&2 <<'MSG'
+Blackroom Console did not stop within the time allowed, so this package change is refused to avoid leaving the laptop's
+screen blank. Stop it yourself and try again:
+  systemctl --user stop blackroom-console.service     (as the user who runs it)
+If the panel stays black, see /usr/share/doc/blackroom-console/emergency-recovery.md.
+MSG
+exit 1

@@ -13,6 +13,6 @@ WatchdogSec=10
 WatchdogSignal=SIGKILL
 RuntimeDirectory=blackroom-live
 RuntimeDirectoryMode=0700
-ExecStart="/media/user/Playground/Playground_Sys/Blackroom Console/target/release/remote-emergencyd" --client-uid %U --enable-grabs --socket %t/blackroom-live/emergency.sock
+ExecStart="/media/user/Playground/Playground_Sys/Blackroom Console/target/release/remote-emergencyd" --client-uid %U --enable-grabs --state-dir %h/.local/share/blackroom-console/hostd --socket %t/blackroom-live/emergency.sock
 # A restart would silently re-arm nothing and hide a crash.
 Restart=no

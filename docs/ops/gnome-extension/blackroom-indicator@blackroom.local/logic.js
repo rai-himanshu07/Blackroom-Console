@@ -32,6 +32,14 @@ export function stateOf(status) {
     }
 }
 
+// What an Exit check proves after `systemctl stop`: an answer means the console still runs; only a bus error that says
+// nobody owns the name means it is gone; a timeout or any other error proves nothing.
+export function exitOutcome(answered, nameAbsent) {
+    if (answered)
+        return 'running';
+    return nameAbsent ? 'gone' : 'unknown';
+}
+
 const timerShown = status => !status || !status.indicator || status.indicator.show_timer !== false;
 const noticesWanted = status => !status || !status.indicator || status.indicator.notify !== false;
 

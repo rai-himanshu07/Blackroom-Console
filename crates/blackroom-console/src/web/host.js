@@ -197,6 +197,7 @@ function renderLock(snapshot) {
     ? "The lock-screen extension is not installed (the .deb installs it; log out and in once so GNOME finds it)."
     : lock.enabled && !lock.active ? "It is switched on but GNOME has not loaded it yet: log out and in once."
     : lock.enabled ? "On: a remote session can be opened on the lock screen."
+    : lock.pending_off ? "Pending off: a remote session is running. If the screen is locked now, it keeps running until it ends; locking later ends it."
     : "Off: locking the laptop ends remote sessions. A session already open on a locked screen keeps running until it ends.";
 }
 

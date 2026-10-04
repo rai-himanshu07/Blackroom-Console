@@ -65,7 +65,8 @@ A narrowly supported technical preview. The one authoritative support table (tes
   GNOME on Wayland only, text-only clipboard.
 - **Safety promises, exactly:** a normal stop (Disconnect, heartbeat loss, owner limit) restores the display and releases the
   grab, and locks the laptop only when the session's lock setting is on. The emergency chord (Left Ctrl + Left Shift + Left Alt +
-  Esc, 2 s) works only while the keyboard grab is held and does not lock by itself. Recovery steps for a stranger and for SSH:
+  Esc, 2 s) works only while the keyboard grab is held, closes every remote login until you clear hostd's stop marker at the
+  laptop, and does not lock by itself. Recovery steps for a stranger and for SSH:
   `docs/ops/emergency-recovery.md`. SSH is the backup route, never the only one.
 - Input-device access is an operator step (`sudo blackroom-grant-input grant`, reset at reboot): there is no udev rule on
   purpose.

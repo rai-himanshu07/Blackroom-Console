@@ -50,7 +50,7 @@ Clipboard: the two buttons under the keyboard row send text to the laptop or fet
 | Lost the key only | `blackroom --state-dir ~/.local/share/blackroom-console/hostd rotate-key --account $USER --revoke-devices` |
 | Lost both the key and a trusted browser | Same as lost key: you need the laptop (or SSH) for a new key |
 | Stolen or lost tablet | `blackroom --state-dir ~/.local/share/blackroom-console/hostd devices --account $USER`, then `revoke-device <id>`; or `reset security` |
-| "emergency stop latched" | An emergency chord ended the last session. `systemctl --user restart blackroom-console.service` (restarts the daemon too) |
+| "emergency stop latched" or every login refused after a chord | The chord latches the grab daemon and writes hostd's stop marker. Clear the marker at the laptop: `emergency-recovery.md`, section "After the chord" |
 | Turn remote access off now | `blackroom --state-dir ~/.local/share/blackroom-console/hostd disable` (ends every session; `enable` re-opens it) |
 
 State directory: `~/.local/share/blackroom-console/hostd` (owner only). Audit trail: `blackroom --state-dir <that> logs`.

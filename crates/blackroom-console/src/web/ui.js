@@ -320,6 +320,7 @@ $("sheetClose").addEventListener("click", closeSheet);
 $("sheet").addEventListener("click", (event) => { if (event.target === $("sheet")) closeSheet(); });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !$("sheet").hidden) { event.stopPropagation(); event.preventDefault(); closeSheet(); }
+  else if (event.key === "Escape" && !$("menu").hidden) { event.stopPropagation(); event.preventDefault(); closeMenu(); }
 }, true);
 document.querySelectorAll(".tabs [data-tab]").forEach((tab) => tab.addEventListener("click", () => {
   document.querySelectorAll(".tabs [data-tab]").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));

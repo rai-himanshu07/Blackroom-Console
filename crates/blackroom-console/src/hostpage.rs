@@ -69,6 +69,9 @@ struct Sessions {
 #[derive(Default)]
 struct Limiter {
     failures: u32,
+    /// Checks that started and have not answered: they count against the allowance before PAM runs, so parallel
+    /// attempts cannot all pass a lock that none of them has tripped yet.
+    in_flight: u32,
     locked_until: Option<Instant>,
 }
 
@@ -267,20 +270,21 @@ struct LoginBody {
 
 /// Checks the laptop account's password (rate limited); `Err` is the reply to send.
 async fn check_password(app: &App, password: String) -> Result<(), Response> {
+    if !password_ok(&password) {
+        return Err(error(StatusCode::UNAUTHORIZED, "wrong password"));
+    }
     {
-        let limiter = lock(&app.limiter);
-        if limiter
+        let mut limiter = lock(&app.limiter);
+        let locked = limiter
             .locked_until
-            .is_some_and(|until| Instant::now() < until)
-        {
+            .is_some_and(|until| Instant::now() < until);
+        if locked || limiter.failures + limiter.in_flight >= FAILURES_BEFORE_LOCK {
             return Err(error(
                 StatusCode::TOO_MANY_REQUESTS,
                 "too many wrong passwords: wait a minute",
             ));
         }
-    }
-    if !password_ok(&password) {
-        return Err(error(StatusCode::UNAUTHORIZED, "wrong password"));
+        limiter.in_flight += 1;
     }
     let account = app.settings.account.clone();
     let factory = Arc::clone(&app.check);
@@ -290,6 +294,7 @@ async fn check_password(app: &App, password: String) -> Result<(), Response> {
     })
     .await
     .unwrap_or(PasswordOutcome::Unavailable);
+    lock(&app.limiter).in_flight -= 1;
     match outcome {
         PasswordOutcome::Accepted => {
             lock(&app.limiter).failures = 0;
@@ -521,7 +526,10 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
             "sinks": sound_outputs(),
             "totp": { "enrolled": totp_enrolled(&settings) },
             "login": { "ready": crate::hostd_auth::sockets_present(&settings.hostd_runtime) },
-            "lockscreen": lock_state(&settings.gnome_extensions),
+            "lockscreen": with_pending_off(
+                lock_state(&settings.gnome_extensions),
+                matches!(status.phase, crate::console::Phase::Running | crate::console::Phase::Starting),
+            ),
         })
     })
     .await;
@@ -890,6 +898,14 @@ pub fn lock_state(tool: &Path) -> Value {
     json!({ "installed": installed, "enabled": enabled, "active": active })
 }
 
+/// "Off" is only fully true once no remote session is open: the extension keeps a session that started on a locked
+/// screen alive after it is switched off, so the page says "pending off" while one runs.
+fn with_pending_off(mut state: Value, session_live: bool) -> Value {
+    let off = state["installed"] == json!(true) && state["enabled"] == json!(false);
+    state["pending_off"] = json!(off && session_live);
+    state
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LockBody {
@@ -1134,6 +1150,27 @@ mod tests {
 \t\tmedia.class = \"Audio/Sink\"
 \t\tnode.name = \"blackroom_test_sink\"
 ";
+
+    #[test]
+    fn off_is_pending_while_a_session_runs() {
+        let state = |installed: bool, enabled: bool| json!({ "installed": installed, "enabled": enabled, "active": false });
+        assert_eq!(
+            with_pending_off(state(true, false), true)["pending_off"],
+            json!(true)
+        );
+        assert_eq!(
+            with_pending_off(state(true, false), false)["pending_off"],
+            json!(false)
+        );
+        assert_eq!(
+            with_pending_off(state(true, true), true)["pending_off"],
+            json!(false)
+        );
+        assert_eq!(
+            with_pending_off(state(false, false), true)["pending_off"],
+            json!(false)
+        );
+    }
 
     #[test]
     fn sinks_are_read_from_the_node_list() {

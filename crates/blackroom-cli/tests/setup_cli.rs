@@ -117,6 +117,39 @@ fn reset_security_replaces_every_secret() {
 }
 
 #[test]
+fn reset_security_leaves_remote_access_on_when_it_completes_and_off_when_it_does_not() {
+    let (_root, state, runtime) = scratch();
+    let first = out(&run(&state, &runtime, &["setup"]));
+    let _ = first;
+    let done = run(&state, &runtime, &["reset", "security"]);
+    assert!(done.status.success(), "{}", err(&done));
+    {
+        let (_directory, store) = store(&state);
+        assert!(
+            !remote_hostd::remote_switch::is_disabled(&store),
+            "re-enabled after a complete reset"
+        );
+    }
+
+    // A step that cannot finish (a directory where the recovery-code file belongs) stops the reset with access closed.
+    let codes = state.join("recovery-codes");
+    let _ = std::fs::remove_file(&codes);
+    std::fs::create_dir(&codes).unwrap();
+    let broken = run(&state, &runtime, &["reset", "security"]);
+    assert!(!broken.status.success(), "{}", out(&broken));
+    assert!(
+        out(&broken).contains("remote access stays DISABLED"),
+        "{}",
+        out(&broken)
+    );
+    let (_directory, store) = store(&state);
+    assert!(
+        remote_hostd::remote_switch::is_disabled(&store),
+        "a half reset must leave login closed"
+    );
+}
+
+#[test]
 fn reset_soft_keeps_credentials() {
     let (_root, state, runtime) = scratch();
     let first = out(&run(&state, &runtime, &["setup"]));

@@ -110,6 +110,16 @@ check("webrtc video decoded at 1920 wide", state.w === 1920, `(videoWidth ${stat
 check("webrtc element shown", state.shown === "block");
 check("the view switched to the session", (await js("document.body.dataset.view")) === "session");
 check("the menu opens from its button", (await js("(() => { document.getElementById('menuBtn').click(); return !document.getElementById('menu').hidden; })()")) === true);
+// R26: with the menu open or a control focused, the physical keyboard belongs to the page (Tab/Enter reach Disconnect);
+// with the menu closed and nothing focused it goes to the laptop.
+await js("globalThis.__keys = 0; const realKey = keyEvent; keyEvent = (code, down) => { __keys++; return realKey(code, down); }");
+const press = (target) => js(`(() => { const t = ${target}; t.dispatchEvent(new KeyboardEvent("keydown", {code: "KeyA", key: "a", bubbles: true, cancelable: true})); t.dispatchEvent(new KeyboardEvent("keyup", {code: "KeyA", key: "a", bubbles: true, cancelable: true})); return __keys; })()`);
+check("menu open and a button focused: keys are not forwarded", (await press("document.activeElement")) === 0);
+check("Escape closes the menu from the keyboard", (await js("(() => { document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', code: 'Escape', bubbles: true, cancelable: true})); return document.getElementById('menu').hidden; })()")) === true);
+check("menu closed and nothing focused: keys reach the laptop", (await press("document.body")) === 2);
+await js("document.getElementById('menuBtn').focus()");
+check("a focused control keeps the keys on the page", (await press("document.activeElement")) === 2);
+await js("document.getElementById('menuBtn').click()");
 await sleep(1500);
 await shot("client-3-session-menu-open");
 await sleep(3000);

@@ -4,7 +4,7 @@
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -50,6 +50,33 @@ const KEEPALIVE: Duration = Duration::from_secs(1);
 /// How often a running stream or data channel asks again whether its login still stands.
 const GATE_EVERY: Duration = Duration::from_secs(1);
 const MAX_INPUT_BODY: usize = 64 * 1024;
+/// Blocking hostd session checks allowed at once; more are refused with 503 so a hung authority cannot starve Stop.
+const MAX_HOSTD_CHECKS: usize = 8;
+/// Open MJPEG streams: each holds a blocking-pool thread for its whole life.
+const MAX_STREAMS: usize = 4;
+
+/// Work in flight against a limit; a `Slot` gives its place back when dropped.
+#[derive(Default)]
+struct Admission(AtomicUsize);
+
+struct Slot(Arc<Admission>);
+
+impl Admission {
+    fn enter(self: &Arc<Self>, limit: usize) -> Option<Slot> {
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < limit).then_some(n + 1)
+            })
+            .ok()?;
+        Some(Slot(Arc::clone(self)))
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 #[derive(Clone)]
 enum Auth {
@@ -66,6 +93,8 @@ struct AppState {
     console: RemoteConsole,
     auth: Auth,
     hardening: Hardening,
+    hostd_checks: Arc<Admission>,
+    streams: Arc<Admission>,
 }
 
 /// What differs between the plain-http listener and an https or public one.
@@ -146,14 +175,51 @@ pub(crate) fn cookie_value<'h>(headers: &'h HeaderMap, name: &str) -> Option<&'h
         .find_map(|pair| pair.trim().strip_prefix(name)?.strip_prefix('='))
 }
 
-fn authorized(state: &AppState, headers: &HeaderMap) -> bool {
-    match &state.auth {
+enum Access {
+    Granted,
+    Denied,
+    /// The authority is slow and its check slots are taken; nothing is decided.
+    Busy,
+}
+
+/// The hostd check is a socket call with a 2 s deadline: it runs on the blocking pool behind a bounded
+/// admission, never on an async worker.
+async fn authorize(state: &AppState, headers: &HeaderMap) -> Access {
+    let granted = match &state.auth {
         Auth::Token(token) => cookie_token(headers).is_some_and(|given| tokens_equal(given, token)),
         Auth::Totp(login) => cookie_value(headers, SESSION_COOKIE)
             .is_some_and(|id| login.check(id, state.console.emergency_count(), Instant::now())),
-        Auth::Hostd(hostd) => cookie_value(headers, SESSION_COOKIE)
-            .is_some_and(|token| hostd.check(token, state.console.emergency_count())),
+        Auth::Hostd(hostd) => {
+            let Some(token) = cookie_value(headers, SESSION_COOKIE) else {
+                return Access::Denied;
+            };
+            let Some(slot) = state.hostd_checks.enter(MAX_HOSTD_CHECKS) else {
+                return Access::Busy;
+            };
+            let (hostd, token) = (Arc::clone(hostd), token.to_string());
+            let emergency = state.console.emergency_count();
+            tokio::task::spawn_blocking(move || {
+                let _slot = slot;
+                hostd.check(&token, emergency)
+            })
+            .await
+            .unwrap_or(false)
+        }
+    };
+    if granted {
+        Access::Granted
+    } else {
+        Access::Denied
     }
+}
+
+fn busy() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(axum::http::header::RETRY_AFTER, "2")],
+        "the login authority is busy; try again\n",
+    )
+        .into_response()
 }
 
 /// Re-asks the login behind a long-lived transport (the video stream, the WebRTC input channel) at most once per
@@ -232,9 +298,15 @@ fn same_origin(headers: &HeaderMap) -> bool {
         .is_some_and(|(_, origin_host)| Some(origin_host) == host)
 }
 
-fn guard(state: &AppState, headers: &HeaderMap) -> Option<Response> {
-    if !authorized(state, headers) {
-        return Some((StatusCode::UNAUTHORIZED, "open the URL printed at start\n").into_response());
+async fn guard(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+    match authorize(state, headers).await {
+        Access::Granted => {}
+        Access::Busy => return Some(busy()),
+        Access::Denied => {
+            return Some(
+                (StatusCode::UNAUTHORIZED, "open the URL printed at start\n").into_response(),
+            );
+        }
     }
     if !same_origin(headers) {
         return Some((StatusCode::FORBIDDEN, "cross-origin request refused\n").into_response());
@@ -277,6 +349,8 @@ fn build(console: RemoteConsole, auth: Auth, hardening: Hardening) -> Router {
         console,
         auth,
         hardening,
+        hostd_checks: Arc::default(),
+        streams: Arc::default(),
     };
     Router::new()
         .route("/login", post(login).layer(DefaultBodyLimit::max(4096)))
@@ -418,16 +492,20 @@ async fn index(
         )
             .into_response();
     }
-    if !authorized(&state, &headers) {
-        return match state.auth {
-            Auth::Token(_) => {
-                (StatusCode::UNAUTHORIZED, "open the URL printed at start\n").into_response()
-            }
-            Auth::Totp(_) => ([(CACHE_CONTROL, "no-store")], Html(LOGIN_PAGE)).into_response(),
-            Auth::Hostd(_) => {
-                ([(CACHE_CONTROL, "no-store")], Html(LOGIN_FULL_PAGE)).into_response()
-            }
-        };
+    match authorize(&state, &headers).await {
+        Access::Granted => {}
+        Access::Busy => return busy(),
+        Access::Denied => {
+            return match state.auth {
+                Auth::Token(_) => {
+                    (StatusCode::UNAUTHORIZED, "open the URL printed at start\n").into_response()
+                }
+                Auth::Totp(_) => ([(CACHE_CONTROL, "no-store")], Html(LOGIN_PAGE)).into_response(),
+                Auth::Hostd(_) => {
+                    ([(CACHE_CONTROL, "no-store")], Html(LOGIN_FULL_PAGE)).into_response()
+                }
+            };
+        }
     }
     let page = match state.auth {
         Auth::Hostd(_) => PAGE.replace("<!--LOGOUT-->", LOGOUT_BUTTON),
@@ -688,7 +766,7 @@ async fn security_headers(
 
 /// `RTCConfiguration` for the logged-in browser: STUN and short-lived TURN credentials.
 async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     (
@@ -699,7 +777,7 @@ async fn ice(State(state): State<AppState>, headers: HeaderMap) -> Response {
 }
 
 async fn status(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     Json(state.console.status()).into_response()
@@ -715,7 +793,7 @@ fn malformed() -> Response {
 }
 
 async fn input(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let Some(events): Option<Vec<InputEvent>> = parse_body(&body) else {
@@ -739,14 +817,14 @@ fn json_object<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, String>
 }
 
 async fn settings_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     Json(state.console.profile()).into_response()
 }
 
 async fn settings_set(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let result =
@@ -762,7 +840,7 @@ async fn settings_set(State(state): State<AppState>, headers: HeaderMap, body: B
 }
 
 async fn settings_reset(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     match state.console.set_profile(Profile::default()) {
@@ -790,7 +868,7 @@ fn clipboard_refusal(error: &ClipboardError) -> Response {
 
 /// The browser's text goes onto the laptop clipboard (body: the text, UTF-8).
 async fn clipboard_set(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let Ok(text) = String::from_utf8(body.to_vec()) else {
@@ -806,7 +884,7 @@ async fn clipboard_set(State(state): State<AppState>, headers: HeaderMap, body: 
 
 /// The laptop clipboard as plain text, never cached.
 async fn clipboard_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let console = state.console.clone();
@@ -830,7 +908,7 @@ async fn start(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let options = if body.iter().all(u8::is_ascii_whitespace) {
@@ -900,7 +978,7 @@ async fn start(
 }
 
 async fn stop(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let console = state.console.clone();
@@ -916,7 +994,7 @@ struct OfferBody {
 }
 
 async fn webrtc(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let Some(offer): Option<OfferBody> = parse_body(&body) else {
@@ -948,7 +1026,7 @@ struct AudioBody {
 }
 
 async fn audio(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let Some(body): Option<AudioBody> = parse_body(&body) else {
@@ -967,7 +1045,7 @@ struct TuningBody {
 
 /// Frame-rate ceiling and bitrate of the running session; 0 follows the quality level.
 async fn tuning(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let Some(body): Option<TuningBody> = parse_body(&body) else {
@@ -984,7 +1062,7 @@ async fn tuning(State(state): State<AppState>, headers: HeaderMap, body: Bytes) 
 }
 
 async fn quality(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let Some(body): Option<QualityBody> = parse_body(&body) else {
@@ -1006,7 +1084,7 @@ fn mjpeg_part(jpeg: &[u8]) -> Bytes {
 }
 
 async fn app_js(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     ([(CONTENT_TYPE, "text/javascript; charset=utf-8")], APP_JS).into_response()
@@ -1039,30 +1117,38 @@ async fn service_worker() -> Response {
 }
 
 async fn ui_js(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     ([(CONTENT_TYPE, "text/javascript; charset=utf-8")], UI_JS).into_response()
 }
 
 async fn app_css(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     ([(CONTENT_TYPE, "text/css; charset=utf-8")], APP_CSS).into_response()
 }
 
 async fn video(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Some(refusal) = guard(&state, &headers) {
+    if let Some(refusal) = guard(&state, &headers).await {
         return refusal;
     }
     let Some(slot) = state.console.video() else {
         return (StatusCode::CONFLICT, "not running\n").into_response();
     };
+    let Some(place) = state.streams.enter(MAX_STREAMS) else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many video streams are open\n",
+        )
+            .into_response();
+    };
     // A full channel blocks the reader thread, so a slow client skips frames instead of lagging.
     let (parts, mut receiver) = tokio::sync::mpsc::channel::<Bytes>(2);
     let gate = auth_gate(&state, &headers);
     tokio::task::spawn_blocking(move || {
+        let _place = place;
         let (mut seen, mut newest) = (0, None);
         loop {
             if !gate.still_ok() {
@@ -1110,6 +1196,52 @@ mod tests {
         let seen = Arc::clone(&live);
         let gate = AuthGate::new(Box::new(move || seen.load(Ordering::SeqCst)), every);
         (live, gate)
+    }
+
+    #[test]
+    fn admission_stops_at_its_limit_and_frees_a_place_on_drop() {
+        let admission = Arc::new(Admission::default());
+        let held: Vec<_> = (0..MAX_STREAMS)
+            .map(|_| admission.enter(MAX_STREAMS).unwrap())
+            .collect();
+        assert!(admission.enter(MAX_STREAMS).is_none());
+        drop(held);
+        assert!(admission.enter(MAX_STREAMS).is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_busy_authority_is_answered_with_503_not_by_blocking_a_worker() {
+        let console = RemoteConsole::spawn(ConsoleConfig {
+            grab_socket: None,
+            state_dir: std::env::temp_dir().join("br-console-server-test-busy"),
+            headless: true,
+            quality: crate::console::Quality::Medium,
+            heartbeat_timeout: Duration::from_secs(15),
+            restore_bin: std::path::PathBuf::new(),
+        });
+        let hostd = Arc::new(HostdAuth::new(
+            std::env::temp_dir().join("br-no-such-hostd-dir"),
+            console.emergency_count(),
+        ));
+        let state = AppState {
+            console,
+            auth: Auth::Hostd(hostd),
+            hardening: Hardening::default(),
+            hostd_checks: Arc::default(),
+            streams: Arc::default(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(COOKIE, format!("{SESSION_COOKIE}=abc").parse().unwrap());
+        let held: Vec<_> = (0..MAX_HOSTD_CHECKS)
+            .map(|_| state.hostd_checks.enter(MAX_HOSTD_CHECKS).unwrap())
+            .collect();
+        let started = Instant::now();
+        let refused = guard(&state, &headers).await.expect("refused");
+        assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(started.elapsed() < Duration::from_millis(500));
+        drop(held);
+        let denied = guard(&state, &headers).await.expect("no such session");
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[test]

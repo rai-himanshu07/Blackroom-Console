@@ -81,6 +81,7 @@ Description: control this GNOME laptop from a browser while its panel is blank
 CONTROL
 install -m 755 packaging/postinst "$root/DEBIAN/postinst"
 install -m 755 packaging/postrm "$root/DEBIAN/postrm"
+install -m 755 packaging/prerm "$root/DEBIAN/prerm"
 chmod 755 "$root/DEBIAN"
 
 mkdir -p "$OUT"
@@ -99,7 +100,7 @@ check "no unit has an [Install] section" '! tar -xOf <(dpkg-deb --fsys-tarfile "
 check "units run only /usr/lib/blackroom binaries" '! tar -xOf <(dpkg-deb --fsys-tarfile "$deb") --wildcards "./usr/lib/systemd/user/*.service" 2>/dev/null | grep "^ExecStart=" | grep -v "ExecStart=/usr/lib/blackroom/" | grep -q .'
 check "no path of this repository inside the units" '! tar -xOf <(dpkg-deb --fsys-tarfile "$deb") --wildcards "./usr/lib/systemd/user/*.service" 2>/dev/null | grep -q "Playground"'
 check "conffile is the PAM service only" '[ "$(dpkg-deb -I "$deb" conffiles 2>/dev/null)" = "/etc/pam.d/blackroom-console" ]'
-check "maintainer scripts parse" 'sh -n packaging/postinst && sh -n packaging/postrm && sh -n packaging/blackroom-grant-input && bash -n packaging/blackroom-app'
+check "maintainer scripts parse" 'sh -n packaging/postinst && sh -n packaging/prerm && sh -n packaging/postrm && sh -n packaging/blackroom-grant-input && bash -n packaging/blackroom-app'
 check "the menu launcher is a valid desktop entry with its icon" 'desktop-file-validate packaging/blackroom-console.desktop && echo "$contents" | grep -q "usr/share/applications/blackroom-console.desktop" && echo "$contents" | grep -q "hicolor/scalable/apps/blackroom-console.svg"'
 if sim=$(apt-get -s install "$deb" 2>&1); then
   echo "ok   apt-get --simulate install: $(echo "$sim" | grep -c '^Inst') package(s) would be installed"

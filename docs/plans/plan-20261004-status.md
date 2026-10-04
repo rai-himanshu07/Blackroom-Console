@@ -88,3 +88,25 @@ Real PAM and credential commands from the host page, and start at login and rest
 Owner-verified 2026-10-04 (reported, no logs): login from mobile data through Tailscale with the `tailscale cert` https name
 (direct path, clipboard, authentication, reconnect after an idle tab). Not covered: a relayed path, laptop sleep or lid close, a reboot
 before anyone logs in, certificate renewal.
+
+## W1 and W2 of the final plan (2026-10-04)
+W1 (docs only): one support table at the top of `docs/ops/compatibility-matrix.md`, exact safety promises (the chord works only
+while the keyboard grab is held and does not lock by itself), `docs/ops/emergency-recovery.md`, VPN-first access wording with
+Direct marked untested. W2 (deferred review findings, read against the live code):
+- **R8:** the packaged and dev grab-daemon units now carry hostd's `--state-dir`, so the chord writes the durable stop marker; the
+  marker closes every remote login until it is removed at the laptop (recipe in `emergency-recovery.md`, store-level test).
+  `--lock-on-emergency` stays off until a supervised live run (W3.4); a test pins that.
+- **R10:** `repair --fix` and `reset` keep a `blackroom-console-wd-*` restore timer while the console's recovery marker exists.
+- **R25:** `packaging/prerm` stops a running console (SIGTERM = normal Stop) before remove or upgrade and refuses if it does not exit;
+  `docs/ops/package-scripts-test.sh` runs it against stand-in processes only.
+- **R15, R16:** the hostd session check runs on the blocking pool behind 8 slots (503 when full); at most 4 MJPEG streams.
+- **R17:** in-flight host-page password checks count against the five-failure allowance before PAM runs.
+- **R18:** at most 4 unfinished clipboard transfers; more are refused.
+- **R20:** `reset security` disables remote login and ends sessions first, and re-enables only after every step worked.
+- **R23:** the host page shows "Pending off" while a session runs. **R24:** was fixed with U6; the Exit decision is now in
+  `logic.js` and tested. **R26:** while the menu or settings are open or a control has focus the keyboard stays on the page; Esc closes the menu.
+- **Checked by:** unit and integration tests for each (workspace tests, clippy and fmt clean), host page, browser (including four new
+  key-focus checks), indicator and console-crash suites on throwaway headless Shells, the indicator logic test.
+- **Not covered:** the assembled `.deb` (install, upgrade, remove need sudo: W7), the chord and the marker on the real desktop (W3.4),
+  the 4-stream cap through the route (only the counter is tested), R17 and R15 tests were not run against the old code, and
+  a keyboard-only way to open the menu from a running session (Tab is forwarded to the laptop): an owner decision.

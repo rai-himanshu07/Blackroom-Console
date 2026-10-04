@@ -398,7 +398,11 @@ onSurface("wheel", (event) => {
 
 // Hardware keyboard: everything goes to the laptop while a session runs.
 // Typing in the menu's or settings' own fields stays in the page; Command acts as Control when the setting says so.
-function forThePage(event) { return !!event.target.closest && !!event.target.closest("textarea, select, input:not(#kb)"); }
+function forThePage(event) {
+  // While the menu or the settings are open, or a control has focus, the keys belong to this page: Tab and Enter must be able to reach Disconnect.
+  if (!$("menu").hidden || !$("sheet").hidden) return true;
+  return !!event.target.closest && !!event.target.closest("textarea, select, button, a[href], summary, [role=tab], input:not(#kb)");
+}
 function physical(code) {
   if (typeof settings === "undefined" || !settings.client.mac_keys) return code;
   return code === "MetaLeft" ? "ControlLeft" : code === "MetaRight" ? "ControlRight" : code;

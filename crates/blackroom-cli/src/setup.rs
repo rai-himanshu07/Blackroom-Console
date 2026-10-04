@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use blackroom_store::SecretStore;
 use remote_hostd::authd::{ADMIN_SOCKET, AUTH_SOCKET};
 use remote_hostd::store::{PersistentHostAuthority, open_state_directory};
-use remote_hostd::{access_key, recovery_codes, totp, trusted_devices};
+use remote_hostd::{access_key, recovery_codes, remote_switch, totp, trusted_devices};
 
 use crate::security;
 
@@ -504,30 +504,55 @@ fn reset_security(o: &Options) -> Result<(), Failure> {
         o.account
     );
     let (directory, store) = open_store(&o.state)?;
-    println!("Old secrets stop working now.");
-    totp::remove(&directory, &o.account).map_err(refuse)?;
-    let secret = totp::enroll(&directory, &o.account).map_err(refuse)?;
-    println!("1. authenticator:");
-    print_authenticator(&o.account, secret.as_str());
-    let key =
-        access_key::rotate(&store, &o.account).map_err(|e| refuse(security::store_error(e)))?;
-    println!("2. remote access key:");
-    print_key(&o.account, key.as_str());
-    let codes = recovery_codes::generate(&store, &o.account)
-        .map_err(|e| refuse(security::store_error(e)))?;
-    println!("3.");
-    print_codes(&codes);
-    let devices = trusted_devices::revoke_all(&store, &o.account)
-        .map_err(|e| refuse(security::store_error(e)))?;
+    // Remote login is closed and every session ended before anything changes, and it re-opens only when every step worked:
+    // a half-finished reset must not leave a login that accepts part of the old secrets and part of the new ones.
+    let was_disabled = remote_switch::is_disabled(&store);
     println!(
-        "4. {devices} trusted device(s) revoked; {}",
-        end_sessions(&o.runtime)
+        "0. {}",
+        security::disable(&directory, &o.runtime, Some("security reset")).map_err(refuse)?
     );
+    println!("Old secrets stop working now.");
+    if let Err(failure) = replace_secrets(o, &directory, &store) {
+        println!(
+            "STOPPED half-way: remote access stays DISABLED. Run `blackroom reset security` again, or `blackroom disable`/`enable` once you have checked."
+        );
+        return Err(failure);
+    }
     if o.system && unit_active(HOSTD_UNIT) {
         // hostd reads the authenticator file at start: it must pick up the new secret.
         systemctl(&["restart", HOSTD_UNIT]);
         println!("5. login authority restarted");
     }
+    if was_disabled {
+        println!("Remote access was already disabled before this reset and stays disabled.");
+    } else {
+        println!(
+            "6. {}",
+            security::enable(&directory, &o.runtime).map_err(refuse)?
+        );
+    }
+    Ok(())
+}
+
+fn replace_secrets(o: &Options, directory: &File, store: &SecretStore) -> Result<(), Failure> {
+    totp::remove(directory, &o.account).map_err(refuse)?;
+    let secret = totp::enroll(directory, &o.account).map_err(refuse)?;
+    println!("1. authenticator:");
+    print_authenticator(&o.account, secret.as_str());
+    let key =
+        access_key::rotate(store, &o.account).map_err(|e| refuse(security::store_error(e)))?;
+    println!("2. remote access key:");
+    print_key(&o.account, key.as_str());
+    let codes = recovery_codes::generate(store, &o.account)
+        .map_err(|e| refuse(security::store_error(e)))?;
+    println!("3.");
+    print_codes(&codes);
+    let devices = trusted_devices::revoke_all(store, &o.account)
+        .map_err(|e| refuse(security::store_error(e)))?;
+    println!(
+        "4. {devices} trusted device(s) revoked; {}",
+        end_sessions(&o.runtime)
+    );
     Ok(())
 }
 
@@ -557,7 +582,7 @@ fn reset_full(o: &Options) -> Result<(), Failure> {
             return Err((
                 1,
                 format!(
-                    "refused: the {latch} marker is set; recover locally first (docs/security/emergency-daemon.md), a reset must not hide it"
+                    "refused: the {latch} marker is set; recover locally first (docs/ops/emergency-recovery.md), a reset must not hide it"
                 ),
             ));
         }
@@ -595,12 +620,28 @@ fn reset_full(o: &Options) -> Result<(), Failure> {
 
 // ---- repair ----
 
-/// Timers and units a crashed run can leave behind; only with no console running.
-fn clear_leftovers(fix: bool) -> Vec<String> {
+/// A restore timer (`blackroom-console-wd-*`) is the last thing that puts a dead console's display back and locks the
+/// laptop: it stays while the console's recovery marker says the display was never verified as restored.
+fn keeps_restore_timer(unit: &str, recovery_pending: bool) -> bool {
+    recovery_pending && unit.starts_with("blackroom-console-wd-")
+}
+
+fn recovery_pending() -> bool {
+    std::env::var_os("XDG_RUNTIME_DIR").is_some_and(|dir| {
+        Path::new(&dir)
+            .join("blackroom-console/recovery.json")
+            .exists()
+    })
+}
+
+/// Timers and units a crashed run can leave behind; only with no console running. Each entry says whether `--fix`
+/// clears it; a pending restore timer is reported and kept.
+fn clear_leftovers(fix: bool) -> Vec<(String, bool)> {
     let mut found = Vec::new();
     if console_running() {
         return found;
     }
+    let pending = recovery_pending();
     let listed = command(
         "systemctl",
         &[
@@ -622,7 +663,16 @@ fn clear_leftovers(fix: bool) -> Vec<String> {
             .next()
             .filter(|name| name.starts_with("blackroom-"))
         {
-            found.push(format!("left-over unit {unit}"));
+            if keeps_restore_timer(unit, pending) {
+                found.push((
+                    format!(
+                        "restore timer {unit} kept: the display was not verified as restored (start the console, which restores it, or wait for the timer)"
+                    ),
+                    false,
+                ));
+                continue;
+            }
+            found.push((format!("left-over unit {unit}"), true));
             if fix {
                 systemctl(&["stop", unit]);
                 systemctl(&["reset-failed", unit]);
@@ -640,7 +690,7 @@ fn clear_leftovers(fix: bool) -> Vec<String> {
     )
     .is_some_and(|(_, text)| text.trim() == "masked")
     {
-        found.push("gnome-remote-desktop.service is masked".into());
+        found.push(("gnome-remote-desktop.service is masked".into(), true));
         if fix {
             systemctl(&["unmask", "gnome-remote-desktop.service"]);
         }
@@ -698,7 +748,7 @@ fn repair(o: &Options) -> Result<(), Failure> {
             for latch in LATCHES {
                 if std::fs::symlink_metadata(o.state.join(latch)).is_ok() {
                     println!(
-                        "WARN  the {latch} marker is set: this is a safety latch, never cleared automatically; recover locally (docs/security/emergency-daemon.md)"
+                        "WARN  the {latch} marker is set: this is a safety latch, never cleared automatically; recover locally (docs/ops/emergency-recovery.md)"
                     );
                     open_issues.set(open_issues.get() + 1);
                 }
@@ -741,8 +791,8 @@ fn repair(o: &Options) -> Result<(), Failure> {
                 note(fixed, format!("{unit} is in the failed state"));
             }
         }
-        for leftover in clear_leftovers(o.fix) {
-            note(o.fix, leftover);
+        for (leftover, clearable) in clear_leftovers(o.fix) {
+            note(o.fix && clearable, leftover);
         }
         if !unit_active(HOSTD_UNIT) {
             println!(
@@ -779,4 +829,19 @@ pub fn dispatch(args: &[OsString]) -> Option<Result<(), Failure>> {
         Ok(options) => run(&options),
         Err(message) => Err((2, message)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keeps_restore_timer;
+
+    #[test]
+    fn a_restore_timer_is_kept_only_while_recovery_is_pending() {
+        assert!(keeps_restore_timer("blackroom-console-wd-1790.timer", true));
+        assert!(!keeps_restore_timer(
+            "blackroom-console-wd-1790.timer",
+            false
+        ));
+        assert!(!keeps_restore_timer("blackroom-live-kill.timer", true));
+    }
 }

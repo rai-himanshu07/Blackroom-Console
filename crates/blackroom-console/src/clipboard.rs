@@ -5,6 +5,7 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -57,13 +58,63 @@ pub fn validate(text: &str) -> Result<(), ClipboardError> {
     Ok(())
 }
 
+/// Transfers whose helper thread is still alive. A thread stuck on a silent peer keeps its pipe until the peer lets go,
+/// so only this many may be stuck at once; more are refused instead of leaking threads and descriptors.
+pub const MAX_UNFINISHED: usize = 4;
+
+pub struct Transfers {
+    open: AtomicUsize,
+    limit: usize,
+}
+
+static TRANSFERS: Transfers = Transfers::new(MAX_UNFINISHED);
+
+struct Place(&'static Transfers);
+
+impl Transfers {
+    pub const fn new(limit: usize) -> Self {
+        Self {
+            open: AtomicUsize::new(0),
+            limit,
+        }
+    }
+
+    fn enter(&'static self) -> Option<Place> {
+        self.open
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < self.limit).then_some(n + 1)
+            })
+            .ok()?;
+        Some(Place(self))
+    }
+}
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        self.0.open.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// Writes `data` to the pipe Mutter handed out; false when the reader went away or
 /// the transfer outlived `timeout`. A stuck writer thread ends with the pipe.
 pub fn write_with_timeout(fd: OwnedFd, data: Vec<u8>, timeout: Duration) -> bool {
+    write_within(&TRANSFERS, fd, data, timeout)
+}
+
+fn write_within(
+    transfers: &'static Transfers,
+    fd: OwnedFd,
+    data: Vec<u8>,
+    timeout: Duration,
+) -> bool {
+    let Some(place) = transfers.enter() else {
+        return false;
+    };
     let (done, result) = mpsc::channel();
     let spawned = thread::Builder::new()
         .name("clipboard-write".into())
         .spawn(move || {
+            let _place = place;
             let mut file = File::from(fd);
             let _ = done.send(file.write_all(&data).and_then(|()| file.flush()).is_ok());
         });
@@ -72,10 +123,22 @@ pub fn write_with_timeout(fd: OwnedFd, data: Vec<u8>, timeout: Duration) -> bool
 
 /// Reads at most [`MAX_BYTES`] of UTF-8 text from the pipe Mutter handed out.
 pub fn read_with_timeout(fd: OwnedFd, timeout: Duration) -> Result<String, ClipboardError> {
+    read_within(&TRANSFERS, fd, timeout)
+}
+
+fn read_within(
+    transfers: &'static Transfers,
+    fd: OwnedFd,
+    timeout: Duration,
+) -> Result<String, ClipboardError> {
+    let place = transfers.enter().ok_or_else(|| {
+        ClipboardError::Failed("earlier clipboard transfers are still unfinished".into())
+    })?;
     let (done, result) = mpsc::channel();
     thread::Builder::new()
         .name("clipboard-read".into())
         .spawn(move || {
+            let _place = place;
             let mut data = Vec::new();
             let read = File::from(fd)
                 .take(MAX_BYTES as u64 + 1)
@@ -141,6 +204,41 @@ mod tests {
             read_with_timeout(OwnedFd::from(reader), Duration::from_secs(2)),
             Err(ClipboardError::NoText)
         );
+    }
+
+    #[test]
+    fn stuck_transfers_are_capped_and_free_their_place_when_the_peer_lets_go() {
+        let transfers: &'static Transfers = Box::leak(Box::new(Transfers::new(2)));
+        let peers: Vec<_> = (0..2)
+            .map(|_| {
+                let (peer, reader) = UnixStream::pair().unwrap();
+                assert!(matches!(
+                    read_within(transfers, OwnedFd::from(reader), Duration::from_millis(50)),
+                    Err(ClipboardError::Failed(_))
+                ));
+                peer
+            })
+            .collect();
+        let (_silent, third) = UnixStream::pair().unwrap();
+        let started = std::time::Instant::now();
+        assert!(matches!(
+            read_within(transfers, OwnedFd::from(third), Duration::from_secs(2)),
+            Err(ClipboardError::Failed(text)) if text.contains("unfinished")
+        ));
+        assert!(started.elapsed() < Duration::from_millis(500));
+        let (_writer_peer, writer) = UnixStream::pair().unwrap();
+        assert!(!write_within(
+            transfers,
+            OwnedFd::from(writer),
+            vec![1],
+            Duration::from_secs(2)
+        ));
+        drop(peers);
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while transfers.open.load(Ordering::Acquire) != 0 {
+            assert!(std::time::Instant::now() < deadline, "threads did not end");
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]

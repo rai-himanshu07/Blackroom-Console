@@ -16,9 +16,15 @@ use tower::ServiceExt;
 const PORT: u16 = 18090;
 const HOSTNAME: &str = "127.0.0.1:18090";
 
+static SLOW_CHECKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 struct Fake;
 impl PasswordCheck for Fake {
     fn check(&mut self, account: &str, password: &str) -> PasswordOutcome {
+        if password == "slow wrong" {
+            SLOW_CHECKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(300));
+        }
         match (account, password) {
             ("owner", "correct horse") => PasswordOutcome::Accepted,
             ("owner", "unavailable") => PasswordOutcome::Unavailable,
@@ -829,7 +835,7 @@ async fn lock_screen_access_is_the_extension_and_turning_it_on_needs_the_passwor
     let before = state(fixture.app.clone()).await;
     assert_eq!(
         before["lockscreen"],
-        json!({ "installed": true, "enabled": false, "active": false })
+        json!({ "installed": true, "enabled": false, "active": false, "pending_off": false })
     );
     for body in [
         json!({ "enabled": true }),
@@ -1140,5 +1146,31 @@ async fn a_new_authenticator_replaces_the_old_one_only_after_a_right_code() {
         .await
         .status(),
         StatusCode::CONFLICT
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_wrong_passwords_cannot_outrun_the_lock() {
+    let fixture = fixture();
+    let attempts: Vec<_> = (0..20)
+        .map(|_| {
+            let app = fixture.app.clone();
+            tokio::spawn(async move { login(&app, "slow wrong").await.status() })
+        })
+        .collect();
+    let mut statuses = Vec::new();
+    for attempt in attempts {
+        statuses.push(attempt.await.unwrap());
+    }
+    let reached_pam = SLOW_CHECKS.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        reached_pam <= 5,
+        "{reached_pam} attempts reached the password check"
+    );
+    assert!(statuses.contains(&StatusCode::TOO_MANY_REQUESTS));
+    assert_eq!(
+        login(&fixture.app, "correct horse").await.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "the page stays locked for the rest of the minute"
     );
 }

@@ -9,7 +9,7 @@ import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import {parseStatus, pendingNotice, stateOf, transitionNotice, view} from './logic.js';
+import {exitOutcome, parseStatus, pendingNotice, stateOf, transitionNotice, view} from './logic.js';
 
 const BUS_NAME = 'org.blackroom.Console';
 const OBJECT_PATH = '/org/blackroom/Console';
@@ -170,11 +170,11 @@ class BlackroomIndicator extends PanelMenu.Button {
         process.communicate_utf8_async(null, null, () => {
             Gio.DBus.session.call(BUS_NAME, OBJECT_PATH, INTERFACE, 'Status', null, new GLib.VariantType('(s)'),
                 Gio.DBusCallFlags.NONE, 1500, null, (connection, result) => {
-                    let outcome = 'running';
+                    let outcome = exitOutcome(true, false);
                     try {
                         connection.call_finish(result);
                     } catch (error) {
-                        outcome = isAbsent(error) ? 'gone' : 'unknown';
+                        outcome = exitOutcome(false, isAbsent(error));
                     }
                     if (outcome === 'running') {
                         Main.notify('The console is still running',

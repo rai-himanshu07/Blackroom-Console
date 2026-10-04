@@ -1,6 +1,9 @@
 # Companion of blackroom-console.service: the physical-input grab daemon, run as you (read/write access to the built-in
 # input nodes comes from `sudo blackroom-grant-input grant`). It releases its grab when the console's socket closes or
 # its 10 s lease lapses; a frozen daemon is killed by the systemd watchdog.
+# --state-dir is the login authority's state directory (remote-hostd.service): an emergency chord persists hostd's
+# stop marker there, so every login stays refused until you clear it locally (docs: emergency-recovery.md). The chord does
+# not lock the screen by itself (no --lock-on-emergency until it has been tried live).
 
 [Unit]
 Description=Blackroom Console input-grab daemon
@@ -13,6 +16,6 @@ WatchdogSec=10
 WatchdogSignal=SIGKILL
 RuntimeDirectory=blackroom-live
 RuntimeDirectoryMode=0700
-ExecStart=/usr/lib/blackroom/remote-emergencyd --client-uid %U --enable-grabs --socket %t/blackroom-live/emergency.sock
+ExecStart=/usr/lib/blackroom/remote-emergencyd --client-uid %U --enable-grabs --state-dir %h/.local/share/blackroom-console/hostd --socket %t/blackroom-live/emergency.sock
 # A restart would silently re-arm nothing and hide a crash.
 Restart=no
