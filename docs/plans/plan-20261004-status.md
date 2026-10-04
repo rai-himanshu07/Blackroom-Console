@@ -54,6 +54,23 @@ stream, start from the user unit). Compatibility-matrix rows updated accordingly
 clipboard over https also verified by the owner; Safari/iOS waived by the owner (browser-based, expected to work, not tested); the
 one-hour soak assumed fine by the owner, not run.
 
+## Internet access rework (owner request, 2026-10-04)
+The owner pointed out that the recipes did not serve a static-IP user and that outside access was not part of `blackroom setup`.
+One design review by GPT-6.1 Sol (read-only) shaped it. Built: `blackroom internet` (guided; `--check`), offered as step 9 of
+`setup`; the console binary owns validation (`--check-internet`, `--apply-internet [--dry-run]`) and start-up uses the same
+preflight; `host.json` gained `stun`, `turn`, `turn_secret_file`, `turn_ttl_secs`, `ice_ports`, `public_name`, `public_cert`;
+real certificate checks (`certcheck.rs`: names, dates, key match, fingerprint; x509-parser is already in the tree through rcgen);
+the TURN secret is read as an owner-only regular file without following links; a renewed certificate is reloaded only if valid;
+a damaged `host.json` keeps the listeners on 127.0.0.1; the host page shows the state read-only and refuses to save an internet
+mode the next start would refuse; `docs/ops/internet-access.md` rewritten around who can reach whom.
+- **Owner decisions that differ from the reviewer:** a bare static IP may use the console's own self-signed certificate in internet
+  mode (explicit choice, fingerprint shown, no HSTS, trust-on-first-use notice); the reviewer advised insisting on a name.
+- **Left out on purpose:** automatic CGNAT detection, certificate issuance, router or firewall changes, TURN by default, a fresh
+  password for exposure changes on the host page (it refuses unsafe saves instead), IPv6 listeners, a `turns:` relay.
+- **Tested:** unit tests (host.json validation, certificate checks, preflight, patching, the wizard against a fake console, start-up
+  merge), `docs/ops/internet-test.sh` (real binaries, throwaway HOME, real start-up with a damaged file and with a refused public
+  mode), the host page tests. **Not tested:** a real router, a real certificate authority, Tailscale, a phone on mobile data.
+
 ## Still the owner's
 Real PAM and credential commands from the host page, start at login and restart under systemd, and a login from mobile data
 (recipe A in `docs/ops/internet-access.md`).

@@ -109,6 +109,18 @@ time on the loopback host page, the blocking pool shared by media readers and co
 timeout, the order of a security reset, the lock-screen switch while remote handles exist, and the packaged emergency daemon
 without its own lock action. None of the fixes was observed on the real desktop.
 
+## Internet access set-up (2026-10-04)
+
+`--public` used to check only that certificate paths were given. It now reads the certificate and key: the certificate must be in
+date, cover the name clients type, belong to the key and not be self-signed (unless the owner chose the console's own
+self-signed certificate for a bare IP, which is allowed deliberately, never for a name, and shown with its fingerprint); the key
+file must be an owner-only regular file opened without following a link; a renewed pair is reloaded only when it passes the same
+checks. A damaged `host.json` no longer silently drops saved public settings while the listeners stay open: the console starts
+with its listeners on 127.0.0.1 only. The TURN secret file is read with the same rules and is never written to `host.json`, the
+page or the logs. The host page refuses to save an internet mode the next start would refuse. Open: the host page still changes
+network settings behind its session login alone (no fresh password); a self-signed certificate on a bare IP is
+trust-on-first-use; nothing was tried against a real router, authority or mobile network.
+
 ## Not tested here (needs hardware or a person)
 
 Real phone on mobile data, Safari and iOS behaviour, a second Unix user on the same laptop, the one-hour live soak, the
