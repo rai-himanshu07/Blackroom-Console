@@ -88,6 +88,8 @@ pub struct Report {
     pub notes: Vec<String>,
     pub certificate: Option<certcheck::CertReport>,
     pub days_left: Option<i64>,
+    /// Set when a certificate from an authority is close to its end (the console's own one renews itself).
+    pub renew_note: Option<String>,
     /// The address clients type, once public mode is set up.
     pub url: Option<String>,
     /// The port the https listener uses (what to forward, and what a VPN address needs).
@@ -123,6 +125,7 @@ pub fn preflight(e: &Effective, now_unix: i64) -> Report {
         notes: Vec::new(),
         certificate: None,
         days_left: None,
+        renew_note: None,
         url: None,
         https_port: e.tls_listen.map(|addr| addr.port()),
         stun_set: !e.stun.is_empty(),
@@ -226,6 +229,9 @@ pub fn preflight(e: &Effective, now_unix: i64) -> Report {
                 .extend(warnings.into_iter().map(|w| format!("certificate: {w}")));
         }
         report.days_left = Some(found.days_left(now_unix));
+        if !own_certificate {
+            report.renew_note = found.renew_due(now_unix).map(certcheck::renew_text);
+        }
         report.self_signed = found.self_signed;
         report.certificate = Some(found);
     } else if self_signed_choice && e.public && key_pem_ok && own_certificate {
@@ -433,6 +439,23 @@ mod tests {
         assert!(report.forwards.iter().any(|f| f.starts_with("TCP 8443")));
         assert!(report.forwards.iter().any(|f| f.contains("50000-50100")));
         assert!(report.notes.iter().any(|n| n.contains("no TURN")));
+    }
+
+    #[test]
+    fn a_certificate_from_files_near_its_end_asks_for_renewal_but_the_consoles_own_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let (cert, key) = write_pair(dir.path(), &["laptop.tailnet.ts.net"]);
+        let end = certcheck::inspect_files(&cert, &key).unwrap().not_after;
+        let mut e = effective(dir.path());
+        e.public_name = Some("laptop.tailnet.ts.net".into());
+        e.tls_cert = Some(cert);
+        e.tls_key = Some(key);
+        let note = preflight(&e, end - 3 * 86_400).renew_note;
+        assert!(note.is_some_and(|text| text.contains("3 day(s)")));
+        assert!(preflight(&e, end - 90 * 86_400).renew_note.is_none());
+        // The same pair as the console's own certificate (no files set): it remakes itself, so no reminder.
+        let own = effective(dir.path());
+        assert!(preflight(&own, end - 3 * 86_400).renew_note.is_none());
     }
 
     #[test]

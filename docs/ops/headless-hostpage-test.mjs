@@ -101,6 +101,37 @@ check("it says they are not in effect yet", state.restart_needed === true && /re
 check("host.json is on disk, owner-only", existsSync(`${stateDir}/host.json`) && (JSON.parse(readFileSync(`${stateDir}/host.json`, "utf8")).max_fps === 30));
 check("Save is off again after saving", (await js("document.getElementById('save').disabled")) === true);
 
+// The access switch: home only, a private VPN, or direct; each mode's settings are remembered.
+await js("window.confirm = () => true; true");
+const setAccess = (id, value) => js(`(() => { const el = document.getElementById(${JSON.stringify(id)}); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`);
+const config = () => js("fetch('/host/state', {credentials: 'same-origin'}).then((r) => r.json()).then((s) => s.config)");
+check("the access switch starts on home only, without a renewal banner", (await js("document.getElementById('accessMode').value")) === "home" && !(await visible("certBanner")));
+await setAccess("accessMode", "vpn");
+check("choosing a VPN shows its fields and hides the direct ones", (await visible("accessVpn")) && !(await visible("accessDirect")));
+await setAccess("vpnName", "laptop.tailnet.ts.net");
+check("a mode change turns Save on", (await js("!document.getElementById('save').disabled")) === true);
+await js("document.getElementById('save').click()");
+await sleep(1200);
+let held = await config();
+check("the VPN mode is saved as a live name and remembered", held.public === false && held.public_name === "laptop.tailnet.ts.net" && held.saved_access?.vpn?.public_name === "laptop.tailnet.ts.net", JSON.stringify([held.public, held.public_name, held.saved_access]));
+await setAccess("accessMode", "home");
+await js("document.getElementById('save').click()");
+await sleep(1200);
+held = await config();
+check("going back to home clears the live name and keeps the memory", held.public_name === null && held.tls_cert === null && held.saved_access?.vpn?.public_name === "laptop.tailnet.ts.net", JSON.stringify([held.public_name, held.saved_access]));
+await setAccess("accessMode", "vpn");
+check("switching back brings the remembered name back", (await js("document.getElementById('vpnName').value")) === "laptop.tailnet.ts.net");
+await setAccess("accessMode", "direct");
+await setAccess("directName", "203.0.113.7");
+await setAccess("directCert", "self_signed");
+check("a self-signed direct mode hides the certificate files", !(await visible("directFiles")) && (await visible("accessDirect")));
+await js("document.getElementById('save').click()");
+await sleep(1200);
+check("direct mode is refused with the reasons while the setup is unsafe", /cannot be saved yet/.test(await js("document.getElementById('saveNote').textContent")) && (await config()).public === false, await js("document.getElementById('saveNote').textContent"));
+await setAccess("accessMode", "home");
+await js("document.getElementById('save').click()");
+await sleep(1200);
+
 await set("allow_private", false);
 await set("allow_shared", false);
 await js("document.getElementById('save').click()");

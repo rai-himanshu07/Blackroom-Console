@@ -15,7 +15,12 @@ pub const BUS_NAME: &str = "org.blackroom.Console";
 pub const OBJECT_PATH: &str = "/org/blackroom/Console";
 
 /// The few facts the indicator shows; everything else stays inside the console.
-pub fn summary(status: &Status, host_url: Option<&str>, indicator: &Indicator) -> Value {
+pub fn summary(
+    status: &Status,
+    host_url: Option<&str>,
+    indicator: &Indicator,
+    cert_note: Option<&str>,
+) -> Value {
     json!({
         "phase": status.phase,
         "mode": status.mode,
@@ -35,6 +40,7 @@ pub fn summary(status: &Status, host_url: Option<&str>, indicator: &Indicator) -
         "host_url": host_url,
         "pending": status.pending,
         "indicator": indicator,
+        "cert_note": cert_note,
     })
 }
 
@@ -52,6 +58,7 @@ impl Control {
             &self.console.status(),
             self.host_url.as_deref(),
             &self.console.host_config().indicator,
+            self.console.cert_note().as_deref(),
         )
         .to_string()
     }
@@ -111,6 +118,7 @@ mod tests {
             &console().status(),
             Some("http://localhost:8090/"),
             &Indicator::default(),
+            None,
         );
         let mut keys: Vec<_> = value.as_object().unwrap().keys().cloned().collect();
         keys.sort();
@@ -120,6 +128,7 @@ mod tests {
                 "audio",
                 "blank_panel",
                 "block_local_input",
+                "cert_note",
                 "host",
                 "host_url",
                 "indicator",

@@ -489,14 +489,23 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
             .map_or_else(|| (console.host_config(), None), HostConfig::load);
         let running = console.host_config();
         let status = console.status();
+        // Read again each time: a renewed certificate or a passing month changes the answer while the console runs.
+        let mut effective = settings.effective.clone();
+        if let (Some(internet), Some(object)) = (&settings.internet, effective.as_object_mut()) {
+            let report = crate::internet::preflight(internet, crate::internet::now_unix());
+            object.insert(
+                "internet".into(),
+                serde_json::to_value(report).unwrap_or(Value::Null),
+            );
+        }
         json!({
             "account": settings.account,
             "host": status.host,
             "version": status.version,
             "config": saved,
-            "restart_needed": saved != running,
+            "restart_needed": saved.needs_restart_from(&running),
             "note": note,
-            "effective": settings.effective,
+            "effective": effective,
             "status": {
                 "phase": status.phase,
                 "mode": status.mode,
@@ -560,6 +569,15 @@ async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Resp
             );
         }
     }
+    // A certificate that cannot be read or does not match its key stops the console from starting.
+    if let (Some(cert), Some(key)) = (&config.tls_cert, &config.tls_key)
+        && let Err(problem) = crate::certcheck::inspect_files(cert, key)
+    {
+        return error(
+            StatusCode::CONFLICT,
+            &format!("the certificate cannot be used, so it was not saved: {problem}"),
+        );
+    }
     if config.login == Some(crate::host::LoginMethod::Hostd)
         && !crate::hostd_auth::sockets_present(&app.settings.hostd_runtime)
     {
@@ -571,7 +589,7 @@ async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Resp
     match config.save(&dir) {
         Ok(_) => reply(
             StatusCode::OK,
-            &json!({ "saved": true, "restart_needed": config != app.console.host_config() }),
+            &json!({ "saved": true, "restart_needed": config.needs_restart_from(&app.console.host_config()) }),
         ),
         Err(save_error) => error(
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -100,6 +100,53 @@ pub struct HostConfig {
     pub public_name: Option<String>,
     /// Which certificate backs `public`: `ca` (files from a real authority) or `self_signed` (the console's own, for a bare IP).
     pub public_cert: Option<PublicCert>,
+    /// What the host settings page remembers for the access modes that are not in use, so switching back is one click.
+    /// The running settings are the fields above; this is only a memory.
+    pub saved_access: Option<SavedAccess>,
+}
+
+/// One access mode's remembered settings.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct AccessProfile {
+    pub public_name: Option<String>,
+    pub public_cert: Option<PublicCert>,
+    pub tls_cert: Option<PathBuf>,
+    pub tls_key: Option<PathBuf>,
+    pub ice_ports: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct SavedAccess {
+    /// A private network or VPN (Tailscale): nothing exposed, a certificate for the VPN name.
+    pub vpn: Option<AccessProfile>,
+    /// Direct access through the router.
+    pub direct: Option<AccessProfile>,
+}
+
+impl AccessProfile {
+    fn validated(&self) -> Result<(), String> {
+        if let Some(name) = &self.public_name
+            && !valid_public_name(name)
+        {
+            return Err("a remembered name must be a DNS name or an IP address".into());
+        }
+        if self.tls_cert.is_some() != self.tls_key.is_some() {
+            return Err("a remembered certificate and key go together".into());
+        }
+        for path in [&self.tls_cert, &self.tls_key].into_iter().flatten() {
+            if !path.is_absolute() {
+                return Err("remembered certificate and key paths must be absolute".into());
+            }
+        }
+        if let Some(text) = &self.ice_ports
+            && crate::ice::parse_port_range(text).is_none()
+        {
+            return Err("a remembered media port range must be MIN-MAX".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -165,6 +212,7 @@ impl Default for HostConfig {
             ice_ports: None,
             public_name: None,
             public_cert: None,
+            saved_access: None,
         }
     }
 }
@@ -189,6 +237,15 @@ fn valid_listen(text: &str) -> bool {
 }
 
 impl HostConfig {
+    /// Do the two differ in anything a running console acts on? The remembered access modes are only a memory.
+    pub fn needs_restart_from(&self, running: &Self) -> bool {
+        let strip = |config: &Self| Self {
+            saved_access: None,
+            ..config.clone()
+        };
+        strip(self) != strip(running)
+    }
+
     pub fn validated(self) -> Result<Self, String> {
         if self.version != VERSION {
             return Err(format!("version must be {VERSION}"));
@@ -290,6 +347,11 @@ impl HostConfig {
         }
         if self.public_cert == Some(PublicCert::SelfSigned) && self.public_name.is_none() {
             return Err("public_cert self_signed needs public_name (the address the certificate is made for)".into());
+        }
+        if let Some(saved) = &self.saved_access {
+            for profile in [&saved.vpn, &saved.direct].into_iter().flatten() {
+                profile.validated()?;
+            }
         }
         Ok(self)
     }
@@ -440,6 +502,56 @@ impl HostConfig {
 mod tests {
     use super::*;
     use crate::options::SessionOptions;
+
+    #[test]
+    fn remembered_access_modes_are_validated_and_do_not_need_a_restart() {
+        let remembered = |profile: AccessProfile| HostConfig {
+            saved_access: Some(SavedAccess {
+                vpn: Some(profile),
+                direct: None,
+            }),
+            ..HostConfig::default()
+        };
+        assert!(
+            remembered(AccessProfile {
+                public_name: Some("laptop.tailnet.ts.net".into()),
+                tls_cert: Some("/c.pem".into()),
+                tls_key: Some("/k.pem".into()),
+                ..AccessProfile::default()
+            })
+            .validated()
+            .is_ok()
+        );
+        for bad in [
+            AccessProfile {
+                public_name: Some("not a name!".into()),
+                ..AccessProfile::default()
+            },
+            AccessProfile {
+                tls_cert: Some("/c.pem".into()),
+                ..AccessProfile::default()
+            },
+            AccessProfile {
+                tls_cert: Some("c.pem".into()),
+                tls_key: Some("/k.pem".into()),
+                ..AccessProfile::default()
+            },
+            AccessProfile {
+                ice_ports: Some("99-100".into()),
+                ..AccessProfile::default()
+            },
+        ] {
+            assert!(remembered(bad.clone()).validated().is_err(), "{bad:?}");
+        }
+        let running = HostConfig::default();
+        let memory_only = remembered(AccessProfile::default());
+        assert!(!memory_only.needs_restart_from(&running));
+        let live_change = HostConfig {
+            public: Some(true),
+            ..HostConfig::default()
+        };
+        assert!(live_change.needs_restart_from(&running));
+    }
 
     #[test]
     fn the_default_limits_nothing() {

@@ -14,8 +14,8 @@ use sha2::{Digest, Sha256};
 
 /// A certificate chain or key file larger than this is not one.
 const MAX_PEM: u64 = 64 * 1024;
-/// A certificate this close to its end gets a warning.
-pub const RENEW_WARNING_DAYS: i64 = 14;
+/// A certificate this close to its end gets a renewal reminder (a Tailscale certificate lives 90 days).
+pub const RENEW_WARNING_DAYS: i64 = 30;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CertReport {
@@ -33,6 +33,14 @@ pub struct CertReport {
 impl CertReport {
     pub fn days_left(&self, now_unix: i64) -> i64 {
         (self.not_after - now_unix).div_euclid(86_400)
+    }
+
+    /// Days left once renewal is due: in the last `RENEW_WARNING_DAYS`, or the last third of a shorter-lived certificate.
+    pub fn renew_due(&self, now_unix: i64) -> Option<i64> {
+        let life_days = (self.not_after - self.not_before) / 86_400;
+        let threshold = (life_days / 3).clamp(1, RENEW_WARNING_DAYS);
+        let left = self.days_left(now_unix);
+        (now_unix <= self.not_after && left < threshold).then_some(left)
     }
 }
 
@@ -179,6 +187,12 @@ pub fn name_covered(names: &[String], wanted: &str) -> bool {
     })
 }
 
+pub fn renew_text(days_left: i64) -> String {
+    format!(
+        "the certificate ends in {days_left} day(s): renew it (docs/ops/internet-access.md), for a Tailscale name run the `sudo tailscale cert` command again"
+    )
+}
+
 /// What is wrong (`.0`, blocks public mode) and what deserves a warning (`.1`).
 pub fn judge(
     report: &CertReport,
@@ -192,11 +206,8 @@ pub fn judge(
     }
     if now_unix > report.not_after {
         problems.push("the certificate has expired".to_string());
-    } else if report.days_left(now_unix) < RENEW_WARNING_DAYS {
-        warnings.push(format!(
-            "the certificate ends in {} day(s): renew it",
-            report.days_left(now_unix)
-        ));
+    } else if let Some(left) = report.renew_due(now_unix) {
+        warnings.push(renew_text(left));
     }
     if let Some(name) = wanted_name
         && !name_covered(&report.names, name)
@@ -289,6 +300,34 @@ mod tests {
         assert!(problems.iter().any(|p| p.contains("expired")));
         let (_, warnings) = judge(&report, None, report.not_after - 3 * 86_400, true);
         assert!(warnings.iter().any(|w| w.contains("renew")));
+    }
+
+    #[test]
+    fn renewal_is_due_in_the_last_month_or_the_last_third_of_a_short_life() {
+        let day = 86_400;
+        let report = |life_days: i64| CertReport {
+            names: Vec::new(),
+            not_before: 0,
+            not_after: life_days * day,
+            self_signed: false,
+            fingerprint: String::new(),
+            chain_len: 1,
+        };
+        let tailscale = report(90);
+        assert_eq!(tailscale.renew_due(59 * day), None, "31 days left");
+        assert_eq!(tailscale.renew_due(61 * day), Some(29));
+        assert_eq!(
+            tailscale.renew_due(91 * day),
+            None,
+            "expired is a problem, not a reminder"
+        );
+        let six_days = report(6);
+        assert_eq!(
+            six_days.renew_due(3 * day),
+            None,
+            "a fresh short certificate is not nagged"
+        );
+        assert_eq!(six_days.renew_due(5 * day), Some(1));
     }
 
     #[test]

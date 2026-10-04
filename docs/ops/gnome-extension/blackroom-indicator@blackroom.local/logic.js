@@ -56,7 +56,10 @@ export function view(status) {
             badge: '?', lines: [`${capital(pending.mode)} session from ${pending.device}`,
                 `Denied automatically in ${pending.secs_left} seconds`]};
     }
-    return {...shown, canApprove: false, pendingId: null, badge: timerShown(status) || shown.badge === '…' ? shown.badge : ''};
+    // The https certificate is close to its end: a line, not a popup (the host settings page says how to renew it).
+    const renew = status && status.cert_note ? ['The https certificate needs renewing soon (see the host settings page)'] : [];
+    return {...shown, canApprove: false, pendingId: null, lines: [...shown.lines, ...renew],
+        badge: timerShown(status) || shown.badge === '…' ? shown.badge : ''};
 }
 
 function viewOf(status) {

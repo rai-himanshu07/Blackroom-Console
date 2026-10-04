@@ -156,9 +156,18 @@ takes effect after the console restarts (`systemctl --user restart blackroom-con
 
 If `host.json` exists but cannot be read, the console starts with its network listeners on this laptop only (127.0.0.1),
 asks you to approve every connection, and shows the reason on the host settings page; save the page, or fix the file, then
-restart. The host settings page shows the state read-only and refuses to save an internet mode that the next start would
-refuse. The older command-line flags (`--public`, `--tls-cert`, `--stun`, `--turn`, `--ice-port-range` and the `BR_*`
-variables of `docs/ops/console.sh`) still work; what `host.json` sets wins.
+restart. The host settings page has a switch, **Access from outside**: home network only, a private VPN, or direct. It
+remembers the settings of the modes you are not using, so switching back is one step, and it refuses to save a direct
+mode that the next start would refuse, or a certificate that cannot be read or does not match its key. Direct mode asks
+for a confirmation first. The older command-line flags (`--public`, `--tls-cert`, `--stun`, `--turn`, `--ice-port-range`
+and the `BR_*` variables of `docs/ops/console.sh`) still work; what `host.json` sets wins.
+
+## Certificate reminders
+
+A certificate from files (`tailscale cert`, Let's Encrypt) is checked every six hours while the console runs. In the last
+30 days (or the last third of a shorter-lived certificate) the console logs a warning each time, shows a banner at the top
+of the host settings page, and adds a line to the top-bar menu. The console does not renew it for you: for Tailscale run
+the same `sudo tailscale cert ...` command again; the console picks the new files up within six hours.
 
 ## Before you expose anything
 

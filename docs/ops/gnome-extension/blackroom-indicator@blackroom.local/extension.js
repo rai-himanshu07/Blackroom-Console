@@ -39,7 +39,7 @@ class BlackroomIndicator extends PanelMenu.Button {
 
         this._title = new PopupMenu.PopupMenuItem('', {reactive: false});
         this._lines = [new PopupMenu.PopupMenuItem('', {reactive: false}), new PopupMenu.PopupMenuItem('', {reactive: false}),
-            new PopupMenu.PopupMenuItem('', {reactive: false})];
+            new PopupMenu.PopupMenuItem('', {reactive: false}), new PopupMenu.PopupMenuItem('', {reactive: false})];
         this.menu.addMenuItem(this._title);
         for (const line of this._lines)
             this.menu.addMenuItem(line);

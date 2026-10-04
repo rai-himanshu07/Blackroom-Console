@@ -649,6 +649,7 @@ async fn main() -> anyhow::Result<()> {
         restore_bin,
     });
     console.set_clipboard_enabled(args.clipboard);
+    console.set_cert_note(internet_report.renew_note.clone());
     console.set_audio_sink(args.audio_sink.clone());
     if let Some(note) = console.load_profile(profile_dir.clone()) {
         tracing::warn!("{note}");
@@ -738,23 +739,34 @@ async fn main() -> anyhow::Result<()> {
                 // A renewed certificate (Let's Encrypt every ~60 days) is picked up without a restart, but only when the new
                 // pair is valid, matches and still covers the name: a bad renewal keeps the old certificate.
                 let (reloading, cert, key) = (config.clone(), cert.clone(), key.clone());
+                let reminder = console.clone();
                 tokio::spawn(async move {
                     loop {
                         tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
-                        let verdict = blackroom_console::certcheck::inspect_files(&cert, &key)
-                            .and_then(|found| {
-                                let (problems, _) = blackroom_console::certcheck::judge(
-                                    &found,
-                                    public_name.as_deref(),
-                                    blackroom_console::internet::now_unix(),
-                                    true,
-                                );
-                                if problems.is_empty() {
-                                    Ok(())
-                                } else {
-                                    Err(problems.join("; "))
-                                }
-                            });
+                        let now = blackroom_console::internet::now_unix();
+                        let inspected = blackroom_console::certcheck::inspect_files(&cert, &key);
+                        let note = inspected
+                            .as_ref()
+                            .ok()
+                            .and_then(|found| found.renew_due(now))
+                            .map(blackroom_console::certcheck::renew_text);
+                        if let Some(text) = &note {
+                            tracing::warn!("{text}");
+                        }
+                        reminder.set_cert_note(note);
+                        let verdict = inspected.and_then(|found| {
+                            let (problems, _) = blackroom_console::certcheck::judge(
+                                &found,
+                                public_name.as_deref(),
+                                now,
+                                true,
+                            );
+                            if problems.is_empty() {
+                                Ok(())
+                            } else {
+                                Err(problems.join("; "))
+                            }
+                        });
                         if let Err(error) = verdict {
                             tracing::warn!(%error, "the renewed tls certificate is not usable; keeping the old one");
                             continue;

@@ -361,6 +361,71 @@ async fn internet_mode_that_the_next_start_would_refuse_is_not_saved() {
 }
 
 #[tokio::test]
+async fn an_unusable_certificate_is_not_saved_and_remembered_modes_need_no_restart() {
+    let fixture = fixture();
+    let cookie = signed_in(&fixture.app).await;
+    let get_state = || async {
+        json_of(
+            send(
+                &fixture.app,
+                request(
+                    Method::GET,
+                    "/host/state",
+                    HOSTNAME,
+                    None,
+                    Some(&cookie),
+                    Value::Null,
+                ),
+            )
+            .await,
+        )
+        .await
+    };
+    let post = |config: Value| {
+        send(
+            &fixture.app,
+            request(
+                Method::POST,
+                "/host/config",
+                HOSTNAME,
+                Some(&own_origin()),
+                Some(&cookie),
+                config,
+            ),
+        )
+    };
+    let state = get_state().await;
+    assert!(state["effective"]["internet"]["access"].is_string());
+
+    // A certificate file that is not one would stop the console from starting.
+    let junk = fixture.dir.path().join("cert.pem");
+    std::fs::write(&junk, "not a certificate").unwrap();
+    let key = fixture.dir.path().join("key.pem");
+    std::fs::write(&key, "not a key").unwrap();
+    let mut config = state["config"].clone();
+    config["tls_cert"] = json!(junk);
+    config["tls_key"] = json!(key);
+    let refused = post(config).await;
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    let message = json_of(refused).await["error"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(message.contains("was not saved"), "{message}");
+    assert!(!fixture.dir.path().join("host.json").exists());
+
+    // Only a memory of other access modes changed: nothing for a restart to apply.
+    let mut config = state["config"].clone();
+    config["saved_access"] = json!({ "vpn": { "public_name": "laptop.tailnet.ts.net" } });
+    let saved = post(config.clone()).await;
+    assert_eq!(saved.status(), StatusCode::OK);
+    assert_eq!(json_of(saved).await["restart_needed"], false);
+    assert_eq!(get_state().await["restart_needed"], false);
+    config["saved_access"] = json!({ "vpn": { "public_name": "not a name!" } });
+    assert_eq!(post(config).await.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn settings_are_saved_validated_and_only_from_the_pages_own_origin() {
     let fixture = fixture();
     let cookie = signed_in(&fixture.app).await;

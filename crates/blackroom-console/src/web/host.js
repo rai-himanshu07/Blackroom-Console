@@ -73,8 +73,66 @@ function collect() {
     put(config, el.dataset.key, value);
   }
   config.tls_listen = $("tlsOn").checked ? $("tlsListen").value.trim() : "";
+  if (accessTouched) collectAccess(config);
   return config;
 }
+
+// ---- access from outside: home only, a private VPN, or direct; the settings of each mode are remembered ----
+let accessTouched = false;   // untouched: collect() hands back the saved access settings byte for byte
+
+function modeOf(config) { return config.public === true ? "direct" : config.tls_cert ? "vpn" : "home"; }
+
+function fillAccess(config) {
+  accessTouched = false;
+  const mode = modeOf(config);
+  const memory = config.saved_access ?? {};
+  const live = { public_name: config.public_name ?? null, public_cert: config.public_cert ?? null, tls_cert: config.tls_cert ?? null, tls_key: config.tls_key ?? null, ice_ports: config.ice_ports ?? null };
+  const vpn = mode === "vpn" ? live : (memory.vpn ?? {});
+  const direct = mode === "direct" ? live : (memory.direct ?? {});
+  $("vpnName").value = vpn.public_name ?? "";
+  $("vpnCert").value = vpn.tls_cert ?? "";
+  $("vpnKey").value = vpn.tls_key ?? "";
+  $("directName").value = direct.public_name ?? "";
+  $("directCert").value = direct.public_cert ?? "ca";
+  $("directCertFile").value = direct.tls_cert ?? "";
+  $("directKeyFile").value = direct.tls_key ?? "";
+  $("directPorts").value = direct.ice_ports ?? "";
+  $("accessMode").value = mode;
+  showAccess();
+}
+
+function showAccess() {
+  const mode = $("accessMode").value;
+  $("accessVpn").hidden = mode !== "vpn";
+  $("accessDirect").hidden = mode !== "direct";
+  $("directFiles").hidden = $("directCert").value === "self_signed";
+  $("accessHelp").textContent = {
+    home: "Only devices on your own network can reach the console. Nothing is exposed.",
+    vpn: "Your phone and this laptop join the same private network (Tailscale, NetBird, Headscale). Nothing is opened to the internet; the VPN's relay is used when no direct path exists.",
+    direct: "The router forwards ports to this laptop, so anyone who finds the address can reach the login page. Needs a static IP address or a name that follows your address, and a router that accepts incoming connections.",
+  }[mode];
+}
+
+function textOrNull(id) { const value = $(id).value.trim(); return value === "" ? null : value; }
+
+function collectAccess(config) {
+  const mode = $("accessMode").value;
+  const vpn = { public_name: textOrNull("vpnName"), tls_cert: textOrNull("vpnCert"), tls_key: textOrNull("vpnKey") };
+  const direct = { public_name: textOrNull("directName"), public_cert: $("directCert").value, tls_cert: textOrNull("directCertFile"), tls_key: textOrNull("directKeyFile"), ice_ports: textOrNull("directPorts") };
+  const blank = (profile) => Object.values(profile).every((value) => value === null || value === "ca");
+  const memory = { vpn: blank(vpn) ? null : vpn, direct: blank(direct) ? null : direct };
+  config.saved_access = memory.vpn || memory.direct ? memory : null;
+  config.public = mode === "direct";
+  config.public_name = mode === "vpn" ? vpn.public_name : mode === "direct" ? direct.public_name : null;
+  config.public_cert = mode === "direct" ? direct.public_cert : null;
+  const files = mode === "vpn" ? vpn : mode === "direct" && direct.public_cert === "ca" ? direct : { tls_cert: null, tls_key: null };
+  config.tls_cert = files.tls_cert;
+  config.tls_key = files.tls_key;
+  if (mode === "direct") config.ice_ports = direct.ice_ports;
+}
+
+$("internetCard").addEventListener("input", () => { accessTouched = true; showAccess(); });
+$("internetCard").addEventListener("change", () => { accessTouched = true; showAccess(); });
 
 // A value the console was started with shows as the current one when host.json says nothing.
 function withEffective(config, effective) {
@@ -105,6 +163,7 @@ function renderForm(snapshot) {
   $("tlsOn").checked = config.tls_listen !== "";
   $("tlsListen").value = config.tls_listen !== "" ? config.tls_listen : "0.0.0.0:8443";
   $("tlsListen").disabled = !$("tlsOn").checked;
+  fillAccess(config);
   $("autostart").checked = snapshot.unit.autostart;
   $("autostart").disabled = !snapshot.unit.installed;
   $("unitNote").textContent = snapshot.unit.installed
@@ -158,6 +217,8 @@ function renderInternet(snapshot) {
   for (const line of report.problems) lines.push("Problem: " + line);
   for (const line of report.warnings) lines.push("Warning: " + line);
   for (const text of lines) { const item = document.createElement("li"); item.textContent = text; list.append(item); }
+  $("certBanner").hidden = !report.renew_note;
+  $("certBanner").textContent = report.renew_note ? report.renew_note.charAt(0).toUpperCase() + report.renew_note.slice(1) + "." : "";
 }
 
 function renderStatus(snapshot) {
@@ -238,7 +299,13 @@ document.addEventListener("input", updateDirty);
 document.addEventListener("change", updateDirty);
 
 async function save() {
-  const { ok, data } = await api("POST", "/host/config", collect());
+  const config = collect();
+  if (config.public === true && saved.public !== true
+    && !window.confirm("Direct internet access lets anyone who finds this address reach the login page. Only continue if the router forwarding and the login are set up as described here. Save it?")) {
+    $("saveNote").textContent = "Not saved.";
+    return false;
+  }
+  const { ok, data } = await api("POST", "/host/config", config);
   $("saveNote").textContent = ok ? "Saved." : (data.error ?? "Could not save.");
   if (ok) await load(true);
   return ok;

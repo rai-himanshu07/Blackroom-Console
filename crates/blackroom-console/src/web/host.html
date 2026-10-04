@@ -30,6 +30,7 @@
     <section class="card" id="statusCard" aria-live="polite">
       <strong id="statusLine">Checking...</strong>
       <p id="configNote" class="note warn" role="alert" hidden></p>
+      <p id="certBanner" class="note warn" role="alert" hidden></p>
       <div id="askBox" hidden>
         <p id="askText" class="note"></p>
         <div class="actions"><button type="button" id="askAccept" class="primary">Accept</button><button type="button" id="askDeny" class="danger">Deny</button></div>
@@ -89,10 +90,43 @@
     </section>
 
     <section class="card" id="internetCard">
-      <h2>Internet access</h2>
+      <h2>Access from outside</h2>
+      <label class="field">How this laptop is reached
+        <select id="accessMode">
+          <option value="home">Home network only</option>
+          <option value="vpn">Private VPN, such as Tailscale (works with a changing or shared IP address)</option>
+          <option value="direct">Directly from the internet (a static IP address or a name, router forwarding)</option>
+        </select>
+      </label>
+      <p class="note" id="accessHelp"></p>
+      <div id="accessVpn" hidden>
+        <label class="field">This laptop's VPN name <input type="text" id="vpnName" spellcheck="false" placeholder="laptop.tailnet-name.ts.net"></label>
+        <div class="row">
+          <label class="field">Certificate file <input type="text" id="vpnCert" spellcheck="false" placeholder="/home/you/.config/blackroom/tls/cert.pem"></label>
+          <label class="field">Key file <input type="text" id="vpnKey" spellcheck="false" placeholder="/home/you/.config/blackroom/tls/key.pem"></label>
+        </div>
+        <p class="note">Nothing is opened to the internet. For Tailscale, make the files with <code>sudo tailscale cert</code> (the commands are in docs/ops/internet-access.md) and renew them about every 60 days. Without files the console keeps its own certificate and browsers warn once.</p>
+      </div>
+      <div id="accessDirect" hidden>
+        <label class="field">The address or name your devices type <input type="text" id="directName" spellcheck="false" placeholder="home.example.org or 203.0.113.7"></label>
+        <label class="field">Certificate
+          <select id="directCert">
+            <option value="ca">Files from a real authority (a name, for example Let's Encrypt)</option>
+            <option value="self_signed">The console's own self-signed one (a bare IP address; compare the fingerprint on the first visit)</option>
+          </select>
+        </label>
+        <div class="row" id="directFiles">
+          <label class="field">Certificate file <input type="text" id="directCertFile" spellcheck="false"></label>
+          <label class="field">Key file <input type="text" id="directKeyFile" spellcheck="false"></label>
+        </div>
+        <label class="field">UDP media ports to forward <input type="text" id="directPorts" spellcheck="false" placeholder="50000-50100"></label>
+        <p class="note">Strangers' scanners can reach this. Saving is refused unless login goes through the login authority, the plain-http address is loopback only, https is on and the certificate checks out. Forward the https port and the media ports on the router: <code>blackroom internet</code> prints the exact list.</p>
+      </div>
+      <p class="note">Settings for the two modes you are not using are remembered, so switching back is one step. A change needs a restart, which ends a running session.</p>
+      <h3>What the running console checked</h3>
       <p id="internetLine"></p>
       <ul id="internetList" class="note"></ul>
-      <p class="note">This is what the running console checked when it started (local checks only; nothing here is tested from the internet). To change it, run <code>blackroom internet</code> in a terminal on this laptop: it asks what you have, checks everything and saves only after you agree.</p>
+      <p class="note">Local checks only; nothing here is tested from the internet. A phone on mobile data is the real test.</p>
     </section>
 
     <section class="card">
@@ -100,12 +134,7 @@
       <label class="field">Plain http address <input type="text" data-key="http_listen" data-type="string" spellcheck="false" placeholder="127.0.0.1:8080"></label>
       <div class="toggles"><label class="switch"><input type="checkbox" id="tlsOn"><span><b>Serve https</b><small>Needed for full keyboard capture and for installing the web app.</small></span></label></div>
       <label class="field">https address <input type="text" id="tlsListen" spellcheck="false" placeholder="0.0.0.0:8443"></label>
-      <div class="row">
-        <label class="field">Certificate file (real authority) <input type="text" data-key="tls_cert" data-type="string-or-null" spellcheck="false" placeholder="blank: self-signed"></label>
-        <label class="field">Key file <input type="text" data-key="tls_key" data-type="string-or-null" spellcheck="false"></label>
-      </div>
-      <div class="toggles"><label class="switch"><input type="checkbox" data-key="public"><span><b>Internet mode</b><small>Refuses to start unless login goes through hostd, https uses a real certificate and the plain-http port is loopback only.</small></span></label></div>
-      <p class="note">Network changes need a restart. A wrong address stops the console from starting: check them before restarting.</p>
+      <p class="note">The certificate files and Internet mode are chosen under "Access from outside". Network changes need a restart. A wrong address stops the console from starting: check them before restarting.</p>
     </section>
 
     <section class="card" id="loginCard">

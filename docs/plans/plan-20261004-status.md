@@ -71,6 +71,17 @@ mode the next start would refuse; `docs/ops/internet-access.md` rewritten around
   merge), `docs/ops/internet-test.sh` (real binaries, throwaway HOME, real start-up with a damaged file and with a refused public
   mode), the host page tests. **Not tested:** a real router, a real certificate authority, Tailscale, a phone on mobile data.
 
+## Access switch and certificate reminders (owner request, 2026-10-04)
+After the Tailscale run the owner asked for an easy switch between home, a private VPN and direct access, and for the app itself
+to remind about certificate renewal (remind only, no auto-renew). Built: the host settings page has **Access from outside**
+(home / private VPN / direct) with each mode's settings remembered in `host.json` (`saved_access`, validated, ignored by "restart
+needed"); the page refuses a certificate that cannot be read or does not match its key (the console would not start), asks before
+direct mode, and still refuses an unsafe direct mode. The renewal reminder starts 30 days before the end (a third of a shorter-lived
+certificate): a log line every six hours, a banner on the host page (the check is now read fresh on every page load), and a line in
+the top-bar menu (`cert_note` in the indicator status). **Tested:** unit and host page tests, the headless host page suite (switch,
+memory, refused direct mode), the indicator logic test. **Not tested:** the banner and the tray line on a real certificate near its end,
+the tray line on the real desktop (the extension must be copied and re-enabled), and a real direct-mode switch.
+
 ## Still the owner's
 Real PAM and credential commands from the host page, and start at login and restart under systemd.
 

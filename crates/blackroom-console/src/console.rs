@@ -289,6 +289,8 @@ struct Shared {
     approvals: Approvals,
     audio_sink: Mutex<Option<String>>,
     audio_note: Mutex<Option<String>>,
+    /// The certificate renewal reminder, for the laptop's own indicator only (clients never see it).
+    cert_note: Mutex<Option<String>>,
     session_started: Mutex<Option<Instant>>,
     last_input: Mutex<Instant>,
     sessions_started: AtomicU64,
@@ -360,6 +362,7 @@ impl RemoteConsole {
             approvals: Approvals::default(),
             audio_sink: Mutex::new(None),
             audio_note: Mutex::new(None),
+            cert_note: Mutex::new(None),
             session_started: Mutex::new(None),
             last_input: Mutex::new(Instant::now()),
             sessions_started: AtomicU64::new(0),
@@ -436,6 +439,14 @@ impl RemoteConsole {
     /// The PipeWire output whose sound is sent (default: the system's default output).
     pub fn set_audio_sink(&self, sink: Option<String>) {
         *lock_ok(&self.shared.audio_sink) = sink;
+    }
+
+    pub fn set_cert_note(&self, note: Option<String>) {
+        *lock_ok(&self.shared.cert_note) = note;
+    }
+
+    pub fn cert_note(&self) -> Option<String> {
+        lock_ok(&self.shared.cert_note).clone()
     }
 
     /// Turns the laptop's sound on or off for the next WebRTC connection (the page reconnects its video).
