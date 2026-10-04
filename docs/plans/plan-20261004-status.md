@@ -46,8 +46,12 @@ roadmap). Release notes: `docs/RELEASE_NOTES.md`.
 - U28 differs from the finding: the tray shows the lock-screen consequence in an always-visible line under the switch instead
   of a confirmation dialog.
 
+## Verified by the owner on 2026-10-04 (owner-reported, no logs kept)
+Shared mode on the real screen incl. pointer mapping, Private blank and block toggles, laptop sound from the real output, tray
+lock-screen switch, tray Exit, the applications-menu launcher, an authenticator app scanning the QR, a clean `.deb` install,
+and the newest changes (tray notices, Disconnect with the network off, tablet gestures and targets, logout/revoke ending a live
+stream, start from the user unit). Compatibility-matrix rows updated accordingly.
+
 ## Still the owner's
-Live checks listed in `docs/RELEASE_NOTES.md` and the final report of this round: Shared mode on the real screen, Private blank and
-block toggles, laptop sound, tray lock-screen switch and Exit, the applications-menu launcher, real PAM and credential commands
-from the host page, an authenticator app scanning the QR, start at login and restart under systemd, Ask on the real desktop,
-clipboard over https, mobile data, Safari/iOS, a one-hour soak and a clean `.deb` install.
+Real PAM and credential commands from the host page, start at login and restart under systemd, Ask on the real desktop,
+clipboard over https, mobile data, Safari/iOS and a one-hour soak.

@@ -24,14 +24,14 @@ Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused
 | KDE, XFCE, other desktops | NO | the console drives Mutter's D-Bus interfaces; there is no GNOME Shell to find |
 | More than one monitor, HDMI attached | UNKNOWN | the console refuses to start unless the built-in panel is the only output |
 | Browser: Chrome/Chromium on Linux, Android Chrome | PASS (Chrome headless on this laptop); tablet Chrome by the owner | headless browser test; owner's tablet |
-| Shared mode (panel and input left alone) on the real screen | UNKNOWN | proven only on the headless Shell; pointer mapping with fractional scaling or an external monitor not observed |
-| Laptop sound to the browser | UNKNOWN | headless: a 440 Hz tone arrives and decodes at 439 Hz; the real default output was not tried |
-| Laptop top-bar indicator on the real desktop | UNKNOWN | headless: the extension loads in a throwaway Shell, shows the session and its menu's Disconnect ends it; the real top bar and notifications were not observed |
+| Shared mode (panel and input left alone) on the real screen | PASS (owner-reported 2026-10-04) | owner ran it on the real screen incl. pointer mapping on the built-in panel; no log or recording kept; fractional scaling and an external monitor are still not covered |
+| Laptop sound to the browser | PASS (owner-reported 2026-10-04) | owner heard the laptop's real output on the client; headless also decodes a 440 Hz tone |
+| Laptop top-bar indicator on the real desktop | PASS (owner-reported 2026-10-04) | owner checked the real top bar, its notices and menu; headless Shell test also passes |
 | Host settings page with the real password check and the real `blackroom` commands | UNKNOWN | headless Chrome with a stand-in password check and stand-in command; the real PAM helper, credential verbs, start-at-login and restart-by-systemd were not run from the page |
 | Approve each connection (Ask) on the real desktop | UNKNOWN | headless Shell: the request, Accept, Deny and no-answer paths and the notification with buttons; not the real desktop |
-| Tray switch for the lock-screen extension and the host page's lock-screen and sign-in settings on the real desktop | UNKNOWN | the tray switch's first enable was seen in a throwaway Shell (its key-file settings can undo a change, a real desktop uses dconf); the host page used stand-in commands |
-| Authenticator setup from the host page with real authenticator apps | UNKNOWN | the QR code is drawn by the `qrcode` crate and the confirming code is checked against the RFC 6238 algorithm and a Node re-implementation; no phone app has scanned it yet |
-| Applications-menu launcher and tray **Exit** on the real desktop | UNKNOWN | the launcher script is tested against stand-in commands and a fake console, the desktop file validates, and the tray menu shows the Exit row; the real menu entry and the real Exit click were not tried |
+| Tray switch for the lock-screen extension and the host page's lock-screen and sign-in settings on the real desktop | UNKNOWN | the tray switch was checked on the real desktop (owner-reported 2026-10-04); the host page's lock-screen and sign-in settings still used stand-in commands |
+| Authenticator setup from the host page with real authenticator apps | PASS (owner-reported 2026-10-04) | owner scanned the QR code with an authenticator app and confirmed with a code; the algorithm is also checked against RFC 6238 |
+| Applications-menu launcher and tray **Exit** on the real desktop | PASS (owner-reported 2026-10-04) | owner used the real menu entry and the real Exit click |
 | Installing the page as an app | UNKNOWN | headless Chrome finds no installability problem; a tablet over a trusted https address was not tried |
 | Browser: Safari, iOS Safari | UNKNOWN | fallbacks exist (no Keyboard Lock, prefixed fullscreen, blocked storage) and are exercised with a stub only |
 | Browser: Firefox | UNKNOWN | |
