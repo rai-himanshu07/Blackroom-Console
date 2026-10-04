@@ -90,11 +90,18 @@ hostname and show the session safety state.
 Check: wizard and repair unit tests, `tests/hostpage.rs`, the headless host page suite.
 
 ## W6. Open-source readiness
-- **Licensing:** the workspace is GPL-3.0-or-later; `cargo deny` does not settle distribution of system GStreamer plugins, OpenH264,
+- **Licensing:** the workspace is GPL-3.0-or-later (see below for the root licence); `cargo deny` does not settle distribution of system GStreamer plugins, OpenH264,
   NVIDIA components or H.264 patent terms. Inventory what is bundled versus loaded, keep the notices, state it in the README. No
   legal clearance is claimed.
-- **Publication privacy:** allowlist the published `docs/`; scan the experiment evidence **and the Git history** for credentials,
-  bearer URLs, identifiers and recordings before the repository goes public. Not yet inspected.
+- **Publication privacy (owner decision 2026-10-04: publish everything, including experiment evidence, as long as no secret
+  goes out):** a first pattern scan of the tracked files and all 289 commits found no private keys, access tokens, console URLs
+  with tokens, TURN secrets or assigned password literals (no scanner was installed; this was `git grep`/`git log -G`). Still
+  to do: run a real scanner (gitleaks or trufflehog) over the tree and the history before the first push, and add one to CI.
+  Not secrets but personal, published unless the owner scrubs them: the Linux username (34 files, 17 in the evidence), a
+  private LAN address (5 files), and the commit author name and gmail address on all commits (consider a noreply address
+  before the first push; rewriting history is destructive and needs the owner's explicit go-ahead).
+- **Licence:** `LICENSE` (GPL-3.0) is in the root and the workspace declares `GPL-3.0-or-later`: consistent. Still to do: the
+  inventory of loaded and bundled third-party parts (GStreamer plugins, OpenH264, NVIDIA components, H.264 terms) in the README.
 - **Exposure and privacy statement:** installed listeners, what contacts the network (STUN, the VPN), what the logs contain,
   telemetry (none, stated).
 - **Lifecycle:** manual update and removal steps; the homepage placeholder in `docs/ops/build-deb.sh`.
@@ -117,6 +124,6 @@ W1 -> W2 and W4 and W5 (parallel sessions are fine; one cargo command at a time)
 W7. A new session starts with `docs/plans/plan-20261004-status.md`, this file and `docs/HANDOFF.md`.
 
 ## Open decisions for the owner
-- Publish the experiment evidence, or only the summary documents?
-- Repository name, version scheme and licence confirmation for the first public release.
+- Decided: publish everything, evidence included, secrets excluded; licence is GPL-3.0 as in the root.
+- Repository name and version scheme for the first public release; whether to publish under a noreply commit identity.
 - Is Direct (router) mode advertised or advanced-only (default in this plan: advanced-only)?
