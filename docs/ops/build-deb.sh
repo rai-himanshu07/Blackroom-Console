@@ -71,7 +71,6 @@ Recommends: policykit-1 | polkitd
 Suggests: coturn, tailscale
 Section: utils
 Priority: optional
-Homepage: https://example.invalid/blackroom-console
 Description: control this GNOME laptop from a browser while its panel is blank
  A tablet or phone browser sees and drives the laptop's GNOME session while the
  local panel is blank and the built-in keyboard and touchpad are grabbed.

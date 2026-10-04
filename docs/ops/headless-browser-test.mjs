@@ -127,6 +127,9 @@ check("the pointer marker is hidden under the open menu", (await js("document.ge
 check("menu open and a button focused: keys are not forwarded", (await press("document.activeElement")) === 0);
 check("Escape closes the menu from the keyboard", (await js("(() => { document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', code: 'Escape', bubbles: true, cancelable: true})); return document.getElementById('menu').hidden; })()")) === true);
 check("menu closed and nothing focused: keys reach the laptop", (await press("document.body")) === 2);
+await js("globalThis.__keys0 = __keys; document.body.dispatchEvent(new KeyboardEvent('keydown', {code: 'F8', key: 'F8', bubbles: true, cancelable: true})); document.body.dispatchEvent(new KeyboardEvent('keyup', {code: 'F8', key: 'F8', bubbles: true, cancelable: true}))");
+check("F8 opens the menu from the keyboard and is not sent to the laptop", (await js("!document.getElementById('menu').hidden")) === true && (await js("__keys === __keys0")) === true);
+await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', code: 'Escape', bubbles: true, cancelable: true}))");
 check("the pointer marker is back inside the picture with the menu closed", (await js("(() => { const d = document.getElementById('dot'); if (touchMode !== 'trackpad' || lastState.session.cursor_in_video) return 'skipped'; const r = document.getElementById('stage').getBoundingClientRect(), x = parseFloat(d.style.left), y = parseFloat(d.style.top); return d.style.display === 'block' && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; })()")) !== false);
 await js("document.getElementById('menuBtn').focus()");
 check("a focused control keeps the keys on the page", (await press("document.activeElement")) === 2);

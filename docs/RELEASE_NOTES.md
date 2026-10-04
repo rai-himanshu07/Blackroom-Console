@@ -23,6 +23,7 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
 - **Laptop top-bar indicator (new):** a GNOME extension shows whether a remote session runs (icon, timer, notices) and lets
   you disconnect it, lock the screen, open the host settings, switch remote use on the lock screen on or off, or start and
   stop the console. The client page is not offered on the laptop. See `docs/ops/README.md`.
+- **Keyboard:** in a running session F8 opens the page's menu (Tab and Enter reach Disconnect there, Esc closes it); F8 is never sent to the laptop.
 - **Laptop sound** to the tablet (Opus over WebRTC, off by default) and an **installable web app** (manifest, icons,
   pass-through service worker; needs a trusted https address or localhost).
 - **Safety:** when a session ends (Disconnect, heartbeat loss, an owner limit, or the emergency chord while the keyboard is

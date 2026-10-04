@@ -28,7 +28,7 @@ PY
   audio_args=(--audio-sink "$sink")
   export BR_AUDIO_TEST=1
 fi
-"$BIN" --headless --clipboard --listen 127.0.0.1:18080 --tls-listen 127.0.0.1:18443 --cert-dir "$state/cert" --state-dir "$state" "${audio_args[@]}" > "$log" 2>&1 8>&- &
+BLACKROOM_HOSTNAME=${BR_SHOT_DIR:+my-laptop} "$BIN" --headless --clipboard --listen 127.0.0.1:18080 --tls-listen 127.0.0.1:18443 --cert-dir "$state/cert" --state-dir "$state" "${audio_args[@]}" > "$log" 2>&1 8>&- &
 srv=$!
 trap 'kill "$srv" 2>/dev/null; [ -n "${tone:-}" ] && { kill "$tone" 2>/dev/null; pkill -f "pw-play --target $sink" 2>/dev/null; }; echo quit >&8 2>/dev/null; exec 8>&- 2>/dev/null' EXIT
 url=""

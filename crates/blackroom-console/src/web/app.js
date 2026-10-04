@@ -411,13 +411,15 @@ function physical(code) {
   if (typeof settings === "undefined" || !settings.client.mac_keys) return code;
   return code === "MetaLeft" ? "ControlLeft" : code === "MetaRight" ? "ControlRight" : code;
 }
+// F8 belongs to this page, never to the laptop: it opens the session menu, so Disconnect is reachable from the keyboard.
 window.addEventListener("keydown", (event) => {
   if (!running || forThePage(event) || CODES[event.code] === undefined) return;
   event.preventDefault();
+  if (event.code === "F8") { if (!event.repeat) openMenu(); return; }
   if (!event.repeat) keyEvent(physical(event.code), true);
 });
 window.addEventListener("keyup", (event) => {
-  if (!running || forThePage(event) || CODES[event.code] === undefined) return;
+  if (!running || forThePage(event) || CODES[event.code] === undefined || event.code === "F8") return;
   event.preventDefault();
   keyEvent(physical(event.code), false);
 });

@@ -39,7 +39,7 @@ chmod 700 "$state/ext-stub"
 mkdir -p "$state/run"
 printf '#!/bin/bash\necho "$@" >> "%s/systemctl-calls"\nexit 0\n' "$state" > "$state/systemctl-stub"
 chmod 700 "$state/systemctl-stub"
-XDG_RUNTIME_DIR="$state/run" "$BIN" --headless --no-control --gnome-extensions "$state/ext-stub" --systemctl "$state/systemctl-stub" --listen 127.0.0.1:18095 --host-listen 127.0.0.1:18096 --pam-helper "$state/pam-stub" --blackroom-cli "$state/blackroom-stub" --hostd-state-dir "$state/hostd" --state-dir "$state" > "$log" 2>&1 &
+BLACKROOM_HOSTNAME=${BR_SHOT_DIR:+my-laptop} XDG_RUNTIME_DIR="$state/run" "$BIN" --headless --no-control --gnome-extensions "$state/ext-stub" --systemctl "$state/systemctl-stub" --listen 127.0.0.1:18095 --host-listen 127.0.0.1:18096 --pam-helper "$state/pam-stub" --blackroom-cli "$state/blackroom-stub" --hostd-state-dir "$state/hostd" --state-dir "$state" > "$log" 2>&1 &
 srv=$!
 trap 'kill "$srv" 2>/dev/null' EXIT
 for _ in $(seq 1 50); do grep -q "Host settings" "$log" && break; sleep 0.2; done

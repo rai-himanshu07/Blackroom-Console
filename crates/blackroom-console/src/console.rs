@@ -138,6 +138,10 @@ pub struct Resources {
 }
 
 fn hostname() -> String {
+    // A neutral name for screenshots; the page never needs it for anything else.
+    if let Some(name) = std::env::var_os("BLACKROOM_HOSTNAME").and_then(|n| n.into_string().ok()) {
+        return name.chars().take(64).collect();
+    }
     std::fs::read_to_string("/proc/sys/kernel/hostname")
         .map(|name| name.trim().chars().take(64).collect())
         .unwrap_or_default()

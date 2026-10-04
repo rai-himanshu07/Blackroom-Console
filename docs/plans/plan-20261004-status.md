@@ -143,3 +143,15 @@ Direct marked untested. W2 (deferred review findings, read against the live code
   reserved key is an owner decision); screenshots of the three-factor sign-in page and of "isolation starting"; a "working guide
   link" (no public address exists yet, the host page names the installed file); nothing was tried on a tablet or phone, and
   gestures, touch target sizes and the pointer marker on a real device are unchanged from the earlier owner runs.
+
+## W6 (first part) and the owner's decisions (2026-10-04)
+- Owner decisions: the menu key is **F8**; the chord behaviour (latch, no lock by itself) is as expected; the repository is named
+  "Blackroom Console"; SemVer with tag `vX.Y.Z` and package `X.Y.Z-1`; commits use the noreply address
+  `rai-himanshu07@users.noreply.github.com` (local git config only, nothing rewritten); no CI, checks are run by hand.
+- Added: `README.md` (support summary, what listens and what is contacted, licence inventory, update and removal),
+  `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `docs/ops/sign-release.sh` and `verify-release.sh` (SSH-signed `SHA256SUMS`;
+  proven with a throwaway key including a tampered package and tampered sums), neutral-hostname screenshots in `docs/screenshots`
+  (`BLACKROOM_HOSTNAME`, set by the suites when `BR_SHOT_DIR` is used), and the placeholder `Homepage` line is gone from the package.
+- Still open for W6: the release signing public key (`docs/release-signing.pub`) comes from the owner; the history keeps the old
+  author identity until W8 (rewrite needs the owner's yes). Observed, not investigated: a headless run late in the browser suite
+  shows a GStreamer "SCTP association went into error state" note on the page after the quality and transport changes; the suite passes.
