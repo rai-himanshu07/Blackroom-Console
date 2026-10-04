@@ -66,7 +66,7 @@ struct Args {
     #[arg(long)]
     ice_port_range: Option<String>,
     /// Control socket of `remote-emergencyd --enable-grabs` (absolute path).
-    #[arg(long, required_unless_present_any = ["headless", "check_compat"])]
+    #[arg(long, required_unless_present_any = ["headless", "check_compat", "check_internet", "apply_internet"])]
     grab_socket: Option<PathBuf>,
     /// Directory for backup.json and the printed URLs.
     #[arg(long)]
@@ -94,6 +94,14 @@ struct Args {
     /// Print the compatibility verdict for this host as JSON and exit.
     #[arg(long)]
     check_compat: bool,
+    /// Check, from local settings and files only, whether this laptop can safely be reached from outside; prints JSON and
+    /// exits (1 when something blocks public mode). Used by `blackroom internet`.
+    #[arg(long)]
+    check_internet: bool,
+    /// Read a JSON object of host.json keys from stdin, validate and save it (a key with null is cleared), then run
+    /// `--check-internet`. Used by `blackroom internet`.
+    #[arg(long)]
+    apply_internet: bool,
     /// Offer the text clipboard: two buttons in the page send text to the laptop and fetch the laptop's
     /// text (explicit, 256 KiB, rate limited, never logged). Off unless given.
     #[arg(long)]
@@ -143,13 +151,13 @@ fn ice_config_from(args: &Args) -> anyhow::Result<blackroom_console::ice::IceCon
     }
     let turn_secret = match &args.turn_secret_file {
         Some(path) => {
-            let metadata = std::fs::metadata(path)?;
-            anyhow::ensure!(
-                std::os::unix::fs::MetadataExt::mode(&metadata) & 0o077 == 0,
-                "--turn-secret-file must be readable by you only (chmod 600)"
+            // Owner-only regular file, opened without following a link, size-bounded.
+            let bytes = zeroize::Zeroizing::new(
+                blackroom_console::certcheck::read_bounded(path, true)
+                    .map_err(|error| anyhow::anyhow!("--turn-secret-file: {error}"))?,
             );
             let secret =
-                zeroize::Zeroizing::new(std::fs::read_to_string(path)?.trim().as_bytes().to_vec());
+                zeroize::Zeroizing::new(String::from_utf8_lossy(&bytes).trim().as_bytes().to_vec());
             anyhow::ensure!(
                 secret.len() >= 16,
                 "--turn-secret-file holds fewer than 16 characters"
@@ -337,6 +345,120 @@ async fn start_host_page(args: &HostPageArgs, console: &RemoteConsole) -> Option
     Some(format!("http://localhost:{}/", addr.port()))
 }
 
+fn default_data_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".local/share/blackroom-console")
+}
+
+/// The owner's saved settings win over the command line. A damaged `host.json` keeps every network listener on this
+/// laptop, because the saved public-mode settings cannot be known.
+fn merge_host(
+    args: &mut Args,
+    host: &blackroom_console::host::HostConfig,
+    damaged: bool,
+) -> anyhow::Result<()> {
+    let parse = |text: &str| text.parse::<SocketAddr>();
+    if let Some(text) = &host.http_listen {
+        args.listen = parse(text)?;
+    }
+    match host.tls_listen.as_deref() {
+        Some("") => args.tls_listen = None,
+        Some(text) => args.tls_listen = Some(parse(text)?),
+        None => {}
+    }
+    if let (Some(cert), Some(key)) = (&host.tls_cert, &host.tls_key) {
+        args.tls_cert = Some(cert.clone());
+        args.tls_key = Some(key.clone());
+    }
+    if let Some(public) = host.public {
+        args.public = public;
+    }
+    if let Some(stun) = &host.stun {
+        args.stun.clone_from(stun);
+    }
+    if let Some(turn) = &host.turn {
+        args.turn.clone_from(turn);
+    }
+    if host.turn_secret_file.is_some() {
+        args.turn_secret_file.clone_from(&host.turn_secret_file);
+    }
+    if let Some(ttl) = host.turn_ttl_secs {
+        args.turn_ttl_secs = ttl;
+    }
+    if host.ice_ports.is_some() {
+        args.ice_port_range.clone_from(&host.ice_ports);
+    }
+    if damaged {
+        let loopback = |addr: SocketAddr| SocketAddr::from(([127, 0, 0, 1], addr.port()));
+        args.listen = loopback(args.listen);
+        args.tls_listen = args.tls_listen.map(loopback);
+        tracing::warn!(
+            "host.json is damaged: the network listeners stay on this laptop (127.0.0.1) until it is repaired"
+        );
+    }
+    Ok(())
+}
+
+fn effective(
+    args: &Args,
+    host: &blackroom_console::host::HostConfig,
+    damaged: bool,
+) -> blackroom_console::internet::Effective {
+    blackroom_console::internet::Effective {
+        public: args.public,
+        public_name: host.public_name.clone(),
+        public_cert: host.public_cert,
+        listen: args.listen,
+        tls_listen: args.tls_listen,
+        tls_cert: args.tls_cert.clone(),
+        tls_key: args.tls_key.clone(),
+        cert_dir: args.cert_dir.clone().unwrap_or_else(default_data_dir),
+        hostd_login: args.hostd_dir.is_some(),
+        hostd_running: args.hostd_dir.as_deref().is_some_and(sockets_present),
+        stun: args.stun.clone(),
+        turn: args.turn.clone(),
+        turn_secret_file: args.turn_secret_file.clone(),
+        ice_ports: args.ice_port_range.clone(),
+        damaged,
+    }
+}
+
+/// `--check-internet` and `--apply-internet`: local checks only, one JSON line on stdout.
+fn internet_command(mut args: Args) -> anyhow::Result<()> {
+    use std::io::Read;
+    let profile_dir = args.profile_dir.clone().unwrap_or_else(default_data_dir);
+    if args.apply_internet {
+        let mut text = String::new();
+        std::io::stdin().take(64 * 1024).read_to_string(&mut text)?;
+        let outcome = serde_json::from_str::<serde_json::Value>(&text)
+            .map_err(|error| error.to_string())
+            .and_then(|patch| blackroom_console::internet::apply_patch(&profile_dir, &patch));
+        if let Err(error) = outcome {
+            println!("{}", serde_json::json!({ "ok": false, "error": error }));
+            std::process::exit(2);
+        }
+    }
+    let loaded = blackroom_console::host::HostConfig::load_checked(&profile_dir);
+    merge_host(&mut args, &loaded.config, loaded.damaged)?;
+    if loaded.config.login == Some(blackroom_console::host::LoginMethod::Token) {
+        args.hostd_dir = None;
+    }
+    let report = blackroom_console::internet::preflight(
+        &effective(&args, &loaded.config, loaded.damaged),
+        blackroom_console::internet::now_unix(),
+    );
+    println!(
+        "{}",
+        serde_json::json!({ "ok": report.problems.is_empty(), "report": report })
+    );
+    if args.check_internet && !report.problems.is_empty() {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -355,6 +477,9 @@ async fn main() -> anyhow::Result<()> {
         !rustix::process::geteuid().is_root(),
         "refusing to run as root: start the console as the user whose desktop it controls"
     );
+    if args.check_internet || args.apply_internet {
+        return internet_command(args);
+    }
     let facts = blackroom_console::compat::detect();
     let verdict = blackroom_console::compat::judge(&facts, args.headless);
     if args.check_compat {
@@ -402,26 +527,13 @@ async fn main() -> anyhow::Result<()> {
         }
     });
     // The owner's saved host settings win over the command line (the page that edits them restarts the console).
-    let (host, host_note) = blackroom_console::host::HostConfig::load(&profile_dir);
-    if let Some(note) = host_note {
+    let loaded = blackroom_console::host::HostConfig::load_checked(&profile_dir);
+    if let Some(note) = &loaded.note {
         tracing::warn!("{note}");
     }
-    let parse = |text: &str| text.parse::<SocketAddr>();
-    if let Some(text) = &host.http_listen {
-        args.listen = parse(text)?;
-    }
-    match host.tls_listen.as_deref() {
-        Some("") => args.tls_listen = None,
-        Some(text) => args.tls_listen = Some(parse(text)?),
-        None => {}
-    }
-    if let (Some(cert), Some(key)) = (&host.tls_cert, &host.tls_key) {
-        args.tls_cert = Some(cert.clone());
-        args.tls_key = Some(key.clone());
-    }
-    if let Some(public) = host.public {
-        args.public = public;
-    }
+    let host_damaged = loaded.damaged;
+    let host = loaded.config;
+    merge_host(&mut args, &host, host_damaged)?;
     if let Some(clipboard) = host.allow_clipboard {
         args.clipboard = clipboard;
     }
@@ -482,18 +594,18 @@ async fn main() -> anyhow::Result<()> {
         }),
     };
     let ice_config = ice_config_from(&args)?;
+    let internet_report = blackroom_console::internet::preflight(
+        &effective(&args, &host, host_damaged),
+        blackroom_console::internet::now_unix(),
+    );
+    for warning in &internet_report.warnings {
+        tracing::warn!("{warning}");
+    }
     if args.public {
-        let problems =
-            blackroom_console::exposure::public_problems(blackroom_console::exposure::Facts {
-                hostd_login: args.hostd_dir.is_some(),
-                tls_listener: args.tls_listen.is_some(),
-                certificate_files: args.tls_cert.is_some(),
-                http_loopback_only: args.listen.ip().is_loopback(),
-            });
         anyhow::ensure!(
-            problems.is_empty(),
+            internet_report.problems.is_empty(),
             "refusing to start in --public mode:\n  {}",
-            problems.join("\n  ")
+            internet_report.problems.join("\n  ")
         );
     }
     blackroom_console::ice::install(ice_config);
@@ -597,21 +709,40 @@ async fn main() -> anyhow::Result<()> {
     let mut tls_task = None;
     if let Some(addr) = args.tls_listen {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let cert_dir = args.cert_dir.unwrap_or_else(|| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(std::env::temp_dir)
-                .join(".local/share/blackroom-console")
-        });
+        let cert_dir = args.cert_dir.unwrap_or_else(default_data_dir);
+        let public_name = host.public_name.clone();
+        let fingerprint: Option<String>;
         let config = match (&args.tls_cert, &args.tls_key) {
             (Some(cert), Some(key)) => {
                 let config =
                     axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
-                // A renewed certificate (Let's Encrypt every ~60 days) is picked up without a restart.
+                fingerprint = blackroom_console::certcheck::inspect_files(cert, key)
+                    .ok()
+                    .map(|found| found.fingerprint);
+                // A renewed certificate (Let's Encrypt every ~60 days) is picked up without a restart, but only when the new
+                // pair is valid, matches and still covers the name: a bad renewal keeps the old certificate.
                 let (reloading, cert, key) = (config.clone(), cert.clone(), key.clone());
                 tokio::spawn(async move {
                     loop {
                         tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+                        let verdict = blackroom_console::certcheck::inspect_files(&cert, &key)
+                            .and_then(|found| {
+                                let (problems, _) = blackroom_console::certcheck::judge(
+                                    &found,
+                                    public_name.as_deref(),
+                                    blackroom_console::internet::now_unix(),
+                                    true,
+                                );
+                                if problems.is_empty() {
+                                    Ok(())
+                                } else {
+                                    Err(problems.join("; "))
+                                }
+                            });
+                        if let Err(error) = verdict {
+                            tracing::warn!(%error, "the renewed tls certificate is not usable; keeping the old one");
+                            continue;
+                        }
                         match reloading.reload_from_pem_file(&cert, &key).await {
                             Ok(()) => tracing::info!("tls certificate reloaded"),
                             Err(error) => {
@@ -626,10 +757,21 @@ async fn main() -> anyhow::Result<()> {
                 let mut names = vec!["localhost".to_string(), "127.0.0.1".to_string()];
                 names.extend(lan_addresses());
                 names.extend(command_words("hostname", &[]));
+                if host.public_cert == Some(blackroom_console::host::PublicCert::SelfSigned)
+                    && let Some(name) = &host.public_name
+                {
+                    names.push(name.clone());
+                }
                 let (cert, key) = tls::load_or_create(&cert_dir, &names)?;
+                fingerprint = blackroom_console::certcheck::inspect_pem(&cert)
+                    .ok()
+                    .map(|found| found.fingerprint);
                 axum_server::tls_rustls::RustlsConfig::from_pem(cert, key).await?
             }
         };
+        if let Some(print) = &fingerprint {
+            println!("Certificate SHA-256 fingerprint (compare it on a first visit): {print}");
+        }
         let server = axum_server::bind_rustls(addr, config)
             .handle(handle.clone())
             .serve(make_app(tls_hardening).into_make_service_with_connect_info::<SocketAddr>());

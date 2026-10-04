@@ -7,6 +7,8 @@ pub struct Facts {
     pub tls_listener: bool,
     /// A certificate and key supplied with `--tls-cert`/`--tls-key` (not the self-signed one).
     pub certificate_files: bool,
+    /// The owner chose the console's own self-signed certificate made for a named address (`public_cert: self_signed`).
+    pub self_signed_for_name: bool,
     /// The plain-http `--listen` address is loopback only.
     pub http_loopback_only: bool,
 }
@@ -24,9 +26,9 @@ pub fn public_problems(facts: Facts) -> Vec<&'static str> {
             "--public needs --tls-listen: nothing may be served over plain http to the internet",
         );
     }
-    if !facts.certificate_files {
+    if !facts.certificate_files && !facts.self_signed_for_name {
         problems.push(
-            "--public needs --tls-cert and --tls-key from a real certificate authority (the self-signed one cannot be trusted by a stranger's browser and invites click-through)",
+            "--public needs --tls-cert and --tls-key from a real certificate authority (or the owner's explicit self-signed choice for a named address: the self-signed one cannot be trusted by a stranger's browser and invites click-through)",
         );
     }
     if !facts.http_loopback_only {
@@ -46,6 +48,7 @@ mod tests {
             hostd_login: true,
             tls_listener: true,
             certificate_files: true,
+            self_signed_for_name: false,
             http_loopback_only: true,
         }
     }
@@ -87,5 +90,24 @@ mod tests {
             assert_eq!(problems.len(), 1);
             assert!(problems[0].contains(word), "{}", problems[0]);
         }
+    }
+
+    #[test]
+    fn an_explicit_self_signed_choice_stands_in_for_certificate_files_only() {
+        let own = Facts {
+            certificate_files: false,
+            self_signed_for_name: true,
+            ..good()
+        };
+        assert!(public_problems(own).is_empty());
+        let weak = Facts {
+            hostd_login: false,
+            ..own
+        };
+        assert_eq!(
+            public_problems(weak).len(),
+            1,
+            "every other rule still applies"
+        );
     }
 }

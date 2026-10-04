@@ -2,6 +2,7 @@
 //! blank and the local keyboard and touchpad are grabbed.
 
 pub mod approval;
+pub mod certcheck;
 pub mod clipboard;
 pub mod compat;
 pub mod console;
@@ -13,6 +14,7 @@ pub mod host;
 pub mod hostd_auth;
 pub mod hostpage;
 pub mod ice;
+pub mod internet;
 pub mod keysym;
 pub mod login;
 pub mod options;

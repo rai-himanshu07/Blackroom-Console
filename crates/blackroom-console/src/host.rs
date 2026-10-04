@@ -87,6 +87,52 @@ pub struct HostConfig {
     pub tls_key: Option<PathBuf>,
     /// Internet mode (`--public`): refuses to start without hostd login and a real certificate.
     pub public: Option<bool>,
+    /// STUN servers; `None` keeps `--stun`, an empty list clears them.
+    pub stun: Option<Vec<String>>,
+    /// TURN relays; `None` keeps `--turn`, an empty list clears them. Needs `turn_secret_file`.
+    pub turn: Option<Vec<String>>,
+    /// coturn `static-auth-secret` (owner-only file); the secret itself is never stored here.
+    pub turn_secret_file: Option<PathBuf>,
+    pub turn_ttl_secs: Option<u64>,
+    /// UDP range for media, `MIN-MAX`, so it can be forwarded on a router.
+    pub ice_ports: Option<String>,
+    /// The DNS name or IP address clients type, once the owner has set up access from outside.
+    pub public_name: Option<String>,
+    /// Which certificate backs `public`: `ca` (files from a real authority) or `self_signed` (the console's own, for a bare IP).
+    pub public_cert: Option<PublicCert>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicCert {
+    Ca,
+    SelfSigned,
+}
+
+/// What `HostConfig::load_checked` found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Loaded {
+    pub config: HostConfig,
+    pub note: Option<String>,
+    /// A file exists but could not be used.
+    pub damaged: bool,
+}
+
+/// A DNS name or an IP address, nothing else (no scheme, port, path or userinfo).
+pub fn valid_public_name(text: &str) -> bool {
+    if text.parse::<std::net::IpAddr>().is_ok() {
+        return true;
+    }
+    !text.is_empty()
+        && text.len() <= 253
+        && text.split('.').all(|label| {
+            (1..=63).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
 }
 
 impl Default for HostConfig {
@@ -112,6 +158,13 @@ impl Default for HostConfig {
             tls_cert: None,
             tls_key: None,
             public: None,
+            stun: None,
+            turn: None,
+            turn_secret_file: None,
+            turn_ttl_secs: None,
+            ice_ports: None,
+            public_name: None,
+            public_cert: None,
         }
     }
 }
@@ -187,6 +240,57 @@ impl HostConfig {
                 return Err("certificate and key paths must be absolute".into());
             }
         }
+        for (name, list, valid) in [
+            (
+                "stun",
+                &self.stun,
+                crate::ice::valid_stun as fn(&str) -> bool,
+            ),
+            (
+                "turn",
+                &self.turn,
+                crate::ice::valid_turn as fn(&str) -> bool,
+            ),
+        ] {
+            if let Some(list) = list {
+                if list.len() > 8 {
+                    return Err(format!("{name} may list at most 8 servers"));
+                }
+                if let Some(bad) = list.iter().find(|url| !valid(url)) {
+                    return Err(format!(
+                        "{name} entry {bad:?} is not a valid server address"
+                    ));
+                }
+            }
+        }
+        if let Some(path) = &self.turn_secret_file
+            && (!path.is_absolute() || path.to_string_lossy().chars().any(char::is_control))
+        {
+            return Err("turn_secret_file must be an absolute path".into());
+        }
+        if self.turn.as_ref().is_some_and(|turn| !turn.is_empty())
+            && self.turn_secret_file.is_none()
+        {
+            return Err("turn needs turn_secret_file".into());
+        }
+        if let Some(ttl) = self.turn_ttl_secs
+            && !(60..=86_400).contains(&ttl)
+        {
+            return Err("turn_ttl_secs must be 60 to 86400".into());
+        }
+        if let Some(text) = &self.ice_ports
+            && crate::ice::parse_port_range(text).is_none()
+        {
+            return Err("ice_ports must be MIN-MAX, both between 1025 and 65535".into());
+        }
+        if let Some(name) = &self.public_name
+            && !valid_public_name(name)
+        {
+            return Err("public_name must be a DNS name or an IP address".into());
+        }
+        if self.public_cert == Some(PublicCert::SelfSigned) && self.public_name.is_none() {
+            return Err("public_cert self_signed needs public_name (the address the certificate is made for)".into());
+        }
         Ok(self)
     }
 
@@ -250,18 +354,37 @@ impl HostConfig {
     /// A missing file means the defaults. A file that exists but cannot be used also gives the defaults, except that
     /// every connection waits for the owner (Ask): a damaged policy must not silently open the laptop.
     pub fn load(dir: &Path) -> (Self, Option<String>) {
-        let unusable = || Self {
-            approval: Approval::Ask,
-            ..Self::default()
+        let loaded = Self::load_checked(dir);
+        (loaded.config, loaded.note)
+    }
+
+    /// Like `load`, and says whether a file was there but unusable: the console then keeps its network
+    /// listeners on this laptop only, because the saved public-mode settings are unknown.
+    pub fn load_checked(dir: &Path) -> Loaded {
+        let damaged = |note: String| Loaded {
+            config: Self {
+                approval: Approval::Ask,
+                ..Self::default()
+            },
+            note: Some(note),
+            damaged: true,
         };
         let path = dir.join(HOST_FILE);
         let text = match std::fs::metadata(&path) {
-            Err(_) => return (Self::default(), None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Loaded {
+                    config: Self::default(),
+                    note: None,
+                    damaged: false,
+                };
+            }
+            Err(error) => {
+                return damaged(format!(
+                    "the host settings file cannot be read ({error}): defaults in effect, every connection asks the owner; network listeners stay on this laptop until it is repaired"
+                ));
+            }
             Ok(meta) if meta.len() > MAX_BYTES => {
-                return (
-                    unusable(),
-                    Some("the host settings file is too large: defaults used, every connection asks the owner".into()),
-                );
+                return damaged("the host settings file is too large: defaults used, every connection asks the owner; network listeners stay on this laptop until it is repaired".into());
             }
             Ok(_) => std::fs::read_to_string(&path),
         };
@@ -270,13 +393,14 @@ impl HostConfig {
             .and_then(|text| serde_json::from_str::<Self>(&text).map_err(|error| error.to_string()))
             .and_then(Self::validated)
         {
-            Ok(config) => (config, None),
-            Err(error) => (
-                unusable(),
-                Some(format!(
-                    "the host settings file was not used ({error}): defaults in effect, every connection asks the owner"
-                )),
-            ),
+            Ok(config) => Loaded {
+                config,
+                note: None,
+                damaged: false,
+            },
+            Err(error) => damaged(format!(
+                "the host settings file was not used ({error}): defaults in effect, every connection asks the owner; network listeners stay on this laptop until it is repaired"
+            )),
         }
     }
 
@@ -521,5 +645,44 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    #[test]
+    fn internet_settings_are_validated_and_a_damaged_file_is_reported() {
+        let ok = |json: &str| {
+            serde_json::from_str::<HostConfig>(json)
+                .unwrap()
+                .validated()
+        };
+        assert!(ok(r#"{"stun":["stun:stun.example.org:3478"],"ice_ports":"50000-50100","public_name":"home.example.org"}"#).is_ok());
+        assert!(ok(r#"{"public_name":"203.0.113.7","public_cert":"self_signed"}"#).is_ok());
+        for bad in [
+            r#"{"stun":["http://evil"]}"#,
+            r#"{"turn":["turn:t.example.org:3478"]}"#,
+            r#"{"turn_secret_file":"relative/secret"}"#,
+            r#"{"turn_ttl_secs":5}"#,
+            r#"{"ice_ports":"80-90"}"#,
+            r#"{"public_name":"https://home.example.org/"}"#,
+            r#"{"public_name":"user@home.example.org"}"#,
+            r#"{"public_name":"home.example.org:8443"}"#,
+            r#"{"public_name":"bad name"}"#,
+            r#"{"public_cert":"self_signed"}"#,
+        ] {
+            assert!(ok(bad).is_err(), "{bad}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            !HostConfig::load_checked(dir.path()).damaged,
+            "no file is not damage"
+        );
+        std::fs::write(dir.path().join(HOST_FILE), "{ nope").unwrap();
+        let loaded = HostConfig::load_checked(dir.path());
+        assert!(loaded.damaged);
+        assert!(
+            loaded
+                .note
+                .unwrap()
+                .contains("network listeners stay on this laptop")
+        );
     }
 }
