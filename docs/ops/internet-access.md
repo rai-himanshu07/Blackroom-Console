@@ -12,10 +12,10 @@ this laptop?"**
 
 | Your situation | Use |
 |---|---|
-| Not sure, no access to the router, your provider shares one address between customers (CGNAT), or you want nothing exposed | **A private VPN** (way 1): Tailscale is the easiest, NetBird or Headscale are open-source and self-hostable. Works behind CGNAT through the VPN's relays. |
-| The router accepts incoming connections **and** you have a name (a dynamic-DNS name, or your own domain) | **Direct, with a real certificate** (way 2a). |
-| The router accepts incoming connections and you have **only a static IP address**, no name | **Direct, with the console's own self-signed certificate** (way 2b): works, but weaker. A free dynamic-DNS name makes it way 2a. |
-| You only use it at home | Do nothing: the default. |
+| Not sure, no access to the router, your provider shares one address between customers (CGNAT), or you want no inbound port open | **A private VPN, recommended** (way 1): Tailscale is the easiest and the only one tried (phone on mobile data, 2026-10-04); NetBird or Headscale are open-source and self-hostable but untested. Works behind CGNAT through the VPN's relays. |
+| You only use it at home | **Home only**: the default, do nothing. |
+| The router accepts incoming connections **and** you have a name (a dynamic-DNS name, or your own domain) | **Direct, with a real certificate** (way 2a). **Not tested** on a real router, authority and mobile network. |
+| The router accepts incoming connections and you have **only a static IP address**, no name | **Direct, with the console's own self-signed certificate** (way 2b): weaker, **not tested**. A free dynamic-DNS name makes it way 2a. |
 
 How to tell whether your router can accept incoming connections: open the router's status page and read its **WAN** (internet)
 address, then compare it with what a "what is my IP" website shows. If they differ, or the WAN address is in `100.64.0.0` to
@@ -57,6 +57,9 @@ Any other VPN works the same way; only Tailscale can issue the certificate. With
 question: the console keeps its own self-signed certificate and you accept the browser warning once.
 
 ## Way 2: directly over the internet
+
+Answer first: **can your router accept incoming connections?** (How to tell: above.) If not, or if unsure, use the VPN. This way
+is **untested** against a real router, certificate authority and mobile network; the checks below are local only.
 
 Reachable by strangers' scanners, so it is stricter: internet mode (`public`) refuses to start unless login goes through
 hostd (password + authenticator + key), https is on, the plain-http port is on 127.0.0.1 only, and the certificate checks

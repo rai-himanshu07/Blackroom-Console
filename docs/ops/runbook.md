@@ -30,8 +30,10 @@ only a static IP with the console's own certificate). `setup` offers it as its l
    in Host settings). Closing the page or losing the connection does the same after the configured silence timeout (30 seconds
    by default), so a lost client does not leave a blank panel. After a crash of the console the restore timer acts within about
    60 seconds and locks the screen.
-3. On the laptop itself, hold Left Ctrl + Left Shift + Left Alt + Esc for 2 seconds: the emergency chord ends the session
-   and every browser login.
+3. On the laptop itself, hold Left Ctrl + Left Shift + Left Alt + Esc for 2 seconds: the emergency chord. It works only while the
+   console holds the keyboard grab (Private with "Block this laptop's keyboard and touchpad" on), releases the grab and ends the
+   session and every browser login. It does not lock the screen by itself, and it was not yet tried with the packaged console
+   on the real desktop. Details and every other way out: `emergency-recovery.md`.
 
 Clipboard: the two buttons under the keyboard row send text to the laptop or fetch the laptop's text. Text only, 256 KiB.
 
@@ -40,7 +42,7 @@ Clipboard: the two buttons under the keyboard row send text to the laptop or fet
 | Symptom | Do |
 |---|---|
 | Anything odd | `blackroom repair` (read-only report), then `blackroom repair --fix` for the safe fixes |
-| Panel stays black, no tablet | Wait 60 s (the restore timer runs). Still black: from another device over SSH run `systemctl --user stop blackroom-console.service`, then `loginctl unlock-session "$(loginctl show-user $USER -p Display --value)"` |
+| Panel stays black, no tablet | Wait 60 s (the restore timer restores the display and locks). Then you see the lock screen: type your password. Still black: from another device over SSH run `systemctl --user stop blackroom-console.service`, then see `emergency-recovery.md`. Do not use `loginctl unlock-session` to fix a black panel: it removes the lock |
 | "no rw access" or the grab does not start | `sudo blackroom-grant-input status`, then `sudo blackroom-grant-input grant` (the ACLs reset at reboot) |
 | Login says the authority is unavailable | `systemctl --user status remote-hostd.service`, `journalctl --user -u remote-hostd -n 30`; `blackroom repair --fix` |
 | Login refused after typos | Five failures from one address lock it for 15 minutes (doubling to 4 hours). Wait, or use a trusted browser |
@@ -48,7 +50,7 @@ Clipboard: the two buttons under the keyboard row send text to the laptop or fet
 | Lost the key only | `blackroom --state-dir ~/.local/share/blackroom-console/hostd rotate-key --account $USER --revoke-devices` |
 | Lost both the key and a trusted browser | Same as lost key: you need the laptop (or SSH) for a new key |
 | Stolen or lost tablet | `blackroom --state-dir ~/.local/share/blackroom-console/hostd devices --account $USER`, then `revoke-device <id>`; or `reset security` |
-| "emergency stop latched" | An emergency chord ended the last session. Stop the console unit, start it again |
+| "emergency stop latched" | An emergency chord ended the last session. `systemctl --user restart blackroom-console.service` (restarts the daemon too) |
 | Turn remote access off now | `blackroom --state-dir ~/.local/share/blackroom-console/hostd disable` (ends every session; `enable` re-opens it) |
 
 State directory: `~/.local/share/blackroom-console/hostd` (owner only). Audit trail: `blackroom --state-dir <that> logs`.
@@ -79,10 +81,12 @@ sudo apt remove blackroom-console                             # keeps your state
 
 ## Outside your home network
 
-See `internet-access.md`: Tailscale (nothing exposed, recommended), or a port-forward with a real certificate and
-`--public`. `--public` refuses to start without a certificate from a real authority and without the three-factor login.
+See `internet-access.md`. Three choices: **Home only** (the default), **Private VPN** (recommended; Tailscale is the only one
+tried, from mobile data) and **Direct** (a port-forward with a real certificate and `--public`; **not tested** on a real router).
+`--public` refuses to start without a certificate from a real authority and without the three-factor login.
 
 ## Known limits (see also the release notes)
 
 One display only (the built-in panel), no file transfer, one controller at a time. GNOME on Wayland only.
-Safari and iOS are not yet observed. A session survives a network drop for about 30 seconds.
+The tested and untested combinations are in the support table at the top of `compatibility-matrix.md` (Safari and iOS untested,
+no soak run). A session survives a network drop for about 30 seconds.

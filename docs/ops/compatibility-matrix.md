@@ -7,6 +7,20 @@ tested list lives there. **Every other row below (distribution, GPU, encoder, mi
 only: the gate does not look at it**, so an UNKNOWN row there is not refused. The single-output rule is enforced
 separately when a session starts.
 
+## Support table (authoritative; the release notes and the README repeat it)
+
+First release: a narrowly supported technical preview for the configuration below. "Tested" means a run with the evidence named
+in the cell table further down; the owner's runs are owner-reported and kept without logs. No other document may claim more.
+
+| Tested | Not tested (offered or expected to work, never observed) | Unsupported (refused or cannot work) |
+|---|---|---|
+| Ubuntu 26.04.1, GNOME Shell 50.1 on Wayland, PipeWire 1.6, NVIDIA RTX 3050 Ti with NVENC, built-in panel as the only output | Any other distribution, GNOME 49 or 51, PipeWire 2.x | X11 session, non-GNOME desktops, PipeWire 0.3 |
+| Chrome on an Android tablet (owner) and headless Chrome (suites) | Safari and iOS (**waived by the owner, untested**), Firefox, installing the page as an app over a trusted address | |
+| Shared and Private modes, sound, clipboard over https, approve-each-connection, tray menu, launcher, authenticator QR, clean `.deb` install (owner-reported 2026-10-04) | The OpenH264 software encoder in a live session; AMD or Intel GPUs | AMD/Intel hardware encoding (VA-API is not implemented) |
+| **Private VPN (recommended):** Tailscale, phone on mobile data, direct path, `tailscale cert` https name (owner-reported 2026-10-04) | A relayed Tailscale path, NetBird, Headscale, any other VPN | |
+| Home network (Wi-Fi) over https | **Direct internet access** (a name with a real certificate, or a static IP with the console's own certificate): local checks only, no router, certificate authority or mobile network involved | |
+| | A one-hour or longer soak (not run); laptop sleep or lid close; a reboot before anyone logs in; start at login and restart under systemd; real credential commands from the host page; certificate renewal; the emergency chord with the packaged console | More than one monitor, a second Unix user, multiple controllers (refused or unbuilt) |
+
 Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused only where the gate above checks it),
 **NO** = cannot work (an X11 session or a missing GNOME Shell is refused always; the other NO rows are not checked).
 

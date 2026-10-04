@@ -26,8 +26,9 @@ WebRTC data channel on the tablet, suspend, logout, long runs, other displays or
 
 Known failure: restarting PipeWire (or a PipeWire crash) while a session streams aborts the GNOME Shell (run 21): you land on the login screen, the session is lost, and `console.sh` leaves the daemon, its kill timer and a masked `gnome-remote-desktop` behind (run `docs/ops/console.sh --cleanup`: it stops the timers, guard and orphaned daemon and unmasks the service; it refuses while a console runs). Do not restart PipeWire during a session.
 
-Kill switches while a session is live: the chord (Left Ctrl + Left Shift + Left Alt + Esc, held 2 s), the Stop
-button, 15 s without a browser heartbeat, and over SSH `systemctl --user stop blackroom-console.service` or
+Kill switches while a session is live: the chord (Left Ctrl + Left Shift + Left Alt + Esc, held 2 s; only while the
+keyboard grab is held; see `emergency-recovery.md`), the Stop
+button, 30 s without a browser heartbeat (the default), and over SSH `systemctl --user stop blackroom-console.service` or
 `pkill -TERM -x blackroom-conso` (runs Stop), then `pkill -KILL -x remote-emergenc` (releases the grab at once).
 If the panel stays black: `exp07_restore --keep-live-virtual --lock-after --backup <state dir>/backup.json`
 (the 60 s dead-man restore does this by itself and now also locks), then `loginctl unlock-session <id>`.

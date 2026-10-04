@@ -1,7 +1,9 @@
 # Emergency input daemon (`remote-emergencyd`)
 
-**Status:** built and tested offline; **not installed, enabled or run against real devices by any
-automation**. The live behaviours it relies on were observed with the supervised probe
+**Status:** built and tested offline. The `.deb` installs it as the user unit
+`blackroom-console-emergencyd.service` (started with the console, `--enable-grabs`, no `--state-dir`, no
+`--lock-on-emergency`), and the owner used the grab through the console. The emergency chord was **not** exercised through the
+packaged console. The live behaviours it relies on were observed with the supervised probe
 (`exp09_grab_probe`, Phase 7 step 5, `docs/security/input-isolation-decision.md`). FEAS-E and
 FEAS-G are not promoted by this code.
 

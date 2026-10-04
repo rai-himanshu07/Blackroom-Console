@@ -25,7 +25,8 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
   stop the console. The client page is not offered on the laptop. See `docs/ops/README.md`.
 - **Laptop sound** to the tablet (Opus over WebRTC, off by default) and an **installable web app** (manifest, icons,
   pass-through service worker; needs a trusted https address or localhost).
-- **Safety:** when a session ends (Disconnect, heartbeat loss, the emergency chord, an owner limit) the display is restored,
+- **Safety:** when a session ends (Disconnect, heartbeat loss, an owner limit, or the emergency chord while the keyboard is
+  grabbed) the display is restored,
   the input grab released and, when the session's lock setting is on (default for Private, off for Shared, forceable by the
   owner), the screen locked; the grab is released after the lock. After a crash a 60 s dead-man restore timer restores the
   display and locks. A step that fails is reported as a warning on the page and in the tray, not as success.
@@ -36,8 +37,8 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
   with only a static IP and the console's own self-signed certificate (your explicit choice, with a fingerprint to compare). It
   checks the certificate (names, dates, key), shows the router forwards, saves only after a clean dry run and your "yes", and
   `--check` repeats the local checks any time. The settings (STUN, TURN, media ports, public name) live in `host.json`; a
-  damaged `host.json` keeps the listeners on the laptop. See `docs/ops/internet-access.md`. Local checks only: no phone on
-  mobile data has tried it yet.
+  damaged `host.json` keeps the listeners on the laptop. See `docs/ops/internet-access.md`. The VPN route (Tailscale) was used
+  once from a phone on mobile data (owner-reported); direct internet access was checked locally only.
 - **Clipboard:** text only, both directions, explicit buttons, 256 KiB, rate limited, never logged.
 - **Install and operate:** `.deb` (`docs/ops/build-deb.sh`), `blackroom setup` (QR for the authenticator, key, recovery
   codes, test login), `blackroom reset soft|security|full`, `blackroom repair`, `blackroom-grant-input`, a runbook.
@@ -46,15 +47,26 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
 
 ## Supported scope
 
-One host proven: Ubuntu 26.04.1, GNOME Shell 50.1 on Wayland, PipeWire 1.6, NVIDIA RTX 3050 Ti, the built-in panel as the
-only output, Chrome on the tablet. Everything else is in `docs/ops/compatibility-matrix.md` as UNKNOWN or NO.
+A narrowly supported technical preview. The one authoritative support table (tested, not tested, unsupported) is at the top of
+`docs/ops/compatibility-matrix.md`; in short:
+
+- **Tested:** Ubuntu 26.04.1, GNOME Shell 50.1 on Wayland, PipeWire 1.6, NVIDIA RTX 3050 Ti with NVENC, the built-in panel as the
+  only output, Chrome on an Android tablet, and the **private VPN route (Tailscale) from mobile data**, which is the recommended way
+  to use it outside the home. Owner runs are owner-reported and kept without logs.
+- **Not tested:** direct internet access (both certificate kinds), Safari and iOS (waived by the owner), Firefox, the OpenH264
+  encoder in a live session, AMD/Intel GPUs, a soak of any length, laptop sleep or lid close, a reboot before anyone logs in,
+  certificate renewal, start at login, real credential commands from the host page, and the emergency chord with the packaged
+  console.
+- **Unsupported:** X11, non-GNOME desktops, PipeWire 0.3, more than one output, a second Unix user.
 
 ## Known limits
 
-- One display (the built-in panel; refuses to start if another output is connected), no file transfer, one
-  controller at a time, GNOME on Wayland only, text-only clipboard.
-- Safari and iOS, Firefox, a phone on mobile data, a CGNAT client without TURN, AMD/Intel GPUs, the OpenH264 path in a
-  live session, a second Unix user on the laptop, and a one-hour live soak have **not** been observed.
+- One display (the built-in panel; refuses to start if another output is connected), no file transfer, one controller at a time,
+  GNOME on Wayland only, text-only clipboard.
+- **Safety promises, exactly:** a normal stop (Disconnect, heartbeat loss, owner limit) restores the display and releases the
+  grab, and locks the laptop only when the session's lock setting is on. The emergency chord (Left Ctrl + Left Shift + Left Alt +
+  Esc, 2 s) works only while the keyboard grab is held and does not lock by itself. Recovery steps for a stranger and for SSH:
+  `docs/ops/emergency-recovery.md`. SSH is the backup route, never the only one.
 - Input-device access is an operator step (`sudo blackroom-grant-input grant`, reset at reboot): there is no udev rule on
   purpose.
 - hostd runs as you, without sandbox options, because the PAM check needs the setgid `unix_chkpwd` helper.
@@ -63,22 +75,13 @@ only output, Chrome on the tablet. Everything else is in `docs/ops/compatibility
 - Build and test notes: the project disk is ntfs3 and was 100% full once during this work (the debug `incremental`
   cache alone is ~7 GB); use `CARGO_INCREMENTAL=0` or clean it. Run one cargo command at a time.
 
-## Your live steps
+## Live checks still owed by the owner
 
-0a. Host settings page: open it from the indicator, try a limit (for example Private only) and approval Ask from the tablet,
-   restart under systemd, start at login, and a credential change with the real `blackroom` command.
-0. New in this version (also: enable the top-bar indicator and try its menu on the real desktop): Shared mode on the real screen (check the pointer lands correctly with fractional scaling or an
-   external monitor), Private mode with the blank/block switches each off and on, sound from the laptop's real default
-   output, each setting on the tablet, installing the web app over a trusted https address.
-
-1. Rebuild and update the installed pieces: `cargo build --release --workspace`, `docs/ops/install-security.sh --update`
-   (or install the new `.deb`: `sudo apt install ./target/deb/blackroom-console_0.1.0-1_amd64.deb`), restart the console.
-2. Clipboard over https: send text to the laptop and fetch the laptop's text from the tablet.
-3. Internet: run `blackroom internet` (the guided way, `docs/ops/internet-access.md`), then log in from a phone on mobile data.
-4. Clean-install check: `.deb` on a clean user, `blackroom setup`, `sudo blackroom-grant-input grant`, start from scratch.
-5. One-hour soak: `docs/ops/soak.sh 60` in a second terminal during a live session.
-6. Safari/iOS: open the page, check login, video, touch, the diagnostics chip.
-7. Report what failed; add a PASS cell to the matrix for anything that works.
+Real credential commands from the host page (the next login must still work); start at login and restart under systemd, and a
+reboot with nobody logged in; laptop sleep and lid close with the VPN; the emergency chord with the packaged console;
+certificate renewal; a real 30 minute session; optionally direct mode on a real router. Rebuild and update with
+`cargo build --release --workspace` and the `.deb`, then restart the console. Report what failed; a cell becomes PASS only after
+the owner reports it (`docs/ops/compatibility-matrix.md`).
 
 ## Review status
 
