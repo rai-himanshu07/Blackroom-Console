@@ -30,7 +30,10 @@ NetBird/Headscale, an APT repository, new live experiments beyond W3.
    guaranteed, and a recovery procedure that does not casually remove privacy protection.
 3. A short emergency recovery page for a stranger (stuck Private session, network lost, console crashed): what happens by itself,
    what to press, what to run over SSH as the backup (SSH cannot be the only escape route).
-4. Direct (router) mode is advanced and documented as such; Safari/iOS and the soak are written as untested.
+4. All three access modes are offered and the user chooses: Home only, **Private VPN (recommended)** and Direct. The VPN comes
+   first and is marked recommended in the README, the wizard and the host page; Direct shows its risks and asks "can your router
+   accept incoming connections?" first, and stays listed as untested in the support table until a real router, authority and
+   mobile-network run exists. Safari/iOS and the soak are written as untested.
 
 ## W2. Recovery and revocation before distribution (code, compact)
 Consequence-based triage of the deferred code findings (the original texts are recovered from the review; each is read against
@@ -58,7 +61,7 @@ Each has a pass line; "observed" is only what the owner saw.
 4. R8 supervised run (chord with the latch and lock wired).
 5. Certificate renewal with the same `sudo tailscale cert` command: picked up within 6 h, banner and tray line clear.
 6. A short real session soak (about 30 minutes, one real sitting), instead of an assumed hour.
-7. Optional: Direct mode on a real router; a relayed Tailscale path. Neither is advertised.
+7. Optional: Direct mode on a real router; a relayed Tailscale path. Without a Direct run it stays "untested" in the support table.
 
 ## W4. UI and accessibility (compact; screenshot review findings plus the deferred U items)
 | Priority | Step | Source |
@@ -87,6 +90,8 @@ hostname and show the session safety state.
 2. `blackroom doctor`/`repair` says when an older `blackroom` earlier in `PATH` hides the installed one, and when the user unit
    overrides the plain-http address to `0.0.0.0` while https is on.
 3. Host page: switching to or from **Direct** asks for the laptop password (same path as the lock-screen switch).
+4. Wizard menu and host page selector: VPN first with a "recommended" label and a one-line reason, Home, then Direct with its
+   risk text; the setup step 9 default stays "home network only".
 Check: wizard and repair unit tests, `tests/hostpage.rs`, the headless host page suite.
 
 ## W6. Open-source readiness
@@ -114,6 +119,20 @@ Build the distributable **last**, after the release-critical changes. Clean inst
 full gate (`fmt`, `clippy -D warnings`, `cargo test --workspace`, `cargo deny check`, `cargo audit`, the indicator logic test, the
 headless suites); the one independent read-only review; release notes with the support table and limitations; tag; checksums.
 
+## W8. Secret cleanup before anything is published (after W7, before the first push; owner-gated)
+Nothing is pushed or made public until all of this is done and the owner has said go.
+1. Real scanners over the working tree **and the whole history**: gitleaks and trufflehog (`--no-update`, local only), plus the
+   pattern scan already run (clean on 2026-10-04: no keys, tokens, token URLs, TURN secrets, password literals).
+2. Read the experiment evidence and the plans by hand for anything a scanner cannot know: bearer or one-time URLs, recovery
+   codes, Remote Access Keys, TOTP secrets, authenticator QR data, Tailscale names or auth keys, session ids, recordings.
+3. Decide with the owner what to scrub: Linux username (34 files), private LAN address (5 files), the author name and Gmail
+   address on all commits (offer the GitHub noreply address). A history rewrite is destructive: first a backup bundle
+   (`git bundle create`) and a tag, only with the owner's explicit yes; there is no remote yet.
+4. Anything found is treated as leaked: rotate or revoke it (`blackroom rotate-key`, a new authenticator, a new Tailscale key),
+   then remove it from the history.
+5. Re-run the scanners after any rewrite; add gitleaks to CI so it stays clean; confirm `.gitignore` covers `target/`, local
+   settings and index folders; then push.
+
 ## Deferred on purpose (listed, not planned)
 Phase 5 steps 7-10 and 13-14 (needs the HDMI hardware), the Phase 9 and 10 formal gates, an independent penetration test, GNOME
 49 and 51, AMD/Intel GPUs (no VA-API), more than one monitor, other distributions, Firefox, IPv6 listeners, NetBird/Headscale
@@ -121,9 +140,10 @@ certification, issue templates, an update service.
 
 ## Order
 W1 -> W2 and W4 and W5 (parallel sessions are fine; one cargo command at a time) -> W3 (items 1-4 as soon as W2 lands) -> W6 ->
-W7. A new session starts with `docs/plans/plan-20261004-status.md`, this file and `docs/HANDOFF.md`.
+W7 -> W8 (secret cleanup) -> publish. A new session starts with `docs/plans/plan-20261004-status.md`, this file and
+`docs/HANDOFF.md`.
 
 ## Open decisions for the owner
 - Decided: publish everything, evidence included, secrets excluded; licence is GPL-3.0 as in the root.
-- Repository name and version scheme for the first public release; whether to publish under a noreply commit identity.
-- Is Direct (router) mode advertised or advanced-only (default in this plan: advanced-only)?
+- Decided: all three access modes are offered, the VPN recommended (W1.4, W5.4).
+- Still open: repository name and version scheme; whether to publish under a noreply commit identity (W8.3).
