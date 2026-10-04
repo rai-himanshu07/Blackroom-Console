@@ -47,6 +47,11 @@ pub struct Report {
     pub days_left: Option<i64>,
     /// The address clients type, once public mode is set up.
     pub url: Option<String>,
+    /// The port the https listener uses (what to forward, and what a VPN address needs).
+    pub https_port: Option<u16>,
+    pub stun_set: bool,
+    pub turn_set: bool,
+    pub ice_ports: Option<String>,
     /// What to forward on the router (public mode only).
     pub forwards: Vec<String>,
     pub self_signed: bool,
@@ -76,6 +81,10 @@ pub fn preflight(e: &Effective, now_unix: i64) -> Report {
         certificate: None,
         days_left: None,
         url: None,
+        https_port: e.tls_listen.map(|addr| addr.port()),
+        stun_set: !e.stun.is_empty(),
+        turn_set: !e.turn.is_empty(),
+        ice_ports: e.ice_ports.clone(),
         forwards: Vec::new(),
         self_signed: false,
     };
@@ -248,8 +257,13 @@ pub fn preflight(e: &Effective, now_unix: i64) -> Report {
 }
 
 /// Applies a JSON object of `host.json` keys to the saved file: a key with `null` is cleared. The result must pass the
-/// same validation as a load. Returns the new configuration; a damaged file is never overwritten.
-pub fn apply_patch(dir: &Path, patch: &serde_json::Value) -> Result<HostConfig, String> {
+/// same validation as a load. Returns the new configuration; a damaged file is never overwritten. With `save` false
+/// nothing is written (a dry run).
+pub fn apply_patch(
+    dir: &Path,
+    patch: &serde_json::Value,
+    save: bool,
+) -> Result<HostConfig, String> {
     let loaded = HostConfig::load_checked(dir);
     if loaded.damaged {
         return Err(format!(
@@ -270,9 +284,11 @@ pub fn apply_patch(dir: &Path, patch: &serde_json::Value) -> Result<HostConfig, 
     let config: HostConfig =
         serde_json::from_value(merged).map_err(|error| format!("not accepted: {error}"))?;
     let config = config.validated()?;
-    config
-        .save(dir)
-        .map_err(|error| format!("not saved: {error}"))?;
+    if save {
+        config
+            .save(dir)
+            .map_err(|error| format!("not saved: {error}"))?;
+    }
     Ok(config)
 }
 
@@ -450,10 +466,23 @@ mod tests {
         let saved = apply_patch(
             dir.path(),
             &serde_json::json!({"public_name": "home.example.org", "ice_ports": "50000-50100", "approval": "ask"}),
+            true,
         )
         .unwrap();
         assert_eq!(saved.public_name.as_deref(), Some("home.example.org"));
-        let again = apply_patch(dir.path(), &serde_json::json!({"ice_ports": null})).unwrap();
+        let dry = apply_patch(
+            dir.path(),
+            &serde_json::json!({"ice_ports": "50200-50300"}),
+            false,
+        )
+        .unwrap();
+        assert_eq!(dry.ice_ports.as_deref(), Some("50200-50300"));
+        assert_eq!(
+            HostConfig::load(dir.path()).0.ice_ports.as_deref(),
+            Some("50000-50100"),
+            "a dry run saves nothing"
+        );
+        let again = apply_patch(dir.path(), &serde_json::json!({"ice_ports": null}), true).unwrap();
         assert_eq!(again.ice_ports, None);
         assert_eq!(
             again.public_name.as_deref(),
@@ -465,7 +494,7 @@ mod tests {
             serde_json::json!({"nonsense": 1}),
             serde_json::json!([1]),
         ] {
-            assert!(apply_patch(dir.path(), &bad).is_err(), "{bad}");
+            assert!(apply_patch(dir.path(), &bad, true).is_err(), "{bad}");
         }
         assert_eq!(
             HostConfig::load(dir.path()).0.public_name.as_deref(),
@@ -473,9 +502,13 @@ mod tests {
         );
         std::fs::write(dir.path().join(crate::host::HOST_FILE), "{ nope").unwrap();
         assert!(
-            apply_patch(dir.path(), &serde_json::json!({"ice_ports": "50000-50100"}))
-                .unwrap_err()
-                .contains("damaged")
+            apply_patch(
+                dir.path(),
+                &serde_json::json!({"ice_ports": "50000-50100"}),
+                true
+            )
+            .unwrap_err()
+            .contains("damaged")
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join(crate::host::HOST_FILE)).unwrap(),

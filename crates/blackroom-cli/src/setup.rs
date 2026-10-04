@@ -181,6 +181,11 @@ fn systemctl(args: &[&str]) -> bool {
     command("systemctl", &full).is_some_and(|(ok, _)| ok)
 }
 
+/// Restarts the console unit (ends a running remote session).
+pub fn restart_console() -> bool {
+    systemctl(&["restart", CONSOLE_UNITS[0]])
+}
+
 fn unit_active(unit: &str) -> bool {
     command(
         "systemctl",
@@ -408,6 +413,40 @@ fn setup(o: &Options) -> Result<(), Failure> {
         println!("PROBLEM {problem}");
     }
 
+    if problems.is_empty() && o.system && rustix::termios::isatty(io::stdin()) {
+        println!(
+            "9. Reach the laptop from outside your home network? The default is no: home network only. You can do this later with `blackroom internet`."
+        );
+        let stdin = io::stdin();
+        let mut input = stdin.lock();
+        let mut out = io::stdout();
+        let mut asker = crate::internet::Io::new(&mut input, &mut out);
+        if asker.yes_no("   Set it up now?", false).unwrap_or(false) {
+            let outcome = match (
+                crate::internet::Binary::find(),
+                crate::internet::default_tls_dir(),
+            ) {
+                (Some(path), Some(tls_dir)) => crate::internet::wizard(
+                    &crate::internet::Binary {
+                        path,
+                        runtime: o.runtime.clone(),
+                    },
+                    &mut asker,
+                    &tls_dir,
+                    &crate::internet::restart_unit,
+                ),
+                _ => Err((
+                    1,
+                    "blackroom-console is not installed where it is expected".to_string(),
+                )),
+            };
+            if let Err((_, message)) = outcome {
+                println!("   {message}");
+                println!("   Nothing was left half done: run `blackroom internet` to try again.");
+            }
+        }
+    }
+
     println!("\nNext:");
     println!(
         "  sudo blackroom-grant-input grant          # once per boot: lets the console grab the built-in keyboard and touchpad"
@@ -417,7 +456,7 @@ fn setup(o: &Options) -> Result<(), Failure> {
         "  cat $XDG_RUNTIME_DIR/blackroom-console/url   # the https address for the tablet; log in with password, code and key"
     );
     println!(
-        "Outside your home network: read /usr/share/doc/blackroom-console/internet-access.md (a real certificate and --public are required)."
+        "Outside your home network: blackroom internet   (guided: a VPN such as Tailscale, or direct access with a name or a static IP; see /usr/share/doc/blackroom-console/internet-access.md)"
     );
     println!(
         "Trouble: blackroom repair   |   lost phone or key: blackroom reset security   |   forget everything: blackroom reset full"

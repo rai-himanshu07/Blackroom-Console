@@ -102,6 +102,9 @@ struct Args {
     /// `--check-internet`. Used by `blackroom internet`.
     #[arg(long)]
     apply_internet: bool,
+    /// With `--apply-internet`: validate and check, but save nothing.
+    #[arg(long, requires = "apply_internet")]
+    dry_run: bool,
     /// Offer the text clipboard: two buttons in the page send text to the laptop and fetch the laptop's
     /// text (explicit, 256 KiB, rate limited, never logged). Off unless given.
     #[arg(long)]
@@ -429,24 +432,32 @@ fn effective(
 fn internet_command(mut args: Args) -> anyhow::Result<()> {
     use std::io::Read;
     let profile_dir = args.profile_dir.clone().unwrap_or_else(default_data_dir);
+    let (mut config, mut damaged) = {
+        let loaded = blackroom_console::host::HostConfig::load_checked(&profile_dir);
+        (loaded.config, loaded.damaged)
+    };
     if args.apply_internet {
         let mut text = String::new();
         std::io::stdin().take(64 * 1024).read_to_string(&mut text)?;
         let outcome = serde_json::from_str::<serde_json::Value>(&text)
             .map_err(|error| error.to_string())
-            .and_then(|patch| blackroom_console::internet::apply_patch(&profile_dir, &patch));
-        if let Err(error) = outcome {
-            println!("{}", serde_json::json!({ "ok": false, "error": error }));
-            std::process::exit(2);
+            .and_then(|patch| {
+                blackroom_console::internet::apply_patch(&profile_dir, &patch, !args.dry_run)
+            });
+        match outcome {
+            Ok(applied) => (config, damaged) = (applied, false),
+            Err(error) => {
+                println!("{}", serde_json::json!({ "ok": false, "error": error }));
+                std::process::exit(2);
+            }
         }
     }
-    let loaded = blackroom_console::host::HostConfig::load_checked(&profile_dir);
-    merge_host(&mut args, &loaded.config, loaded.damaged)?;
-    if loaded.config.login == Some(blackroom_console::host::LoginMethod::Token) {
+    merge_host(&mut args, &config, damaged)?;
+    if config.login == Some(blackroom_console::host::LoginMethod::Token) {
         args.hostd_dir = None;
     }
     let report = blackroom_console::internet::preflight(
-        &effective(&args, &loaded.config, loaded.damaged),
+        &effective(&args, &config, damaged),
         blackroom_console::internet::now_unix(),
     );
     println!(
@@ -835,4 +846,53 @@ async fn main() -> anyhow::Result<()> {
         let _ = task.await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use blackroom_console::host::HostConfig;
+
+    use super::*;
+
+    fn args(extra: &[&str]) -> Args {
+        let all = ["blackroom-console", "--headless"].iter().chain(extra);
+        Args::try_parse_from(all).unwrap()
+    }
+
+    #[test]
+    fn a_damaged_host_file_keeps_every_listener_on_this_laptop() {
+        let wide = ["--listen", "0.0.0.0:8080", "--tls-listen", "0.0.0.0:8443"];
+        let mut damaged = args(&wide);
+        merge_host(&mut damaged, &HostConfig::default(), true).unwrap();
+        assert!(damaged.listen.ip().is_loopback());
+        assert_eq!(damaged.listen.port(), 8080);
+        let tls = damaged.tls_listen.unwrap();
+        assert!(tls.ip().is_loopback() && tls.port() == 8443);
+        let mut fine = args(&wide);
+        merge_host(&mut fine, &HostConfig::default(), false).unwrap();
+        assert!(fine.tls_listen.unwrap().ip().is_unspecified());
+    }
+
+    #[test]
+    fn saved_internet_settings_win_over_flags_and_an_empty_list_clears() {
+        let mut a = args(&[
+            "--stun",
+            "stun:flag.example.org:3478",
+            "--ice-port-range",
+            "40000-40100",
+        ]);
+        let host = HostConfig {
+            stun: Some(vec![]),
+            ice_ports: Some("50000-50100".into()),
+            public: Some(true),
+            ..HostConfig::default()
+        };
+        merge_host(&mut a, &host, false).unwrap();
+        assert!(a.stun.is_empty());
+        assert_eq!(a.ice_port_range.as_deref(), Some("50000-50100"));
+        assert!(a.public);
+        let mut inherit = args(&["--stun", "stun:flag.example.org:3478"]);
+        merge_host(&mut inherit, &HostConfig::default(), false).unwrap();
+        assert_eq!(inherit.stun, ["stun:flag.example.org:3478"]);
+    }
 }

@@ -15,6 +15,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod internet;
 mod security;
 mod setup;
 
@@ -425,6 +426,15 @@ fn run(args: &[OsString]) -> Result<ExitCode, (u8, String)> {
 
 fn main() -> ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if let Some(result) = internet::dispatch(&args) {
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err((code, message)) => {
+                eprintln!("{message}");
+                ExitCode::from(code)
+            }
+        };
+    }
     if let Some(result) = setup::dispatch(&args) {
         return match result {
             Ok(()) => ExitCode::SUCCESS,
