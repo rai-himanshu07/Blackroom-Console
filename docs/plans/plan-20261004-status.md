@@ -72,5 +72,8 @@ mode the next start would refuse; `docs/ops/internet-access.md` rewritten around
   mode), the host page tests. **Not tested:** a real router, a real certificate authority, Tailscale, a phone on mobile data.
 
 ## Still the owner's
-Real PAM and credential commands from the host page, start at login and restart under systemd, and a login from mobile data
-(recipe A in `docs/ops/internet-access.md`).
+Real PAM and credential commands from the host page, and start at login and restart under systemd.
+
+Owner-verified 2026-10-04 (reported, no logs): login from mobile data through Tailscale with the `tailscale cert` https name
+(direct path, clipboard, authentication, reconnect after an idle tab). Not covered: a relayed path, laptop sleep or lid close, a reboot
+before anyone logs in, certificate renewal.

@@ -35,7 +35,7 @@ Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused
 | Installing the page as an app | UNKNOWN | headless Chrome finds no installability problem; a tablet over a trusted https address was not tried |
 | Browser: Safari, iOS Safari | UNKNOWN | fallbacks exist (no Keyboard Lock, prefixed fullscreen, blocked storage) and are exercised with a stub only |
 | Browser: Firefox | UNKNOWN | |
-| Access from mobile data through a VPN (Tailscale) | UNKNOWN | `blackroom internet` and the checks are tested offline (`docs/ops/internet-test.sh`, unit tests); no phone on mobile data has tried it |
+| Access from mobile data through a VPN (Tailscale) | PASS (owner-reported) | 2026-10-04, Galaxy Tab S9 FE on mobile data, https name with a `tailscale cert` certificate; `tailscale status` showed a direct path; login, clipboard and video worked, a little laggier than Wi-Fi; after the browser tab went idle it needed a reconnect, which came back at once. Not covered: relayed paths, laptop sleep, reboot without a login |
 | Direct internet access (name + real certificate, or static IP + self-signed) | UNKNOWN | same: local checks only; no router forward, certificate authority or mobile network was involved |
 
 ## How a cell becomes PASS
