@@ -12,7 +12,7 @@ this laptop?"**
 
 | Your situation | Use |
 |---|---|
-| Not sure, no access to the router, your provider shares one address between customers (CGNAT), or you want nothing exposed | **A VPN such as Tailscale** (way 1). Works with every provider. |
+| Not sure, no access to the router, your provider shares one address between customers (CGNAT), or you want nothing exposed | **A private VPN** (way 1): Tailscale is the easiest, NetBird or Headscale are open-source and self-hostable. Works behind CGNAT through the VPN's relays. |
 | The router accepts incoming connections **and** you have a name (a dynamic-DNS name, or your own domain) | **Direct, with a real certificate** (way 2a). |
 | The router accepts incoming connections and you have **only a static IP address**, no name | **Direct, with the console's own self-signed certificate** (way 2b): works, but weaker. A free dynamic-DNS name makes it way 2a. |
 | You only use it at home | Do nothing: the default. |
@@ -25,8 +25,20 @@ ports, or a second router that you forget to forward through.
 
 ## Way 1: a VPN (Tailscale)
 
-Nothing is opened to the internet, so internet mode stays off. Media inside a tailnet is a direct WireGuard path: no TURN, no
-port forwarding, and it works behind CGNAT.
+Nothing is opened to the internet, so internet mode stays off. No TURN and no port forwarding are needed, and it works behind
+CGNAT. Traffic is a direct encrypted path when the two devices can reach each other; when both sit behind hard NAT it goes
+through the VPN's encrypted relay, which is slower (still end to end encrypted, but the relay sees who talks to whom).
+
+**Cost and openness:** Tailscale's Personal plan is free (checked 2026-10-04: up to 6 users, unlimited devices) but its control
+server is closed and the plan can change. If that matters, use an open-source mesh instead (any "VPN" that gives both devices
+private addresses works the same way for the console):
+- **NetBird:** open source, free cloud tier (5 users, 100 machines as checked) or self-hosted.
+- **Headscale:** open-source Tailscale-compatible control server; you host it on a reachable machine (a small VPS or a home
+  server) and use the normal Tailscale clients.
+
+Only Tailscale issues the https certificate for you. With another VPN you need a name you own and a certificate from ACME DNS-01
+(works without opening any port); without one, the console keeps its own self-signed certificate and each device accepts the
+browser warning once. Features that need a secure page, such as the clipboard, may not work with a self-signed certificate.
 
 1. Install Tailscale on the laptop and on the phone or tablet, sign in to the same account, and in the Tailscale admin console
    switch on MagicDNS and HTTPS certificates.
@@ -59,7 +71,9 @@ out. Cookies are `Secure`; HSTS is sent only with a real certificate.
   `sudo ufw allow 50000:50100/udp`.
 - Do **not** switch on UPnP for this; forward by hand.
 - IPv6: the https listener is IPv4 (`0.0.0.0:8443`). If your phone's network is IPv6-only, add an AAAA record only after
-  allowing inbound 8443 in the router's IPv6 firewall; the console does not do that for you.
+  allowing inbound 8443 in the router's IPv6 firewall; the console does not do that for you. IPv6 can reach a laptop behind an
+  IPv4 CGNAT (no NAT on IPv6), but the console cannot listen on it yet, the address prefix may change (needs dynamic DNS), and
+  the router's IPv6 firewall still has to allow the port.
 - Test from the phone on **mobile data** with Wi-Fi off. From your own Wi-Fi the address often fails on routers without NAT
   loopback ("hairpin"); that is not a console problem.
 
@@ -83,9 +97,9 @@ out. Cookies are `Secure`; HSTS is sent only with a real certificate.
 
 ### 2b. You have only a static IP address
 
-No certificate authority issues a normal certificate for a bare address that this project has verified (Let's Encrypt has
-begun to issue certificates for IP addresses; this has not been tried here, so check its current documentation if you want
-that route). The console can instead make its own self-signed certificate for the address, by your explicit choice:
+Let's Encrypt issues certificates for bare IP addresses (certbot 5.4 or newer, `--ip-address`, `--preferred-profile shortlived`),
+but they last only 6 days, so automatic renewal with a deploy hook is essential; this has not been tried here. The console
+can instead make its own self-signed certificate for the address, by your explicit choice:
 
 - Choose 2, "yes" to the router question, then 2 (only an IP address), type the IP, and answer yes to the self-signed
   question.
