@@ -28,7 +28,7 @@ Cells: **PASS** = run end to end with evidence, **UNKNOWN** = never run (refused
 | Laptop sound to the browser | PASS (owner-reported 2026-10-04) | owner heard the laptop's real output on the client; headless also decodes a 440 Hz tone |
 | Laptop top-bar indicator on the real desktop | PASS (owner-reported 2026-10-04) | owner checked the real top bar, its notices and menu; headless Shell test also passes |
 | Host settings page with the real password check and the real `blackroom` commands | UNKNOWN | headless Chrome with a stand-in password check and stand-in command; the real PAM helper, credential verbs, start-at-login and restart-by-systemd were not run from the page |
-| Approve each connection (Ask) on the real desktop | UNKNOWN | headless Shell: the request, Accept, Deny and no-answer paths and the notification with buttons; not the real desktop |
+| Approve each connection (Ask) on the real desktop | PASS (owner-reported 2026-10-04) | owner approved and denied a real request on the real desktop; headless Shell also covers Accept, Deny and no answer |
 | Tray switch for the lock-screen extension and the host page's lock-screen and sign-in settings on the real desktop | UNKNOWN | the tray switch was checked on the real desktop (owner-reported 2026-10-04); the host page's lock-screen and sign-in settings still used stand-in commands |
 | Authenticator setup from the host page with real authenticator apps | PASS (owner-reported 2026-10-04) | owner scanned the QR code with an authenticator app and confirmed with a code; the algorithm is also checked against RFC 6238 |
 | Applications-menu launcher and tray **Exit** on the real desktop | PASS (owner-reported 2026-10-04) | owner used the real menu entry and the real Exit click |

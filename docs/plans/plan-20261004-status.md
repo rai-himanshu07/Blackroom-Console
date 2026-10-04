@@ -50,8 +50,10 @@ roadmap). Release notes: `docs/RELEASE_NOTES.md`.
 Shared mode on the real screen incl. pointer mapping, Private blank and block toggles, laptop sound from the real output, tray
 lock-screen switch, tray Exit, the applications-menu launcher, an authenticator app scanning the QR, a clean `.deb` install,
 and the newest changes (tray notices, Disconnect with the network off, tablet gestures and targets, logout/revoke ending a live
-stream, start from the user unit). Compatibility-matrix rows updated accordingly.
+stream, start from the user unit). Compatibility-matrix rows updated accordingly. Later the same day: Ask on the real desktop and
+clipboard over https also verified by the owner; Safari/iOS waived by the owner (browser-based, expected to work, not tested); the
+one-hour soak assumed fine by the owner, not run.
 
 ## Still the owner's
-Real PAM and credential commands from the host page, start at login and restart under systemd, Ask on the real desktop,
-clipboard over https, mobile data, Safari/iOS and a one-hour soak.
+Real PAM and credential commands from the host page, start at login and restart under systemd, and a login from mobile data
+(recipe A in `docs/ops/internet-access.md`).
