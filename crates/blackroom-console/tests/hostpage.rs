@@ -344,18 +344,31 @@ async fn internet_mode_that_the_next_start_would_refuse_is_not_saved() {
     assert!(state["effective"].get("http_listen").is_some());
     let mut config = state["config"].clone();
     config["public"] = json!(true);
-    let refused = send(
-        &fixture.app,
-        request(
-            Method::POST,
-            "/host/config",
-            HOSTNAME,
-            Some(&own_origin()),
-            Some(&cookie),
-            config,
-        ),
-    )
-    .await;
+    let post = |config: Value| {
+        send(
+            &fixture.app,
+            request(
+                Method::POST,
+                "/host/config",
+                HOSTNAME,
+                Some(&own_origin()),
+                Some(&cookie),
+                config,
+            ),
+        )
+    };
+    // Switching to Direct needs the laptop password first; only then are the setup's problems listed.
+    assert_eq!(
+        post(config.clone()).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    config["password"] = json!("wrong");
+    assert_eq!(
+        post(config.clone()).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    config["password"] = json!("correct horse");
+    let refused = post(config).await;
     assert_eq!(refused.status(), StatusCode::CONFLICT);
     let message = json_of(refused).await["error"]
         .as_str()
@@ -1173,4 +1186,72 @@ async fn parallel_wrong_passwords_cannot_outrun_the_lock() {
         StatusCode::TOO_MANY_REQUESTS,
         "the page stays locked for the rest of the minute"
     );
+}
+
+#[tokio::test]
+async fn leaving_direct_asks_for_the_password_too_and_other_changes_do_not() {
+    let fixture = fixture();
+    let cookie = signed_in(&fixture.app).await;
+    // A saved Direct setting (written as the file the console would have saved).
+    std::fs::write(
+        fixture.dir.path().join("host.json"),
+        json!({ "version": 1, "public": true }).to_string(),
+    )
+    .unwrap();
+    let state = json_of(
+        send(
+            &fixture.app,
+            request(
+                Method::GET,
+                "/host/state",
+                HOSTNAME,
+                None,
+                Some(&cookie),
+                Value::Null,
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(state["config"]["public"], json!(true), "{state}");
+    let mut config = state["config"].clone();
+    config["public"] = json!(false);
+    let post = |config: Value| {
+        send(
+            &fixture.app,
+            request(
+                Method::POST,
+                "/host/config",
+                HOSTNAME,
+                Some(&own_origin()),
+                Some(&cookie),
+                config,
+            ),
+        )
+    };
+    assert_eq!(
+        post(config.clone()).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    config["password"] = json!("correct horse");
+    assert_eq!(post(config).await.status(), StatusCode::OK);
+    // With Direct already off, an ordinary change needs no password.
+    let mut plain = json_of(
+        send(
+            &fixture.app,
+            request(
+                Method::GET,
+                "/host/state",
+                HOSTNAME,
+                None,
+                Some(&cookie),
+                Value::Null,
+            ),
+        )
+        .await,
+    )
+    .await["config"]
+        .clone();
+    plain["allow_clipboard"] = json!(true);
+    assert_eq!(post(plain).await.status(), StatusCode::OK);
 }

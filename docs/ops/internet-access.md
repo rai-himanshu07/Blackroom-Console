@@ -42,7 +42,7 @@ browser warning once. Features that need a secure page, such as the clipboard, m
 
 1. Install Tailscale on the laptop and on the phone or tablet, sign in to the same account, and in the Tailscale admin console
    switch on MagicDNS and HTTPS certificates.
-2. Run `blackroom internet`, choose 1, type the laptop's Tailscale name (like `laptop.tailnet-name.ts.net`). If no certificate
+2. Run `blackroom internet`, choose 1. It reads the full name from `tailscale status --json` and offers it (or type it: like `laptop.tailnet-name.ts.net`; a short name such as `laptop` is refused because the certificate covers only the full name). If no certificate
    exists yet it prints the commands (they need sudo, which you run yourself):
    ```
    mkdir -p ~/.config/blackroom/tls && chmod 700 ~/.config/blackroom/tls
@@ -95,7 +95,7 @@ out. Cookies are `Secure`; HSTS is sent only with a real certificate.
    install -m 644 -o YOURUSER /etc/letsencrypt/live/home.example.org/fullchain.pem /home/YOURUSER/.config/blackroom/tls/cert.pem
    install -m 600 -o YOURUSER /etc/letsencrypt/live/home.example.org/privkey.pem  /home/YOURUSER/.config/blackroom/tls/key.pem
    ```
-3. `blackroom internet`, choose 2, answer yes to "can your router accept incoming connections", choose 1 (a name), type the
+3. `blackroom internet`, choose 3, answer yes to "can your router accept incoming connections", choose 1 (a name), type the
    name. The check reads the certificate: it must be in date, cover the name, belong to the key, and not be self-signed.
 
 ### 2b. You have only a static IP address
@@ -104,7 +104,7 @@ Let's Encrypt issues certificates for bare IP addresses (certbot 5.4 or newer, `
 but they last only 6 days, so automatic renewal with a deploy hook is essential; this has not been tried here. The console
 can instead make its own self-signed certificate for the address, by your explicit choice:
 
-- Choose 2, "yes" to the router question, then 2 (only an IP address), type the IP, and answer yes to the self-signed
+- Choose 3, "yes" to the router question, then 2 (only an IP address), type the IP, and answer yes to the self-signed
   question.
 - After the restart, `blackroom internet --check` (or the host page) shows the certificate **fingerprint**. On the first
   visit, open the browser's certificate details and compare the SHA-256 fingerprint with it before you continue.
@@ -198,6 +198,6 @@ compromised laptop or browser. The checks are local and do not prove internet co
 - A certificate warning on a real name: the file must be the full chain (`fullchain.pem`), the name must match, the clock must
   be correct. The check names what is wrong.
 - The console does not start after a change: `journalctl --user -u blackroom-console -n 30` says what internet mode refused;
-  `blackroom internet --check` lists the same problems. Turn internet mode off with `blackroom internet` (choose 3) or in the
+  `blackroom internet --check` lists the same problems. Turn internet mode off with `blackroom internet` (choose 2) or in the
   host settings page.
 - `refusing to start in --public mode`: the message lists what to fix.

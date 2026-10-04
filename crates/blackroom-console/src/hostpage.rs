@@ -542,12 +542,28 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
     }
 }
 
+/// The body is a `HostConfig` plus an optional `password` (only needed to switch to or from Direct).
+fn config_and_password(body: &[u8]) -> Result<(HostConfig, String), String> {
+    let Value::Object(mut fields) = serde_json::from_slice(body).map_err(|e| e.to_string())? else {
+        return Err("a JSON object is expected".into());
+    };
+    let password = match fields.remove("password") {
+        Some(Value::String(text)) => text,
+        Some(_) => return Err("password must be text".into()),
+        None => String::new(),
+    };
+    let config = serde_json::from_value::<HostConfig>(Value::Object(fields))
+        .map_err(|e| e.to_string())
+        .and_then(HostConfig::validated)?;
+    Ok((config, password))
+}
+
 async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
     if let Some(refusal) = guard(&app, &headers, true) {
         return refusal;
     }
-    let config = match object::<HostConfig>(&body).and_then(HostConfig::validated) {
-        Ok(config) => config,
+    let (config, password) = match config_and_password(&body) {
+        Ok(parts) => parts,
         Err(message) => {
             return error(
                 StatusCode::BAD_REQUEST,
@@ -561,6 +577,13 @@ async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Resp
             "this console has no settings directory",
         );
     };
+    // Switching to or from Direct changes who can find the login page: it asks for the laptop password like the lock-screen switch.
+    let saved_direct = HostConfig::load(&dir).0.public == Some(true);
+    if (config.public == Some(true)) != saved_direct
+        && let Err(refusal) = check_password(&app, password).await
+    {
+        return refusal;
+    }
     // Internet mode that the next start would refuse must not be saved: the console would not come back.
     if config.public == Some(true)
         && let Some(running) = &app.settings.internet

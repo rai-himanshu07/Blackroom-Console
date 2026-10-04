@@ -110,3 +110,13 @@ Direct marked untested. W2 (deferred review findings, read against the live code
 - **Not covered:** the assembled `.deb` (install, upgrade, remove need sudo: W7), the chord and the marker on the real desktop (W3.4),
   the 4-stream cap through the route (only the counter is tested), R17 and R15 tests were not run against the old code, and
   a keyboard-only way to open the menu from a running session (Tab is forwarded to the laptop): an owner decision.
+
+## W5 of the final plan (2026-10-04)
+- The wizard reads the laptop's full name from `tailscale status --json` (a local read, five-second limit) and offers it; a short
+  name, or a certificate that does not cover the name, is refused over the VPN too.
+- `blackroom repair` names a `blackroom` earlier in `PATH` that hides `/usr/bin/blackroom`, and a user unit that keeps plain http
+  on a non-loopback address while https is on (it fired for the owner's own unit when run read-only here).
+- The host page asks for the laptop password to switch to or from Direct (same path as the lock-screen switch).
+- Menus: VPN first with "recommended" and a one-line reason, Home, then Direct with its risk; the default answer stays home only.
+- **Checked by:** wizard, repair and host page tests, the headless host page suite (password steps), the real-binary internet script.
+- **Not covered:** a real `tailscale` (only the JSON parse is tested), and no changed look of the menus was seen on a screen.

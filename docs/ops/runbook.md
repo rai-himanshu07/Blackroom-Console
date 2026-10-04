@@ -41,7 +41,7 @@ Clipboard: the two buttons under the keyboard row send text to the laptop or fet
 
 | Symptom | Do |
 |---|---|
-| Anything odd | `blackroom repair` (read-only report), then `blackroom repair --fix` for the safe fixes |
+| Anything odd | `blackroom repair` (read-only report; it also names an older `blackroom` earlier in `PATH` and a plain-http address left on `0.0.0.0` while https is on), then `blackroom repair --fix` for the safe fixes |
 | Panel stays black, no tablet | Wait 60 s (the restore timer restores the display and locks). Then you see the lock screen: type your password. Still black: from another device over SSH run `systemctl --user stop blackroom-console.service`, then see `emergency-recovery.md`. Do not use `loginctl unlock-session` to fix a black panel: it removes the lock |
 | "no rw access" or the grab does not start | `sudo blackroom-grant-input status`, then `sudo blackroom-grant-input grant` (the ACLs reset at reboot) |
 | Login says the authority is unavailable | `systemctl --user status remote-hostd.service`, `journalctl --user -u remote-hostd -n 30`; `blackroom repair --fix` |

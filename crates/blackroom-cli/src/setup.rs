@@ -434,6 +434,7 @@ fn setup(o: &Options) -> Result<(), Failure> {
                     &mut asker,
                     &tls_dir,
                     &crate::internet::restart_unit,
+                    &crate::internet::tailscale_name,
                 ),
                 _ => Err((
                     1,
@@ -698,6 +699,42 @@ fn clear_leftovers(fix: bool) -> Vec<(String, bool)> {
     found
 }
 
+const INSTALLED_CLI: &str = "/usr/bin/blackroom";
+
+/// The first `blackroom` on `path` when it is not the installed one, so an older copy earlier in `PATH` is noticed.
+fn shadowing_cli(path: &std::ffi::OsStr, installed: &Path) -> Option<PathBuf> {
+    let installed = installed.canonicalize().ok()?;
+    let first = std::env::split_paths(path)
+        .map(|dir| dir.join("blackroom"))
+        .find(|candidate| candidate.is_file())?;
+    (first.canonicalize().ok()? != installed).then_some(first)
+}
+
+/// The plain-http address of the unit's last `ExecStart=` when https is on and that address is not on this laptop only.
+fn plain_http_on_the_network(unit_text: &str) -> Option<String> {
+    let exec = unit_text
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("ExecStart="))?;
+    let words: Vec<&str> = exec.split_whitespace().collect();
+    let value = |flag: &str| {
+        words.iter().enumerate().find_map(|(i, word)| {
+            word.strip_prefix(&format!("{flag}="))
+                .or_else(|| (*word == flag).then(|| words.get(i + 1).copied()).flatten())
+        })
+    };
+    value("--tls-listen")?;
+    let listen = value("--listen")?;
+    let host = listen.rsplit_once(':').map_or(listen, |(host, _)| host);
+    let loopback = host == "localhost"
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    (!loopback).then(|| listen.to_string())
+}
+
 fn repair(o: &Options) -> Result<(), Failure> {
     println!(
         "Repair{}:",
@@ -806,6 +843,32 @@ fn repair(o: &Options) -> Result<(), Failure> {
                 "INFO  a display recovery file exists: the next console start restores the display from it"
             );
         }
+        if let Some(first) =
+            std::env::var_os("PATH").and_then(|path| shadowing_cli(&path, Path::new(INSTALLED_CLI)))
+        {
+            note(
+                false,
+                format!(
+                    "{} comes first in PATH and hides the installed {INSTALLED_CLI} (an older copy may lack newer commands): remove it or put /usr/bin first",
+                    first.display()
+                ),
+            );
+        }
+        if let Some(text) = command(
+            "systemctl",
+            &["--user", "--no-pager", "cat", CONSOLE_UNITS[0]],
+        )
+        .map(|(_, text)| text)
+            && let Some(listen) = plain_http_on_the_network(&text)
+        {
+            note(
+                false,
+                format!(
+                    "{} starts the plain-http listener on {listen} while https is on: anyone on the network can reach plain http. The packaged unit uses 127.0.0.1:8080",
+                    CONSOLE_UNITS[0]
+                ),
+            );
+        }
         println!(
             "INFO  input access is not checked here (it needs root): `sudo blackroom-grant-input status`"
         );
@@ -833,7 +896,53 @@ pub fn dispatch(args: &[OsString]) -> Option<Result<(), Failure>> {
 
 #[cfg(test)]
 mod tests {
-    use super::keeps_restore_timer;
+    use super::{keeps_restore_timer, plain_http_on_the_network, shadowing_cli};
+
+    #[test]
+    fn an_earlier_blackroom_in_the_path_is_named_and_the_installed_one_first_is_not() {
+        let old = tempfile::tempdir().unwrap();
+        let installed_dir = tempfile::tempdir().unwrap();
+        std::fs::write(old.path().join("blackroom"), "x").unwrap();
+        std::fs::write(installed_dir.path().join("blackroom"), "y").unwrap();
+        let installed = installed_dir.path().join("blackroom");
+        let path = std::env::join_paths([old.path(), installed_dir.path()]).unwrap();
+        assert_eq!(
+            shadowing_cli(&path, &installed),
+            Some(old.path().join("blackroom"))
+        );
+        let path = std::env::join_paths([installed_dir.path(), old.path()]).unwrap();
+        assert_eq!(shadowing_cli(&path, &installed), None);
+    }
+
+    #[test]
+    fn plain_http_on_all_addresses_with_https_on_is_reported() {
+        let unit = |exec: &str| {
+            format!("[Service]\nExecStart=/usr/lib/blackroom/blackroom-console {exec}\n")
+        };
+        assert_eq!(
+            plain_http_on_the_network(&unit("--listen 0.0.0.0:8080 --tls-listen 0.0.0.0:8443"))
+                .as_deref(),
+            Some("0.0.0.0:8080")
+        );
+        assert_eq!(
+            plain_http_on_the_network(&unit("--listen=0.0.0.0:8080 --tls-listen=0.0.0.0:8443"))
+                .as_deref(),
+            Some("0.0.0.0:8080")
+        );
+        assert_eq!(
+            plain_http_on_the_network(&unit("--listen 127.0.0.1:8080 --tls-listen 0.0.0.0:8443")),
+            None
+        );
+        assert_eq!(
+            plain_http_on_the_network(&unit("--listen [::1]:8080 --tls-listen 0.0.0.0:8443")),
+            None
+        );
+        assert_eq!(
+            plain_http_on_the_network(&unit("--listen 0.0.0.0:8080")),
+            None,
+            "https off: nothing to compare"
+        );
+    }
 
     #[test]
     fn a_restore_timer_is_kept_only_while_recovery_is_pending() {

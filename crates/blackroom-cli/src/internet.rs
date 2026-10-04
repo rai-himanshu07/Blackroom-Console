@@ -22,6 +22,60 @@ pub const USAGE: &str = "usage: blackroom internet [--check] [--runtime-dir <abs
 const NOTICE: &str = "Direct internet access makes this login discoverable by scanners. Authentication and rate limits reduce, but do not eliminate, password guessing, lockout or denial-of-service risks. The password, authenticator code and Remote Access Key are not phishing-proof: check the exact https address and never bypass a certificate warning. This does not protect against a compromised laptop or browser. These checks do not prove internet connectivity.";
 const SELF_SIGNED_NOTICE: &str = "A self-signed certificate is trusted only because you compared its fingerprint: the first visit is trust-on-first-use, and a changed certificate must be verified again.";
 
+/// The laptop's full MagicDNS name from `tailscale status --json` (`Self.DNSName` without its trailing dot).
+fn parse_tailscale_name(json: &str) -> Option<String> {
+    let status: Value = serde_json::from_str(json).ok()?;
+    let name = status["Self"]["DNSName"]
+        .as_str()?
+        .trim()
+        .trim_end_matches('.');
+    (name.contains('.') && !name.contains(char::is_whitespace)).then(|| name.to_ascii_lowercase())
+}
+
+/// Asks the local Tailscale daemon (no network, at most five seconds); `None` when it is not installed or not running.
+pub fn tailscale_name() -> Option<String> {
+    let mut child = Command::new("tailscale")
+        .args(["status", "--json"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) | Err(_) => return None,
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+    let mut text = String::new();
+    io::Read::read_to_string(&mut child.stdout.take()?, &mut text).ok()?;
+    parse_tailscale_name(&text)
+}
+
+/// Why `name` cannot be what a Tailscale certificate covers: a certificate is issued for the full name only.
+fn short_name_problem(name: &str, detected: Option<&str>) -> Option<String> {
+    if name.is_empty() {
+        return None;
+    }
+    if name.contains(char::is_whitespace) || name.contains('/') || name.contains(':') {
+        return Some("that is not a host name".into());
+    }
+    if name.contains('.') {
+        return None;
+    }
+    let hint = detected.map_or(String::new(), |full| format!(" Use {full}."));
+    Some(format!(
+        "\"{name}\" is a short name, and a Tailscale certificate covers only the full name (like laptop.tailnet-name.ts.net), so the browser would warn.{hint}"
+    ))
+}
+
 fn refuse(message: impl std::fmt::Display) -> Failure {
     (1, format!("refused: {message}"))
 }
@@ -266,6 +320,14 @@ fn commit(
         io.say("Nothing was saved: fix the problems above and run `blackroom internet` again.")?;
         return Ok(());
     }
+    // Over a VPN a flaw is only a warning for the console, but a name the certificate does not cover always warns the browser.
+    if strings(&dry["report"], "warnings")
+        .iter()
+        .any(|warning| warning.contains("does not cover"))
+    {
+        io.say("Nothing was saved: the certificate does not cover the name. Get a certificate for exactly that name and run `blackroom internet` again.")?;
+        return Ok(());
+    }
     if public {
         io.say("")?;
         io.say(NOTICE)?;
@@ -347,9 +409,24 @@ fn vpn(
     io: &mut Io<'_>,
     tls_dir: &Path,
     restart: &dyn Fn() -> bool,
+    tailnet_name: &dyn Fn() -> Option<String>,
 ) -> Result<(), Failure> {
     io.say("Install Tailscale on this laptop and on the phone or tablet, sign in to the same account, and in the Tailscale admin console switch on MagicDNS and HTTPS certificates. Nothing is opened to the internet.")?;
-    let name = io.line("This laptop's Tailscale name (like laptop.tailnet-name.ts.net), or Enter to keep the console's own certificate:")?;
+    let detected = tailnet_name();
+    let name = match &detected {
+        Some(full)
+            if io.yes_no(
+                &format!("Tailscale reports this laptop as {full}. Use that name?"),
+                true,
+            )? =>
+        {
+            full.clone()
+        }
+        _ => io.line("This laptop's Tailscale name (like laptop.tailnet-name.ts.net), or Enter to keep the console's own certificate:")?,
+    };
+    if let Some(problem) = short_name_problem(&name, detected.as_deref()) {
+        return io.say(&format!("Nothing was changed: {problem}"));
+    }
     let patch = if name.is_empty() {
         json!({"public": false, "public_cert": null, "public_name": null, "tls_cert": null, "tls_key": null})
     } else {
@@ -378,6 +455,7 @@ fn direct(
     io: &mut Io<'_>,
     tls_dir: &Path,
     restart: &dyn Fn() -> bool,
+    tailnet_name: &dyn Fn() -> Option<String>,
 ) -> Result<(), Failure> {
     io.say("Direct access works only when your router can accept connections from the internet.")?;
     loop {
@@ -393,7 +471,7 @@ fn direct(
             3 => {
                 io.say("Then a direct connection cannot work, whatever the settings. A VPN such as Tailscale does.")?;
                 return if io.yes_no("Set up the VPN way instead?", true)? {
-                    vpn(console, io, tls_dir, restart)
+                    vpn(console, io, tls_dir, restart, tailnet_name)
                 } else {
                     io.say("Nothing was changed.")
                 };
@@ -483,6 +561,7 @@ pub fn wizard(
     io: &mut Io<'_>,
     tls_dir: &Path,
     restart: &dyn Fn() -> bool,
+    tailnet_name: &dyn Fn() -> Option<String>,
 ) -> Result<(), Failure> {
     let state = console.check().map_err(refuse)?;
     io.say("Reaching this laptop from outside your home network")?;
@@ -491,14 +570,14 @@ pub fn wizard(
     match io.choose(
         "How do you want to reach it?",
         &[
-            "Through a VPN such as Tailscale (recommended: no router changes, works with any provider)",
-            "Directly over the internet (you can forward ports on your router)",
+            "Through a VPN such as Tailscale (recommended: nothing is opened to the internet, no router changes, works with any provider)",
             "Home network only",
+            "Directly over the internet (riskier: the login becomes visible to scanners; only if your router can forward ports; not yet tested against a real router)",
         ],
-        3,
+        2,
     )? {
-        1 => vpn(console, io, tls_dir, restart),
-        2 => direct(console, io, tls_dir, restart),
+        1 => vpn(console, io, tls_dir, restart, tailnet_name),
+        3 => direct(console, io, tls_dir, restart, tailnet_name),
         _ => home(console, io, state["report"]["public"] == true, restart),
     }
 }
@@ -574,7 +653,7 @@ fn run(args: &[OsString]) -> Result<(), Failure> {
             "the guided set-up needs a terminal; use --check for a report".into(),
         ));
     }
-    wizard(&console, &mut io, &tls_dir, &restart_unit)
+    wizard(&console, &mut io, &tls_dir, &restart_unit, &tailscale_name)
 }
 
 #[cfg(test)]
@@ -626,7 +705,13 @@ mod tests {
     fn drive(fake: &Fake, answers: &str, tls_dir: &Path) -> (Result<(), Failure>, String) {
         let mut input = io::Cursor::new(answers.as_bytes().to_vec());
         let mut out = Vec::new();
-        let result = wizard(fake, &mut Io::new(&mut input, &mut out), tls_dir, &|| true);
+        let result = wizard(
+            fake,
+            &mut Io::new(&mut input, &mut out),
+            tls_dir,
+            &|| true,
+            &|| None,
+        );
         (result, String::from_utf8(out).unwrap())
     }
 
@@ -644,7 +729,7 @@ mod tests {
         assert!(text.contains("Nothing was changed"));
         let mut on = Fake::new();
         on.report["public"] = json!(true);
-        let (result, _) = drive(&on, "3\ny\ny\nn\n", dir.path());
+        let (result, _) = drive(&on, "2\ny\ny\nn\n", dir.path());
         assert!(result.is_ok());
         assert_eq!(on.saved(), vec![json!({"public": false})]);
     }
@@ -677,11 +762,11 @@ mod tests {
     fn a_provider_that_shares_one_address_is_steered_to_the_vpn() {
         let dir = tempfile::tempdir().unwrap();
         let fake = Fake::new();
-        let (_, text) = drive(&fake, "2\n3\nn\n", dir.path());
+        let (_, text) = drive(&fake, "3\n3\nn\n", dir.path());
         assert!(text.contains("cannot work"));
         assert!(text.contains("Tailscale"));
         assert!(fake.calls.borrow().is_empty());
-        let (_, text) = drive(&fake, "2\n2\n3\nn\n", dir.path());
+        let (_, text) = drive(&fake, "3\n2\n3\nn\n", dir.path());
         assert!(
             text.contains("100.64.x.x"),
             "an unsure owner gets the test to run"
@@ -692,7 +777,7 @@ mod tests {
     fn a_name_without_certificate_files_gets_the_certbot_steps_and_nothing_is_saved() {
         let dir = tempfile::tempdir().unwrap();
         let fake = Fake::new();
-        let (result, text) = drive(&fake, "2\n1\n1\nhome.example.org\n", dir.path());
+        let (result, text) = drive(&fake, "3\n1\n1\nhome.example.org\n", dir.path());
         assert!(result.is_ok());
         assert!(text.contains("sudo certbot certonly"));
         assert!(fake.calls.borrow().is_empty());
@@ -702,11 +787,11 @@ mod tests {
     fn a_bare_ip_needs_an_explicit_yes_to_a_self_signed_certificate() {
         let dir = tempfile::tempdir().unwrap();
         let fake = Fake::new();
-        let (_, text) = drive(&fake, "2\n1\n2\n203.0.113.7\nn\n", dir.path());
+        let (_, text) = drive(&fake, "3\n1\n2\n203.0.113.7\nn\n", dir.path());
         assert!(text.contains("A name with a real certificate is safer"));
         assert!(fake.calls.borrow().is_empty());
         // yes to self-signed, default range, default STUN, no TURN, then typed consent, then no restart.
-        let (result, text) = drive(&fake, "2\n1\n2\n203.0.113.7\ny\n\n\n\nyes\nn\n", dir.path());
+        let (result, text) = drive(&fake, "3\n1\n2\n203.0.113.7\ny\n\n\n\nyes\nn\n", dir.path());
         assert!(result.is_ok(), "{result:?}\n{text}");
         let saved = fake.saved();
         assert_eq!(saved.len(), 1);
@@ -725,7 +810,7 @@ mod tests {
         let fake = Fake::new();
         let (result, text) = drive(
             &fake,
-            "2\n1\n1\nhome.example.org\n\n\n\nmaybe\n",
+            "3\n1\n1\nhome.example.org\n\n\n\nmaybe\n",
             dir.path(),
         );
         assert!(result.is_ok(), "{result:?}\n{text}");
@@ -735,7 +820,7 @@ mod tests {
         broken.dry_problems = vec!["certificate: the certificate has expired".into()];
         let (_, text) = drive(
             &broken,
-            "2\n1\n1\nhome.example.org\n\n\n\nyes\n",
+            "3\n1\n1\nhome.example.org\n\n\n\nyes\n",
             dir.path(),
         );
         assert!(text.contains("PROBLEM certificate: the certificate has expired"));
@@ -743,10 +828,104 @@ mod tests {
     }
 
     #[test]
+    fn the_menu_lists_the_vpn_first_as_recommended_then_home_then_direct_with_its_risk() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = Fake::new();
+        let (_, text) = drive(&fake, "\n", dir.path());
+        let vpn = text.find("1) Through a VPN").expect("vpn first");
+        let home = text.find("2) Home network only").expect("home second");
+        let direct = text
+            .find("3) Directly over the internet")
+            .expect("direct third");
+        assert!(vpn < home && home < direct);
+        assert!(
+            text.contains("recommended")
+                && text.contains("riskier")
+                && text.contains("not yet tested")
+        );
+        assert!(
+            fake.calls.borrow().is_empty(),
+            "Enter keeps home network only"
+        );
+    }
+
+    #[test]
+    fn tailscale_status_gives_the_full_name_and_a_short_name_is_refused() {
+        let json = r#"{"Self":{"DNSName":"Laptop.tailnet-name.ts.net.","HostName":"laptop"}}"#;
+        assert_eq!(
+            parse_tailscale_name(json).as_deref(),
+            Some("laptop.tailnet-name.ts.net")
+        );
+        assert_eq!(
+            parse_tailscale_name(r#"{"Self":{"DNSName":"laptop"}}"#),
+            None
+        );
+        assert_eq!(parse_tailscale_name("not json"), None);
+        assert!(
+            short_name_problem("laptop", Some("laptop.tailnet-name.ts.net"))
+                .unwrap()
+                .contains("Use laptop.tailnet-name.ts.net")
+        );
+        assert!(short_name_problem("laptop.tailnet-name.ts.net", None).is_none());
+        assert!(
+            short_name_problem("", None).is_none(),
+            "Enter keeps the console's own certificate"
+        );
+        assert!(short_name_problem("https://x/", None).is_some());
+
+        let dir = tempfile::tempdir().unwrap();
+        with_cert(dir.path());
+        let fake = Fake::new();
+        let mut input = io::Cursor::new(b"1\nlaptop\n".to_vec());
+        let mut out = Vec::new();
+        let result = wizard(
+            &fake,
+            &mut Io::new(&mut input, &mut out),
+            dir.path(),
+            &|| true,
+            &|| None,
+        );
+        assert!(result.is_ok());
+        assert!(String::from_utf8(out).unwrap().contains("short name"));
+        assert!(
+            fake.calls.borrow().is_empty(),
+            "nothing is saved for a short name"
+        );
+
+        // With a detected name the owner is offered it, and Enter takes it.
+        let mut input = io::Cursor::new(b"1\n\n\nn\n".to_vec());
+        let mut out = Vec::new();
+        let fake = Fake::new();
+        let result = wizard(
+            &fake,
+            &mut Io::new(&mut input, &mut out),
+            dir.path(),
+            &|| true,
+            &|| Some("laptop.tailnet-name.ts.net".into()),
+        );
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(fake.saved()[0]["public_name"], "laptop.tailnet-name.ts.net");
+    }
+
+    #[test]
+    fn a_certificate_that_does_not_cover_the_name_is_never_saved_over_the_vpn() {
+        let dir = tempfile::tempdir().unwrap();
+        with_cert(dir.path());
+        let mut fake = Fake::new();
+        fake.report["warnings"] = json!([
+            "certificate: the certificate does not cover other.ts.net (it covers: laptop.ts.net)"
+        ]);
+        let (result, text) = drive(&fake, "1\nother.ts.net\n", dir.path());
+        assert!(result.is_ok(), "{result:?}\n{text}");
+        assert!(text.contains("does not cover the name"));
+        assert!(fake.saved().is_empty());
+    }
+
+    #[test]
     fn closing_the_input_cancels_without_saving() {
         let dir = tempfile::tempdir().unwrap();
         let fake = Fake::new();
-        let (result, _) = drive(&fake, "2\n1\n", dir.path());
+        let (result, _) = drive(&fake, "3\n1\n", dir.path());
         assert!(
             result.is_err(),
             "the input ended at the first question about the name"

@@ -93,12 +93,13 @@
       <h2>Access from outside</h2>
       <label class="field">How this laptop is reached
         <select id="accessMode">
+          <option value="vpn">Private VPN, such as Tailscale (recommended: nothing is opened to the internet, no router changes)</option>
           <option value="home">Home network only</option>
-          <option value="vpn">Private VPN, such as Tailscale (works with a changing or shared IP address)</option>
-          <option value="direct">Directly from the internet (a static IP address or a name, router forwarding)</option>
+          <option value="direct">Directly from the internet (riskier: reachable by scanners, needs router forwarding; not yet tested)</option>
         </select>
       </label>
       <p class="note" id="accessHelp"></p>
+      <label class="field" id="accessPasswordRow" hidden>Your laptop password, needed to switch to or from Direct <input type="password" id="accessPassword" autocomplete="current-password"></label>
       <div id="accessVpn" hidden>
         <label class="field">This laptop's VPN name <input type="text" id="vpnName" spellcheck="false" placeholder="laptop.tailnet-name.ts.net"></label>
         <div class="row">

@@ -34,7 +34,7 @@ function show(view) {
   if (view !== "app") {
     hideSecret();
     closeTotp();
-    for (const id of ["credPassword", "totpPassword", "lockPassword"]) $(id).value = "";
+    for (const id of ["credPassword", "totpPassword", "lockPassword", "accessPassword"]) $(id).value = "";
     $("credStatus").textContent = "";
   }
 }
@@ -101,8 +101,12 @@ function fillAccess(config) {
   showAccess();
 }
 
+// Switching to or from Direct changes who can find the login page, so the laptop asks for its password.
+function directChanges() { return !!saved && ($("accessMode").value === "direct") !== (saved.public === true); }
+
 function showAccess() {
   const mode = $("accessMode").value;
+  $("accessPasswordRow").hidden = !directChanges();
   $("accessVpn").hidden = mode !== "vpn";
   $("accessDirect").hidden = mode !== "direct";
   $("directFiles").hidden = $("directCert").value === "self_signed";
@@ -301,12 +305,17 @@ document.addEventListener("change", updateDirty);
 
 async function save() {
   const config = collect();
+  if (directChanges()) {
+    if ($("accessPassword").value === "") { $("saveNote").textContent = "Type your laptop password to switch to or from Direct."; return false; }
+    config.password = $("accessPassword").value;
+  }
   if (config.public === true && saved.public !== true
     && !window.confirm("Direct internet access lets anyone who finds this address reach the login page. Only continue if the router forwarding and the login are set up as described here. Save it?")) {
     $("saveNote").textContent = "Not saved.";
     return false;
   }
   const { ok, data } = await api("POST", "/host/config", config);
+  $("accessPassword").value = "";
   $("saveNote").textContent = ok ? "Saved." : (data.error ?? "Could not save.");
   if (ok) await load(true);
   return ok;
