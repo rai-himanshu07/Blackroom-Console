@@ -141,6 +141,25 @@ function renderLock(snapshot) {
     : "Off: locking the laptop ends remote sessions. A session already open on a locked screen keeps running until it ends.";
 }
 
+function renderInternet(snapshot) {
+  const report = snapshot.effective.internet;
+  const list = $("internetList");
+  list.replaceChildren();
+  if (!report) { $("internetLine").textContent = "Not reported."; return; }
+  const access = { direct: "Reachable from the internet (internet mode is on).", "private-network": "Meant for a private network or VPN (a certificate is set, internet mode is off)." };
+  $("internetLine").textContent = access[report.access] ?? "Home network only.";
+  const lines = [];
+  if (report.url) lines.push("Address for the phone: " + report.url);
+  if (report.certificate) {
+    lines.push(`Certificate covers ${report.certificate.names.join(", ") || "no names"}; ${report.days_left} day(s) left; ${report.self_signed ? "self-signed" : "issued by an authority"}.`);
+    lines.push("Certificate fingerprint (SHA-256): " + report.certificate.fingerprint);
+  }
+  for (const line of report.forwards) lines.push("Forward on the router: " + line);
+  for (const line of report.problems) lines.push("Problem: " + line);
+  for (const line of report.warnings) lines.push("Warning: " + line);
+  for (const text of lines) { const item = document.createElement("li"); item.textContent = text; list.append(item); }
+}
+
 function renderStatus(snapshot) {
   const status = snapshot.status;
   const lines = { idle: "Ready: nobody is connected", starting: "A remote session is starting", running: `A ${status.mode} session is running`, stopping: "A session is ending" };
@@ -176,6 +195,7 @@ async function load(first) {
   renderLogin(data);
   renderTotp(data);
   renderLock(data);
+  renderInternet(data);
   return true;
 }
 

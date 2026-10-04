@@ -73,6 +73,7 @@ await signIn("hostpass");
 check("the right password opens the settings", (await visible("appView")) && (await visible("savebar")) && !(await visible("loginView")));
 check("the password field is cleared", (await js("document.getElementById('password').value")) === "");
 check("the status names the laptop's state", /Ready/.test(await js("document.getElementById('statusLine').textContent")));
+check("the internet card says the laptop is home-network only", /Home network only/.test(await js("document.getElementById('internetLine').textContent")));
 check("nothing is changed yet, so Save is off", (await js("document.getElementById('save').disabled")) === true);
 check("defaults are shown", (await js("[document.querySelector('[data-key=allow_private]').checked, document.querySelector('[data-key=allow_shared]').checked, document.querySelector('[data-key=approval]').value, document.querySelector('[data-key=max_fps]').value].join()")) === "true,true,never,0");
 check("the command-line address is shown as the current value", (await js("document.querySelector('[data-key=http_listen]').value")) === "127.0.0.1:18095");

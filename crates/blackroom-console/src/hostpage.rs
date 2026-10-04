@@ -57,6 +57,8 @@ pub struct Settings {
     pub gnome_extensions: PathBuf,
     /// `systemctl`, used to restart the login authority after the authenticator changes.
     pub systemctl: PathBuf,
+    /// What the console runs with now, so a saved internet mode can be checked before it can stop the next start.
+    pub internet: Option<crate::internet::Effective>,
 }
 
 #[derive(Default)]
@@ -542,6 +544,22 @@ async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Resp
             "this console has no settings directory",
         );
     };
+    // Internet mode that the next start would refuse must not be saved: the console would not come back.
+    if config.public == Some(true)
+        && let Some(running) = &app.settings.internet
+    {
+        let report =
+            crate::internet::preflight(&running.overlaid(&config), crate::internet::now_unix());
+        if !report.problems.is_empty() {
+            return error(
+                StatusCode::CONFLICT,
+                &format!(
+                    "internet mode cannot be saved yet: {}. Run `blackroom internet` on this laptop to set it up",
+                    report.problems.join("; ")
+                ),
+            );
+        }
+    }
     if config.login == Some(crate::host::LoginMethod::Hostd)
         && !crate::hostd_auth::sockets_present(&app.settings.hostd_runtime)
     {

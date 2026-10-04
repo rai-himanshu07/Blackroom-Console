@@ -34,6 +34,49 @@ pub struct Effective {
     pub damaged: bool,
 }
 
+impl Effective {
+    /// This running setup with a saved `host.json` laid over it, the way a restart would merge them.
+    pub fn overlaid(&self, host: &HostConfig) -> Self {
+        let mut e = self.clone();
+        if let Some(addr) = host
+            .http_listen
+            .as_deref()
+            .and_then(|text| text.parse().ok())
+        {
+            e.listen = addr;
+        }
+        match host.tls_listen.as_deref() {
+            Some("") => e.tls_listen = None,
+            Some(text) => e.tls_listen = text.parse().ok().or(e.tls_listen),
+            None => {}
+        }
+        if let (Some(cert), Some(key)) = (&host.tls_cert, &host.tls_key) {
+            e.tls_cert = Some(cert.clone());
+            e.tls_key = Some(key.clone());
+        }
+        if let Some(public) = host.public {
+            e.public = public;
+        }
+        e.public_name.clone_from(&host.public_name);
+        e.public_cert = host.public_cert;
+        if let Some(stun) = &host.stun {
+            e.stun.clone_from(stun);
+        }
+        if let Some(turn) = &host.turn {
+            e.turn.clone_from(turn);
+        }
+        if host.turn_secret_file.is_some() {
+            e.turn_secret_file.clone_from(&host.turn_secret_file);
+        }
+        if host.ice_ports.is_some() {
+            e.ice_ports.clone_from(&host.ice_ports);
+        }
+        // A saved file that parses is, by definition, not damaged.
+        e.damaged = false;
+        e
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Report {
     /// `direct` (public mode on), `private-network` (a certificate is set but public mode is off) or `home`.
@@ -457,6 +500,31 @@ mod tests {
                 .problems
                 .iter()
                 .any(|p| p.contains("chmod 600"))
+        );
+    }
+
+    #[test]
+    fn a_saved_config_laid_over_the_running_setup_is_what_a_restart_would_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut running = effective(dir.path());
+        running.damaged = true;
+        let saved = HostConfig {
+            public: Some(true),
+            public_name: Some("home.example.org".into()),
+            tls_listen: Some("0.0.0.0:9443".into()),
+            ice_ports: Some("50000-50100".into()),
+            stun: Some(vec![]),
+            ..HostConfig::default()
+        };
+        let next = running.overlaid(&saved);
+        assert!(next.public && !next.damaged);
+        assert_eq!(next.tls_listen.unwrap().port(), 9443);
+        assert_eq!(next.ice_ports.as_deref(), Some("50000-50100"));
+        assert_eq!(next.public_name.as_deref(), Some("home.example.org"));
+        assert_eq!(
+            running.overlaid(&HostConfig::default()).listen,
+            running.listen,
+            "silence changes nothing"
         );
     }
 

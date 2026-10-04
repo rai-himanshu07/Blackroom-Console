@@ -248,6 +248,7 @@ struct HostPageArgs {
     hostd_runtime: PathBuf,
     gnome_extensions: Option<PathBuf>,
     systemctl: Option<PathBuf>,
+    internet: blackroom_console::internet::Effective,
 }
 
 /// True when systemd says this process is the unit's main process (a console started by hand is not).
@@ -320,6 +321,7 @@ async fn start_host_page(args: &HostPageArgs, console: &RemoteConsole) -> Option
             .systemctl
             .clone()
             .unwrap_or_else(|| PathBuf::from("systemctl")),
+        internet: Some(args.internet.clone()),
         state_dir: args
             .state_dir
             .clone()
@@ -581,7 +583,11 @@ async fn main() -> anyhow::Result<()> {
         }
         None => {}
     }
+    let running = effective(&args, &host, host_damaged);
+    let internet_report =
+        blackroom_console::internet::preflight(&running, blackroom_console::internet::now_unix());
     let args_for_host_page = HostPageArgs {
+        internet: running,
         hostd_runtime: args.hostd_dir.clone().unwrap_or(default_hostd),
         gnome_extensions: args.gnome_extensions.clone(),
         systemctl: args.systemctl.clone(),
@@ -602,13 +608,10 @@ async fn main() -> anyhow::Result<()> {
             "hostd_login": args.hostd_dir.is_some(),
             "login_method": if args.hostd_dir.is_some() { "hostd" } else if args.auth_dir.is_some() { "totp" } else { "token" },
             "login_note": login_note,
+            "internet": internet_report,
         }),
     };
     let ice_config = ice_config_from(&args)?;
-    let internet_report = blackroom_console::internet::preflight(
-        &effective(&args, &host, host_damaged),
-        blackroom_console::internet::now_unix(),
-    );
     for warning in &internet_report.warnings {
         tracing::warn!("{warning}");
     }

@@ -76,6 +76,23 @@ fn fixture() -> Fixture {
         hostd_runtime: dir.path().join("runtime"),
         gnome_extensions: tool,
         systemctl,
+        internet: Some(blackroom_console::internet::Effective {
+            public: false,
+            public_name: None,
+            public_cert: None,
+            listen: "127.0.0.1:8080".parse().unwrap(),
+            tls_listen: Some("0.0.0.0:8443".parse().unwrap()),
+            tls_cert: None,
+            tls_key: None,
+            cert_dir: dir.path().to_path_buf(),
+            hostd_login: false,
+            hostd_running: false,
+            stun: vec![],
+            turn: vec![],
+            turn_secret_file: None,
+            ice_ports: None,
+            damaged: false,
+        }),
     };
     let check: PasswordFactory = Arc::new(|| Box::new(Fake) as Box<dyn PasswordCheck>);
     Fixture {
@@ -297,6 +314,50 @@ async fn the_password_decides_and_wrong_ones_lock_the_page() {
             StatusCode::UNAUTHORIZED
         );
     }
+}
+
+#[tokio::test]
+async fn internet_mode_that_the_next_start_would_refuse_is_not_saved() {
+    let fixture = fixture();
+    let cookie = signed_in(&fixture.app).await;
+    let state = json_of(
+        send(
+            &fixture.app,
+            request(
+                Method::GET,
+                "/host/state",
+                HOSTNAME,
+                None,
+                Some(&cookie),
+                Value::Null,
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert!(state["effective"].get("http_listen").is_some());
+    let mut config = state["config"].clone();
+    config["public"] = json!(true);
+    let refused = send(
+        &fixture.app,
+        request(
+            Method::POST,
+            "/host/config",
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            config,
+        ),
+    )
+    .await;
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    let message = json_of(refused).await["error"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(message.contains("blackroom internet"), "{message}");
+    assert!(message.contains("public_name"), "{message}");
+    assert!(!fixture.dir.path().join("host.json").exists());
 }
 
 #[tokio::test]
