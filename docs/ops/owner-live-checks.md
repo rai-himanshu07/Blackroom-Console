@@ -69,7 +69,7 @@ say which case you are in. **Send back:** the days left before and after.
 
 ## 6. A real 30 minute session
 
-1. In a second terminal: `docs/ops/soak.sh 30`. Then use the tablet for a real sitting of about 30 minutes (not idle).
+1. Press Start in the tablet's page, then in a second terminal on the laptop run `docs/ops/soak.sh 30`. Use the tablet for a real sitting of about 30 minutes (not idle).
 2. When it finishes, read its last line.
 
 **Pass:** `SOAK OK`. **Send back:** that line, or what it says drifted, and whether you noticed any lag or drop yourself.
