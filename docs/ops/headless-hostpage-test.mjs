@@ -105,10 +105,23 @@ check("Save is off again after saving", (await js("document.getElementById('save
 await js("window.confirm = () => true; true");
 const setAccess = (id, value) => js(`(() => { const el = document.getElementById(${JSON.stringify(id)}); el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`);
 const config = () => js("fetch('/host/state', {credentials: 'same-origin'}).then((r) => r.json()).then((s) => s.config)");
+// BR_SHOT_DIR=<dir>: also save screenshots of the whole page and of the access card for a design review.
+const shotOf = async (name, selector) => {
+  const dir = process.env.BR_SHOT_DIR;
+  if (!dir) return;
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 1000, height: 2400, deviceScaleFactor: 1, mobile: false });
+  await sleep(400);
+  const box = await js(`(() => { const r = ${selector ? `document.querySelector(${JSON.stringify(selector)})` : "document.documentElement"}.getBoundingClientRect(); return { x: r.x, y: r.y + scrollY, width: r.width, height: r.height }; })()`);
+  const r = await cdp("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { ...box, scale: 1 } });
+  writeFileSync(`${dir}/${name}.png`, Buffer.from(r.result.data, "base64"));
+  await cdp("Emulation.clearDeviceMetricsOverride");
+};
+await shotOf("host-1-full-page");
 check("the access switch starts on home only, without a renewal banner", (await js("document.getElementById('accessMode').value")) === "home" && !(await visible("certBanner")));
 await setAccess("accessMode", "vpn");
 check("choosing a VPN shows its fields and hides the direct ones", (await visible("accessVpn")) && !(await visible("accessDirect")));
 await setAccess("vpnName", "laptop.tailnet.ts.net");
+await shotOf("host-2-access-vpn", "#internetCard");
 check("a mode change turns Save on", (await js("!document.getElementById('save').disabled")) === true);
 await js("document.getElementById('save').click()");
 await sleep(1200);
@@ -125,6 +138,7 @@ await setAccess("accessMode", "direct");
 await setAccess("directName", "203.0.113.7");
 await setAccess("directCert", "self_signed");
 check("a self-signed direct mode hides the certificate files", !(await visible("directFiles")) && (await visible("accessDirect")));
+await shotOf("host-3-access-direct", "#internetCard");
 await js("document.getElementById('save').click()");
 await sleep(1200);
 check("direct mode is refused with the reasons while the setup is unsafe", /cannot be saved yet/.test(await js("document.getElementById('saveNote').textContent")) && (await config()).public === false, await js("document.getElementById('saveNote').textContent"));

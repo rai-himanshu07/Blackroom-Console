@@ -1,6 +1,7 @@
 // Drives the console page in headless Chrome over the DevTools protocol: login, Start, wait for WebRTC video,
 // check decoded frames, quality change, Stop. Called by headless-browser-test.sh; needs Node 22 and google-chrome.
 import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 
 const [, , url, debugPort = "9333"] = process.argv;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -39,11 +40,24 @@ const check = (name, ok, detail = "") => { console.log(`${ok ? "ok  " : "FAIL"} 
 
 await cdp("Page.enable");
 await cdp("Runtime.enable");
+// BR_SHOT_DIR=<dir>: also save screenshots of the page (tablet and phone sizes) for a design review.
+const shot = async (name) => {
+  const dir = process.env.BR_SHOT_DIR;
+  if (!dir) return;
+  for (const [label, width, height, mobile] of [["tablet", 1280, 800, false], ["phone", 390, 844, true]]) {
+    await cdp("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile });
+    await sleep(500);
+    const r = await cdp("Page.captureScreenshot", { format: "png" });
+    writeFileSync(`${dir}/${name}-${label}.png`, Buffer.from(r.result.data, "base64"));
+  }
+  await cdp("Emulation.clearDeviceMetricsOverride");
+};
 await cdp("Page.navigate", { url });
 await sleep(2500);
 check("page loaded on the connect screen", (await js("document.getElementById('connect') !== null && document.body.dataset.view")) === "home");
 await sleep(500);
 check("the connect screen names the laptop", (await js("document.getElementById('hostname').textContent.trim().length > 0")) === true);
+await shot("client-1-connect");
 const unnamedHome = await js(`[...document.querySelectorAll("button, select, textarea, input, [role=button]")].filter((el) => el.getClientRects().length && !(el.getAttribute("aria-label") || el.textContent.trim() || el.getAttribute("title") || el.getAttribute("placeholder") || (el.closest("label") && el.closest("label").textContent.trim()))).map((el) => el.id || el.tagName)`);
 check("every connect-screen control has an accessible name", unnamedHome.length === 0, JSON.stringify(unnamedHome));
 
@@ -65,6 +79,7 @@ await js("document.getElementById('openSettings').click()");
 check("the settings sheet opens", (await js("!document.getElementById('sheet').hidden")) === true);
 await js("document.querySelector('.tabs [data-tab=display]').click()");
 check("tabs switch panes", (await js("!document.querySelector('[data-pane=display]').hidden && document.querySelector('[data-pane=conn]').hidden")) === true);
+await shot("client-2-settings-display-tab");
 await js("(() => { const el = document.querySelector('[data-key=\"client.scale\"]'); el.value = 'actual'; el.dispatchEvent(new Event('change', {bubbles: true})); })()");
 await sleep(900);
 const savedScale = await js("JSON.parse(localStorage.getItem('br.settings.v1')).client.scale");
@@ -95,6 +110,8 @@ check("webrtc video decoded at 1920 wide", state.w === 1920, `(videoWidth ${stat
 check("webrtc element shown", state.shown === "block");
 check("the view switched to the session", (await js("document.body.dataset.view")) === "session");
 check("the menu opens from its button", (await js("(() => { document.getElementById('menuBtn').click(); return !document.getElementById('menu').hidden; })()")) === true);
+await sleep(1500);
+await shot("client-3-session-menu-open");
 await sleep(3000);
 const stats = await js(`(async () => { const r = await fetch('/status', {credentials: 'same-origin'}); const s = await r.json(); const q = document.getElementById('rtc'); return {s, frames: q.getVideoPlaybackQuality ? q.getVideoPlaybackQuality().totalVideoFrames : -1, chip: document.getElementById('chip').textContent}; })()`);
 console.log("status:", JSON.stringify(stats).slice(0, 400));
