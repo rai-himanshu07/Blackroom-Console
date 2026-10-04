@@ -16,6 +16,11 @@ recovery codes in a password manager when they appear; they are never shown agai
 address it shows a certificate warning (a self-signed certificate on your own laptop); continue, then log in with your
 Linux password, an authenticator code and the key. Tick "trust this browser" to skip the key next time.
 
+From outside your home network (mobile data, another city): `blackroom internet`, a guided choice between a VPN such as
+Tailscale (works for everyone) and direct access (needs a router that accepts connections: a name with a real certificate, or
+only a static IP with the console's own certificate). `setup` offers it as its last step. Details and the router checklist:
+`docs/ops/internet-access.md`.
+
 ## Daily use
 
 1. Phone or tablet: open the address, log in, pick Private or Shared and press **Connect**. In Private mode the laptop panel goes

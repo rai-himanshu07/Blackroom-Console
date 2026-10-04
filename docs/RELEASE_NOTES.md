@@ -31,8 +31,13 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
   display and locks. A step that fails is reported as a warning on the page and in the tray, not as success.
 - **Login:** Linux password (PAM) + authenticator code (or recovery code) + Remote Access Key or trusted browser; rate
   limits; server-side sessions that die with the emergency chord; remote access can be switched off from the CLI.
-- **Outside the home network:** real certificate files (reloaded without restart), `Secure` cookies, STUN/TURN,
-  a fixed media port range, and a `--public` interlock; recipes in `docs/ops/internet-access.md` (Tailscale recommended).
+- **Outside the home network (guided):** `blackroom internet` (also offered as the last step of `blackroom setup`) asks whether
+  your router can accept connections, then sets up a VPN (Tailscale), or direct access with a name and a real certificate, or
+  with only a static IP and the console's own self-signed certificate (your explicit choice, with a fingerprint to compare). It
+  checks the certificate (names, dates, key), shows the router forwards, saves only after a clean dry run and your "yes", and
+  `--check` repeats the local checks any time. The settings (STUN, TURN, media ports, public name) live in `host.json`; a
+  damaged `host.json` keeps the listeners on the laptop. See `docs/ops/internet-access.md`. Local checks only: no phone on
+  mobile data has tried it yet.
 - **Clipboard:** text only, both directions, explicit buttons, 256 KiB, rate limited, never logged.
 - **Install and operate:** `.deb` (`docs/ops/build-deb.sh`), `blackroom setup` (QR for the authenticator, key, recovery
   codes, test login), `blackroom reset soft|security|full`, `blackroom repair`, `blackroom-grant-input`, a runbook.
@@ -69,7 +74,7 @@ only output, Chrome on the tablet. Everything else is in `docs/ops/compatibility
 1. Rebuild and update the installed pieces: `cargo build --release --workspace`, `docs/ops/install-security.sh --update`
    (or install the new `.deb`: `sudo apt install ./target/deb/blackroom-console_0.1.0-1_amd64.deb`), restart the console.
 2. Clipboard over https: send text to the laptop and fetch the laptop's text from the tablet.
-3. Internet: pick a recipe in `docs/ops/internet-access.md`, log in from a phone on mobile data.
+3. Internet: run `blackroom internet` (the guided way, `docs/ops/internet-access.md`), then log in from a phone on mobile data.
 4. Clean-install check: `.deb` on a clean user, `blackroom setup`, `sudo blackroom-grant-input grant`, start from scratch.
 5. One-hour soak: `docs/ops/soak.sh 60` in a second terminal during a live session.
 6. Safari/iOS: open the page, check login, video, touch, the diagnostics chip.
