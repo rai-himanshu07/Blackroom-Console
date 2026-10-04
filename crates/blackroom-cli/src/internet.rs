@@ -75,10 +75,10 @@ impl Binary {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|error| format!("{}: {error}", self.path.display()))?;
-        if let Some(mut pipe) = child.stdin.take() {
-            if let Some(text) = stdin {
-                let _ = pipe.write_all(text.as_bytes());
-            }
+        if let Some(mut pipe) = child.stdin.take()
+            && let Some(text) = stdin
+        {
+            let _ = pipe.write_all(text.as_bytes());
         }
         let output = child
             .wait_with_output()

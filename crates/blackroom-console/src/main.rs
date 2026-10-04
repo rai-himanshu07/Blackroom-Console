@@ -396,9 +396,11 @@ fn merge_host(
         args.ice_port_range.clone_from(&host.ice_ports);
     }
     if damaged {
-        let loopback = |addr: SocketAddr| SocketAddr::from(([127, 0, 0, 1], addr.port()));
-        args.listen = loopback(args.listen);
-        args.tls_listen = args.tls_listen.map(loopback);
+        let local = std::net::IpAddr::from([127, 0, 0, 1]);
+        args.listen.set_ip(local);
+        if let Some(tls) = args.tls_listen.as_mut() {
+            tls.set_ip(local);
+        }
         tracing::warn!(
             "host.json is damaged: the network listeners stay on this laptop (127.0.0.1) until it is repaired"
         );
