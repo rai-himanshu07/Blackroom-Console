@@ -28,6 +28,9 @@ pub struct FailureLimiter {
     limits: Limits,
     per_client: HashMap<(String, String), Attempts>,
     per_account: HashMap<String, AccountAttempts>,
+    /// Checks that have started and not finished: each counts as a failure that has not been recorded yet.
+    in_flight: HashMap<(String, String), u32>,
+    in_flight_account: HashMap<String, u32>,
     now: Clock,
 }
 
@@ -37,6 +40,8 @@ impl FailureLimiter {
             limits,
             per_client: HashMap::new(),
             per_account: HashMap::new(),
+            in_flight: HashMap::new(),
+            in_flight_account: HashMap::new(),
             now: Box::new(unix_now),
         }
     }
@@ -93,6 +98,48 @@ impl FailureLimiter {
         let now = (self.now)();
         self.prune(now);
         self.per_client.len() < MAX_TRACKED && self.per_account.len() < MAX_TRACKED
+    }
+
+    /// Starts a check. `false` when the checks already running could, if they all fail, use up this source's or this
+    /// account's allowance: parallel guesses must not get past a limit that none of them has tripped yet.
+    pub fn reserve(&mut self, account: &str, client: &str) -> bool {
+        let key = (account.to_string(), client.to_string());
+        let failures = self.per_client.get(&key).map_or(0, |a| a.failures);
+        let flying = self.in_flight.get(&key).copied().unwrap_or(0);
+        if failures.saturating_add(flying) > self.limits.free_failures {
+            return false;
+        }
+        let recent = self
+            .per_account
+            .get(account)
+            .map_or(0, |a| u32::try_from(a.recent.len()).unwrap_or(u32::MAX));
+        let account_flying = self.in_flight_account.get(account).copied().unwrap_or(0);
+        if recent.saturating_add(account_flying) >= self.limits.account_failures {
+            return false;
+        }
+        *self.in_flight.entry(key).or_insert(0) += 1;
+        *self
+            .in_flight_account
+            .entry(account.to_string())
+            .or_insert(0) += 1;
+        true
+    }
+
+    /// Ends a check started with [`Self::reserve`] (whatever its outcome).
+    pub fn release(&mut self, account: &str, client: &str) {
+        let key = (account.to_string(), client.to_string());
+        if let Some(count) = self.in_flight.get_mut(&key) {
+            *count -= 1;
+            if *count == 0 {
+                self.in_flight.remove(&key);
+            }
+        }
+        if let Some(count) = self.in_flight_account.get_mut(account) {
+            *count -= 1;
+            if *count == 0 {
+                self.in_flight_account.remove(account);
+            }
+        }
     }
 
     /// Returns `false` when there is no room to track the failure (see [`Self::has_room`]).
@@ -208,5 +255,21 @@ mod tests {
         }
         assert!(refused);
         assert!(limiter.per_client.len() <= MAX_TRACKED);
+    }
+
+    #[test]
+    fn parallel_checks_cannot_get_past_a_limit_none_of_them_has_tripped() {
+        let (mut limiter, _) = limiter();
+        // The source may fail five times before the lock: five checks may run at once, not sixteen.
+        assert!((0..5).all(|_| limiter.reserve("owner", "tablet")));
+        assert!(!limiter.reserve("owner", "tablet"));
+        limiter.release("owner", "tablet");
+        assert!(limiter.reserve("owner", "tablet"));
+        // A failure already recorded takes a place from the allowance.
+        let (mut second, _) = self::tests::limiter();
+        second.record_failure("owner", "tablet");
+        second.record_failure("owner", "tablet");
+        assert!((0..3).all(|_| second.reserve("owner", "tablet")));
+        assert!(!second.reserve("owner", "tablet"));
     }
 }

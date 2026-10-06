@@ -122,6 +122,10 @@ impl MultiFactorVerifier {
         if self.limiter.account_locked(&attempt.account) && !self.presents_trusted_device(attempt) {
             return Err(limited());
         }
+        // Held until `complete` runs: parallel checks count as failures not yet recorded.
+        if !self.limiter.reserve(&attempt.account, &attempt.client_id) {
+            return Err(limited());
+        }
         Ok(())
     }
 
@@ -139,6 +143,7 @@ impl MultiFactorVerifier {
         attempt: LoginAttempt,
         password: Option<PasswordOutcome>,
     ) -> Result<Principal, BlackroomError> {
+        self.limiter.release(&attempt.account, &attempt.client_id);
         // The switch may have been thrown while the password was being checked.
         if remote_switch::is_disabled(&self.store) {
             return Err(unavailable());
