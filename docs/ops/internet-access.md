@@ -14,7 +14,7 @@ this laptop?"**
 |---|---|
 | Not sure, no access to the router, your provider shares one address between customers (CGNAT), or you want no inbound port open | **A private VPN, recommended** (way 1): Tailscale is the easiest and the only one tried (phone on mobile data, 2026-10-04); NetBird or Headscale are open-source and self-hostable but untested. Works behind CGNAT through the VPN's relays. |
 | You only use it at home | **Home only**: the default, do nothing. |
-| The router accepts incoming connections **and** you have a name (a dynamic-DNS name, or your own domain) | **Direct, with a real certificate** (way 2a). **Not tested** with a real certificate authority. |
+| The router accepts incoming connections **and** you have a name (a dynamic-DNS name, or your own domain) | **Direct, with a real certificate** (way 2a). **Tested once** (owner-reported 2026-10-06: own domain on GoDaddy DNS, Let's Encrypt, secure connection on mobile data). |
 | The router accepts incoming connections and you have **only a static IP address**, no name | **Direct, with the console's own self-signed certificate** (way 2b): weaker; **tested once** on a real router (owner-reported 2026-10-06, 20+ minutes connected). A free dynamic-DNS name makes it way 2a. |
 
 How to tell whether your router can accept incoming connections: open the router's status page and read its **WAN** (internet)

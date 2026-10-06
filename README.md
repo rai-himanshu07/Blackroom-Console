@@ -14,7 +14,7 @@ is at the top of [docs/ops/compatibility-matrix.md](docs/ops/compatibility-matri
 |---|---|---|
 | Ubuntu 26.04, GNOME 50 on Wayland, PipeWire 1.6, NVIDIA with NVENC, the built-in panel as the only output | Other distributions, GNOME 49 or 51, AMD and Intel GPUs, the software H.264 encoder in a live session | X11, other desktops, more than one output |
 | Chrome on an Android tablet | **Safari and iOS (waived, untested)**, Firefox | |
-| **Private VPN (Tailscale), phone on mobile data**; **Direct with a static IP and the console's own certificate (once, 20+ minutes)** | **Direct with a name and a real certificate**, other VPNs, a relayed path | |
+| **Private VPN (Tailscale), phone on mobile data**; **Direct with a static IP**: own domain + Let's Encrypt (secure connection, mobile data) and the console's own certificate (20+ minutes) | certificate renewal, other VPNs, a relayed path | |
 | | A soak of any length, laptop sleep, start at login, certificate renewal, the emergency chord with the installed package | |
 
 ## How it works and what it does to your laptop
