@@ -60,7 +60,7 @@ const waiting = {...idle, pending: {id: 4, mode: 'private', device: '192.168.1.5
 const asking = view(waiting);
 assert.ok(asking.canApprove && asking.pendingId === 4 && asking.badge === '?');
 assert.match(asking.title, /waiting for your approval/);
-assert.match(asking.lines[0], /^Private session from 192\.168\.1\.9 \(Chrome\)$/);
+assert.match(asking.lines[0], /^Private session from 192\.168\.1\.52 \(Chrome\)$/);
 assert.ok(!view(idle).canApprove);
 assert.ok(!view(idle).lines.some(line => /certificate/.test(line)));
 assert.ok(view({...idle, cert_note: 'ends in 9 days'}).lines.some(line => /certificate needs renewing/.test(line)));

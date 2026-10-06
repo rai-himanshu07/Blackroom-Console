@@ -16,6 +16,7 @@ cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --exclude gnome-session-agent && cargo test -p gnome-session-agent
 cargo deny check && cargo audit
+docs/ops/scan-secrets.sh   # gitleaks + trufflehog over the history and the files, before any push
 ```
 
 Page, tray and recovery changes also need the headless suites in `docs/ops/` (they start a throwaway GNOME Shell on a private

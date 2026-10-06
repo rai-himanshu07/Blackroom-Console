@@ -155,3 +155,16 @@ Direct marked untested. W2 (deferred review findings, read against the live code
 - Still open for W6: the release signing public key (`docs/release-signing.pub`) comes from the owner; the history keeps the old
   author identity until W8 (rewrite needs the owner's yes). Observed, not investigated: a headless run late in the browser suite
   shows a GStreamer "SCTP association went into error state" note on the page after the quality and transport changes; the suite passes.
+
+## W8 secret cleanup (2026-10-07, owner-approved)
+- Scanners: gitleaks 8.30.1 and trufflehog 3.99.0 (SHA-256 checked, run from `/tmp`, trufflehog with `--no-verification`, redacted
+  output) over the whole history and a copy of the current files: **0 findings**, before and after the rewrite. Pattern read for what
+  scanners cannot know (otpauth URLs, tskey, Tailscale names, key shapes, token URLs, private keys, MAC addresses, emails): only
+  placeholders and test fixtures. `docs/ops/scan-secrets.sh` repeats the scans by hand (no CI, by decision).
+- Scrubbed in the tree and in all 313 commits (`git filter-repo`): the Linux account name (as a word, in 35 files, mount paths included; now `user`),
+  three private LAN addresses (now 192.168.1.50 to .52), and the author and committer address (all
+  commits now use `rai-himanshu07 <rai-himanshu07@users.noreply.github.com>`). Commit hashes changed; hashes quoted in older notes are stale.
+- Left on purpose: the capitalised name "Himanshu" (LICENSE copyright line, AGENTS.md, plan approvals) and the GitHub handle.
+- Backup before the rewrite (outside the repository, never to be pushed): `~/blackroom-backup-20261007/` (bundle, mirror clone, the three
+  held files). The three held files are still local and unscrubbed (they were never committed); scrub them before committing them.
+- Signing key: `docs/release-signing.pub` (SHA256:dKAVUtXfy8QJQCtHO/VOR5Jxjn9MV3WW3BSubndAOGE).
