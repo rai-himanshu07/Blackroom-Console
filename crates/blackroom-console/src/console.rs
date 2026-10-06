@@ -292,6 +292,8 @@ struct Shared {
     quality: Mutex<Quality>,
     tuning: Mutex<Option<Arc<VideoTuning>>>,
     webrtc: Mutex<Option<WebRtcSession>>,
+    /// Counts the answered WebRTC sessions, so a login watcher knows whether the video it watches is still the current one.
+    webrtc_generation: AtomicU64,
     input_accepted: AtomicU64,
     input_refused: AtomicU64,
     clipboard_enabled: AtomicBool,
@@ -367,6 +369,7 @@ impl RemoteConsole {
             quality: Mutex::new(config.quality),
             tuning: Mutex::new(None),
             webrtc: Mutex::new(None),
+            webrtc_generation: AtomicU64::new(0),
             input_accepted: AtomicU64::new(0),
             input_refused: AtomicU64::new(0),
             clipboard_enabled: AtomicBool::new(false),
@@ -707,6 +710,7 @@ impl RemoteConsole {
         let quality = *lock_ok(&self.shared.quality);
         let h264 = pick_h264(offer_sdp).ok_or("the browser offers no usable H.264")?;
         let console = self.clone();
+        let watch = Arc::clone(&allowed);
         let input: InputSink = Arc::new(move |text| {
             // The channel outlives the HTTP request: input stops (and the heartbeat with it) when the login ends.
             if allowed() {
@@ -749,6 +753,30 @@ impl RemoteConsole {
             return answer.and(Err("stopped while negotiating".into()));
         }
         *slot = Some(session);
+        drop(slot);
+        // Input already stops when the login ends; the video and sound must stop with it, whatever other logins keep the session alive.
+        let generation = self.shared.webrtc_generation.fetch_add(1, Ordering::AcqRel) + 1;
+        let console = self.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let shared = &console.shared;
+                if shared.webrtc_generation.load(Ordering::Acquire) != generation
+                    || *lock_ok(&shared.phase) != Phase::Running
+                {
+                    return;
+                }
+                if !watch() {
+                    if shared.webrtc_generation.load(Ordering::Acquire) == generation
+                        && let Some(old) = lock_ok(&shared.webrtc).take()
+                    {
+                        old.close();
+                    }
+                    tracing::warn!("the login that opened the video ended: the video was stopped");
+                    return;
+                }
+            }
+        });
         answer
     }
 
