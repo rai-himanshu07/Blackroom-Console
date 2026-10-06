@@ -49,6 +49,7 @@ function clearRightClick() {
   $("rclick").setAttribute("aria-pressed", "false");
 }
 
+let notesSeen = "", notesUntil = 0;
 function say(text, overlay) { msg.textContent = text; msg.className = overlay ? "over" : ""; msg.style.display = text ? "flex" : "none"; }
 
 async function post(path, body) {
@@ -591,13 +592,17 @@ function show(state) {
       connectVideo();
       statsTimer = setInterval(async () => { try { await sampleStats(); } catch (_) { /* next tick */ } chip.textContent = linkLost ? "no connection" : `running ${statsText}`; }, 1000);
     }
-    const notes = [...(state.notes || [])];
+    // A note about how the session began shows for a few seconds; a live problem (connection, WebRTC) stays.
+    const started = (state.notes || []).join("\n");
+    if (started !== notesSeen) { notesSeen = started; notesUntil = Date.now() + 10000; }
+    const notes = Date.now() < notesUntil ? [...(state.notes || [])] : [];
     if (transportNote) notes.push(transportNote);
     if (state.webrtc_error) notes.push("WebRTC: " + state.webrtc_error);
     say(notes.join("\n"), true);
     chip.textContent = `running ${statsText}`;
     placeDot();
   } else {
+    notesSeen = "";
     $("endfail").hidden = true;
     if (videoStarted) { videoStarted = false; stopVideo(); }
     chip.textContent = state.phase;
