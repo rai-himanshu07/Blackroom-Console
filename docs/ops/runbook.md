@@ -82,7 +82,7 @@ sudo apt remove blackroom-console                             # keeps your state
 ## Outside your home network
 
 See `internet-access.md`. Three choices: **Home only** (the default), **Private VPN** (recommended; Tailscale is the only one
-tried, from mobile data) and **Direct** (a port-forward with a real certificate and `--public`; **not tested** on a real router).
+tried, from mobile data) and **Direct** (a port-forward; tested once with a static IP and the console's own certificate, not with a real certificate).
 `--public` refuses to start without a certificate from a real authority and without the three-factor login.
 
 ## Known limits (see also the release notes)

@@ -77,4 +77,4 @@ This replaces the assumed hour: the support table keeps "soak: not run" until yo
 
 ## 7. Optional
 
-Direct mode on a real router, and a relayed (not direct) Tailscale path. Without a Direct run it stays "untested" in the support table.
+Direct mode with a name and a real certificate, and a relayed (not direct) Tailscale path. Direct with a static IP and the self-signed certificate was reported working on 2026-10-06.

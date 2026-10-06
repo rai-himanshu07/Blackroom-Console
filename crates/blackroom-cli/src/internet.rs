@@ -572,7 +572,7 @@ pub fn wizard(
         &[
             "Through a VPN such as Tailscale (recommended: nothing is opened to the internet, no router changes, works with any provider)",
             "Home network only",
-            "Directly over the internet (riskier: the login becomes visible to scanners; only if your router can forward ports; not yet tested against a real router)",
+            "Directly over the internet (riskier: the login becomes visible to scanners; only if your router can forward ports; tested once with a static IP)",
         ],
         2,
     )? {
@@ -841,7 +841,7 @@ mod tests {
         assert!(
             text.contains("recommended")
                 && text.contains("riskier")
-                && text.contains("not yet tested")
+                && text.contains("tested once")
         );
         assert!(
             fake.calls.borrow().is_empty(),

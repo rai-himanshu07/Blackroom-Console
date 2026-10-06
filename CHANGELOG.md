@@ -17,4 +17,4 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions: SemVer.
 - F8 opens the session menu from the keyboard.
 
 ### Known limits
-See the support table in `docs/ops/compatibility-matrix.md`: Safari/iOS, Direct internet access, other hardware and a soak are untested.
+See the support table in `docs/ops/compatibility-matrix.md`: Safari/iOS, Direct with a real certificate, other hardware and a soak are untested.
