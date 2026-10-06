@@ -243,6 +243,33 @@ function describeListen(address) {
   return `${address} (${reach})`;
 }
 
+// What a new owner still has to do, in order; the card disappears when everything is done.
+function renderFirstSteps(snapshot) {
+  const input = snapshot.input || { nodes: 0, allowed: 0 };
+  const steps = [
+    [snapshot.login.ready && snapshot.totp.enrolled, "Set up sign-in", "Under \"Login and credentials\" press \"Set up the login authority\": it creates your authenticator, a Remote Access Key and recovery codes, shown once. Keep them in a password manager."],
+    [input.nodes === 0 || input.allowed === input.nodes, "Allow keyboard blocking", "Under \"Keyboard blocking\" press the button and answer the password dialog on this laptop. Only needed for Private sessions, and again after each restart."],
+    [false, "Connect from your tablet or phone", `Open https://${snapshot.host || "this-laptop"}:${(snapshot.effective.tls_listen || "").split(":").pop() || "8443"}/ (or this laptop's address on your network). Your browser warns about the certificate the first time: compare the fingerprint under \"Access from outside\" before you continue.`],
+  ];
+  const list = $("firstSteps");
+  list.replaceChildren(...steps.map(([done, title, text]) => {
+    const item = document.createElement("li");
+    const strong = document.createElement("b");
+    strong.textContent = (done ? "Done: " : "") + title + ". ";
+    item.append(strong, document.createTextNode(done ? "" : text));
+    return item;
+  }));
+  $("firstCard").hidden = steps[0][0] && steps[1][0];
+}
+
+function renderInput(snapshot) {
+  const input = snapshot.input || { nodes: 0, allowed: 0 };
+  $("inputLine").textContent = input.nodes === 0 ? "No built-in keyboard or touchpad was found, so there is nothing to block."
+    : input.allowed === input.nodes ? `Allowed: the console can block this laptop's keyboard and touchpad (${input.allowed} of ${input.nodes} devices).`
+    : `Not allowed yet (${input.allowed} of ${input.nodes} devices): a Private session that blocks the keyboard cannot start.`;
+  $("inputAllow").hidden = input.nodes === 0 || input.allowed === input.nodes;
+}
+
 function renderInternet(snapshot) {
   $("listenLine").textContent = `Listening now: plain http on ${describeListen(snapshot.effective.http_listen)}; https on ${describeListen(snapshot.effective.tls_listen)}.`;
   const report = snapshot.effective.internet;
@@ -328,6 +355,8 @@ async function load(first) {
   renderLogin(data);
   renderTotp(data);
   renderLock(data);
+  renderInput(data);
+  renderFirstSteps(data);
   renderInternet(data);
   return true;
 }
@@ -400,6 +429,21 @@ async function save() {
 }
 
 $("save").addEventListener("click", save);
+
+let allowing = false;
+$("inputAllow").addEventListener("click", async () => {
+  if (allowing) return;
+  allowing = true;
+  $("inputAllow").disabled = true;
+  cardNote("inputCard", "A password dialog is waiting on this laptop's screen. Answer it there.");
+  const reply = await api("POST", "/host/inputaccess", {});
+  allowing = false;
+  $("inputAllow").disabled = false;
+  if (!reply.ok) { cardNote("inputCard", reply.data.error ?? "That did not work."); return; }
+  cardNote("inputCard", "");
+  $("saveNote").textContent = "Keyboard blocking is allowed until the laptop restarts.";
+  renderInput({ input: reply.data.input });
+});
 
 $("copyVpn").addEventListener("click", async () => {
   try {

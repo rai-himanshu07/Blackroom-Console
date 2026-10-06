@@ -11,7 +11,7 @@ way out.
 | The browser closes or the network drops | After the heartbeat timeout (30 s by default, 5 to 120 s in the settings) the console stops the session: the screen is restored, the laptop is locked **if the session's lock setting is on** (default for Private, off for Shared), and the keyboard and touchpad grab is released after the lock | yes, headless and live (owner-reported) |
 | The console process dies mid-session | The kernel drops the input grab with the daemon. A 60 s restore timer restores the display and locks. If systemd restarts the console, start-up recovery restores the display and locks in about 5 s | the 60 s timer and an immediate lock after a killed console: yes, once on this laptop; the restart path: headless only |
 | The input-grab daemon freezes | systemd kills it after 10 s and the kernel drops the grab | yes, once (a test unit, not the shipped file) |
-| Emergency chord, see below | The grab is released and the console ends the session and every browser login | **not yet seen with the packaged console** (the daemon was seen releasing on the chord in the grab probe) |
+| Emergency chord, see below | The grab is released and the console ends the session and every browser login | yes, once with the packaged console on the real desktop (owner-reported 2026-10-06: keyboard and screen came back, the session ended, login was closed until the marker was cleared) |
 
 A step that fails during a stop (restore, lock, release) is reported as a warning on the page and in the top-bar menu. It is
 never shown as success.
@@ -34,7 +34,7 @@ Hold **Left Ctrl + Left Shift + Left Alt + Esc** on the laptop's built-in keyboa
   leaves the laptop unlocked unless you lock it. Locking from the daemon waits for one supervised live run.
 - What is **not** guaranteed: that the chord works if the keyboard that you press is not one of the grabbed built-in nodes
   (an external USB keyboard is not covered), or if the daemon is frozen (the watchdog then needs up to 10 s).
-- The chord was not tried with the packaged console on the real desktop yet. Treat it as a second line, not the first.
+- The chord worked once with the packaged console on the real desktop (owner-reported 2026-10-06). Treat it as a second line, not the first.
 
 ## Stuck Private session: the panel is black and the keyboard is dead
 

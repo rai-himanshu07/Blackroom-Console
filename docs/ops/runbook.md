@@ -4,6 +4,13 @@ For the person who owns the laptop. Everything here is a command you type; nothi
 
 ## First time
 
+From the pages (no terminal): open **Blackroom Console** in the applications menu and sign in to Host settings with your laptop
+password; the **First steps** card lists what is left. Press "Set up the login authority" (authenticator QR, Remote Access Key and
+recovery codes, shown once), then "Allow keyboard blocking" (a password dialog on the laptop; needed once per boot, only for
+Private sessions), then open the address the card names on the tablet. Store the key and the recovery codes in a password manager.
+
+The same from a terminal:
+
 ```
 blackroom setup                         # authenticator (QR), Remote Access Key, recovery codes, starts the login authority, test login
 sudo blackroom-grant-input grant        # once per boot: lets the console grab the built-in keyboard and touchpad
@@ -11,14 +18,14 @@ systemctl --user start blackroom-console.service
 cat $XDG_RUNTIME_DIR/blackroom-console/url        # the https address for the tablet
 ```
 
-`setup` is safe to run again: it keeps what exists and prints a secret only when it creates one. Store the key and the
-recovery codes in a password manager when they appear; they are never shown again. The first time a browser opens the
-address it shows a certificate warning (a self-signed certificate on your own laptop); continue, then log in with your
-Linux password, an authenticator code and the key. Tick "trust this browser" to skip the key next time.
+`setup` is safe to run again: it keeps what exists and prints a secret only when it creates one. The first time a browser opens the
+address it shows a certificate warning (a self-signed certificate on your own laptop): compare its fingerprint with the one under
+"Access from outside" in Host settings, continue, then log in with your Linux password, an authenticator code and the key. Tick
+"trust this browser" to skip the key next time.
 
-From outside your home network (mobile data, another city): `blackroom internet`, a guided choice between a VPN such as
-Tailscale (works for everyone) and direct access (needs a router that accepts connections: a name with a real certificate, or
-only a static IP with the console's own certificate). `setup` offers it as its last step. Details and the router checklist:
+From outside your home network (mobile data, another city): Host settings, "Access from outside", or `blackroom internet`. A private
+VPN such as Tailscale works for everyone; Direct needs a router that accepts connections (a name with a real certificate, or only a
+static IP with the console's own certificate). Both Direct ways were tried once. Details and the router checklist:
 `docs/ops/internet-access.md`.
 
 ## Daily use

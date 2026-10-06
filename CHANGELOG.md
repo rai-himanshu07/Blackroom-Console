@@ -14,7 +14,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions: SemVer.
 - Laptop side: host settings page, top-bar indicator, lock-screen extension, approve-each-connection, `blackroom` command
   (`setup`, `reset`, `repair`, `internet`, credentials), `.deb`.
 - Outside access: `blackroom internet` (private VPN recommended, Home only, Direct), certificate checks and renewal reminders.
-- F8 opens the session menu from the keyboard.
+- F8 opens the session menu from the keyboard; the menu and End session buttons can be dragged and stay where they are put (per device).
+- Host settings drive setup: a First steps card, "Keyboard blocking" (a password dialog on the laptop through polkit), ports as plain numbers with a clear refusal when another program holds one.
 
 ### Known limits
 See the support table in `docs/ops/compatibility-matrix.md`: Safari/iOS, certificate renewal, other hardware and a soak are untested.

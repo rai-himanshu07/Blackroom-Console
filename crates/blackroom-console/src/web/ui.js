@@ -510,3 +510,59 @@ function applyPolicy(p) {
   $("policynote").textContent = note === "" ? "" : "Set by the laptop owner: " + note;
   applyAll();
 }
+
+// ---- movable session buttons: drag to place, the place is kept on this device ----
+const POSITION_KEY = "br.positions.v1";
+function readPositions() { try { return JSON.parse(localStorage.getItem(POSITION_KEY)) || {}; } catch (_) { return {}; } }
+function writePositions(all) { try { localStorage.setItem(POSITION_KEY, JSON.stringify(all)); } catch (_) { /* nothing kept */ } }
+
+// A saved place is a fraction of the window, so it survives rotation and a resized window.
+function placeAt(el, fx, fy) {
+  const maxX = Math.max(0, window.innerWidth - el.offsetWidth), maxY = Math.max(0, window.innerHeight - el.offsetHeight);
+  el.style.left = Math.round(Math.min(Math.max(fx * window.innerWidth, 0), maxX)) + "px";
+  el.style.top = Math.round(Math.min(Math.max(fy * window.innerHeight, 0), maxY)) + "px";
+  el.style.right = "auto";
+}
+
+function makeMovable(el) {
+  let drag = null, moved = false;
+  const apply = () => { const saved = readPositions()[el.id]; if (saved && !el.hidden) placeAt(el, saved.x, saved.y); };
+  el.style.touchAction = "none";
+  el.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button > 0) return;
+    const box = el.getBoundingClientRect();
+    drag = { id: event.pointerId, dx: event.clientX - box.left, dy: event.clientY - box.top, sx: event.clientX, sy: event.clientY };
+    moved = false;
+    try { el.setPointerCapture(event.pointerId); } catch (_) { /* a touch already has it */ }
+  });
+  el.addEventListener("pointermove", (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!moved && Math.hypot(event.clientX - drag.sx, event.clientY - drag.sy) < 8) return;
+    moved = true;
+    placeAt(el, (event.clientX - drag.dx) / window.innerWidth, (event.clientY - drag.dy) / window.innerHeight);
+  });
+  const finish = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    drag = null;
+    if (moved) {
+      const box = el.getBoundingClientRect(), all = readPositions();
+      all[el.id] = { x: box.left / window.innerWidth, y: box.top / window.innerHeight };
+      writePositions(all);
+    }
+  };
+  el.addEventListener("pointerup", finish);
+  el.addEventListener("pointercancel", finish);
+  // A drag is not a tap: the click that follows it must not open the menu or end the session.
+  el.addEventListener("click", (event) => { if (moved) { event.stopImmediatePropagation(); event.preventDefault(); moved = false; } }, true);
+  window.addEventListener("resize", apply);
+  new MutationObserver(apply).observe(el, { attributes: true, attributeFilter: ["hidden"] });
+  apply();
+}
+makeMovable($("menuBtn"));
+makeMovable($("endBtn"));
+
+function resetPositions() {
+  writePositions({});
+  for (const el of [$("menuBtn"), $("endBtn")]) { el.style.left = el.style.top = el.style.right = ""; }
+}
+$("resetPositions").addEventListener("click", () => { resetPositions(); toast("Button positions reset."); });

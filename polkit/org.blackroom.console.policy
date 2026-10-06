@@ -14,4 +14,15 @@
       <allow_active>yes</allow_active>
     </defaults>
   </action>
+  <action id="org.blackroom.console.grant-input">
+    <description>Allow Blackroom Console to block this laptop's keyboard and touchpad during a remote session</description>
+    <message>Authentication is required to let Blackroom Console block this laptop's built-in keyboard and touchpad</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/sbin/blackroom-grant-input</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
 </policyconfig>

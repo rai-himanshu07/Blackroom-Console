@@ -138,6 +138,7 @@ held = await config();
 check("going back to home clears the live name and keeps the memory", held.public_name === null && held.tls_cert === null && held.saved_access?.vpn?.public_name === "laptop.tailnet.ts.net", JSON.stringify([held.public_name, held.saved_access]));
 await setAccess("accessMode", "vpn");
 check("switching back brings the remembered name back", (await js("document.getElementById('vpnName').value")) === "laptop.tailnet.ts.net");
+await js("(() => { const on = document.getElementById('tlsOn'); on.checked = true; on.dispatchEvent(new Event('change', {bubbles: true})); const t = document.getElementById('tlsListen'); t.value = '127.0.0.1:18097'; t.dispatchEvent(new Event('change', {bubbles: true})); })()");
 await setAccess("accessMode", "direct");
 await setAccess("directName", "203.0.113.7");
 await setAccess("directCert", "self_signed");
@@ -260,6 +261,8 @@ check("Set up the login authority runs setup first and shows its output once", /
 await js("document.getElementById('credHide').click()");
 
 // Lock-screen access: the switch drives the extension, and turning it on needs the password.
+check("a new owner gets ordered first steps that name each button", (await js("(() => { const c = document.getElementById('firstCard'); return c.hidden || /Set up sign-in/.test(c.textContent) && /Allow keyboard blocking/.test(c.textContent) && /Connect from your tablet/.test(c.textContent); })()")) === true);
+check("the keyboard blocking card reports the built-in devices", /Allowed|Not allowed yet|No built-in/.test(await js("document.getElementById('inputLine').textContent")));
 check("the lock-screen switch starts off", (await js("document.getElementById('lockOn').checked")) === false && (await js("document.getElementById('lockOn').disabled")) === false);
 await js("document.getElementById('lockOn').click()");
 await sleep(1000);

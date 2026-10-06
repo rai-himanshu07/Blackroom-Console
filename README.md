@@ -15,7 +15,7 @@ is at the top of [docs/ops/compatibility-matrix.md](docs/ops/compatibility-matri
 | Ubuntu 26.04, GNOME 50 on Wayland, PipeWire 1.6, NVIDIA with NVENC, the built-in panel as the only output | Other distributions, GNOME 49 or 51, AMD and Intel GPUs, the software H.264 encoder in a live session | X11, other desktops, more than one output |
 | Chrome on an Android tablet | **Safari and iOS (waived, untested)**, Firefox | |
 | **Private VPN (Tailscale), phone on mobile data**; **Direct with a static IP**: own domain + Let's Encrypt (secure connection, mobile data) and the console's own certificate (20+ minutes) | certificate renewal, other VPNs, a relayed path | |
-| | A soak of any length, laptop sleep, start at login, certificate renewal, the emergency chord with the installed package | |
+| | A soak of any length, laptop sleep, start at login, certificate renewal | |
 
 ## How it works and what it does to your laptop
 
@@ -38,20 +38,23 @@ is at the top of [docs/ops/compatibility-matrix.md](docs/ops/compatibility-matri
 
 ## Install and first use
 
-Build the package (needs the Rust toolchain in `rust-toolchain.toml`, `dpkg-deb`, and the GStreamer and PipeWire development headers):
+Build the package (needs the Rust toolchain in `rust-toolchain.toml`, `dpkg-deb`, and the GStreamer and PipeWire development headers), then install it:
 
 ```
 cargo build --release --workspace
 docs/ops/build-deb.sh
 sudo apt install ./target/deb/blackroom-console_0.1.0-1_amd64.deb
-blackroom setup                         # authenticator (QR), Remote Access Key, recovery codes
-sudo blackroom-grant-input grant        # once per boot: lets the console grab the built-in keyboard and touchpad
-systemctl --user start blackroom-console.service
-cat "$XDG_RUNTIME_DIR/blackroom-console/url"
 ```
 
-Nothing is enabled or started by installing the package. Day-to-day use, the reset levels and every recovery step:
-[docs/ops/runbook.md](docs/ops/runbook.md).
+Everything after that is done in the pages, step by step:
+
+1. Open **Blackroom Console** from the applications menu. It starts the console, shows a top-bar icon and opens the **Host settings** page; sign in with your laptop password. A **First steps** card lists what is left.
+2. **Set up sign-in:** press "Set up the login authority". It creates your authenticator (a QR code to scan), a Remote Access Key and recovery codes, shown once. Keep them in a password manager.
+3. **Allow keyboard blocking:** press the button under "Keyboard blocking" and answer the password dialog on the laptop. It is needed once per boot, and only for Private sessions.
+4. **Connect:** open the address the First steps card names on the tablet or phone, sign in with your password, an authenticator code and the key, and press Connect.
+5. **Outside your home:** under "Access from outside" pick Private VPN (recommended) or Direct; the page checks what you enter and lists the router forwards. Ports are plain numbers there and can be changed if another program uses them.
+
+Nothing is enabled or started by installing the package. A terminal is never required, but `blackroom setup`, `blackroom internet` and `sudo blackroom-grant-input grant` do the same things. Day-to-day use, the reset levels and every recovery step: [docs/ops/runbook.md](docs/ops/runbook.md).
 
 **Update:** install the newer `.deb` (credentials and state are kept; a running console is stopped first, with the display
 restored). **Remove:** `blackroom reset full` first if you want the credentials gone, then `sudo apt remove blackroom-console`.

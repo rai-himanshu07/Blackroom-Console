@@ -10,9 +10,13 @@
 set -eu
 action=${1:-}; [ $# -gt 0 ] && shift
 user=${SUDO_USER:-}
+# Through pkexec (the host settings page's button) the helper acts only for the person who authenticated.
+viapk=""
+if [ -n "${PKEXEC_UID:-}" ]; then viapk=1; user=$(id -nu "$PKEXEC_UID" 2>/dev/null || true); fi
 while [ $# -gt 0 ]; do
   case "$1" in
-    --user) user=${2:-}; shift 2 || { echo "--user needs a name" >&2; exit 2; } ;;
+    --user) [ -z "$viapk" ] || { echo "--user is not allowed through pkexec" >&2; exit 2; }
+            user=${2:-}; shift 2 || { echo "--user needs a name" >&2; exit 2; } ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done

@@ -77,4 +77,10 @@ This replaces the assumed hour: the support table keeps "soak: not run" until yo
 
 ## 7. Optional
 
-Direct mode with a name and a real certificate, and a relayed (not direct) Tailscale path. Direct with a static IP and the self-signed certificate was reported working on 2026-10-06.
+A relayed (not direct) Tailscale path. Direct with a static IP and the self-signed certificate, and Direct with an own domain and a Let's Encrypt certificate, were reported working on 2026-10-06. Item 4 (the chord) was reported working on 2026-10-06.
+
+## 8. New in the pages (2026-10-06): keyboard blocking button, movable buttons, ports
+
+1. **Keyboard blocking:** after a reboot (or `sudo blackroom-grant-input revoke`), open Host settings, "Keyboard blocking" must say "Not allowed yet". Press **Allow keyboard blocking**, answer the password dialog on the laptop's screen. **Pass:** the line turns to "Allowed ... (N of N devices)" and a Private session starts with the keyboard blocked.
+2. **Movable buttons:** in a session on the tablet, drag the round menu button and the End session button to new places, close the page and open it again. **Pass:** they are where you left them, a tap still opens the menu, and Settings, "Reset button positions" puts them back.
+3. **Ports:** in Host settings, "Network", set the https port to one that another program uses (for example the Docker port 80 is not a good test; use any port shown by `ss -ltn`). **Pass:** Save is refused with a message naming the port. Set a free one (for example 8444) and save: the restart works and "Currently running" lists the new port to forward. Put it back to 8443 afterwards.

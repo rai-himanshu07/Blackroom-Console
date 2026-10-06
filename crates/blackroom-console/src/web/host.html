@@ -36,8 +36,13 @@
         <div class="actions"><button type="button" id="askAccept" class="primary">Accept</button><button type="button" id="askDeny" class="danger">Deny</button></div>
       </div>
     </section>
+    <section class="card" id="firstCard" hidden>
+      <h2>First steps</h2>
+      <ol id="firstSteps" class="steps"></ol>
+    </section>
+
     <nav class="sections" aria-label="Settings sections">
-      <a href="#statusCard">Status</a><a href="#loginCard">Sign-in and credentials</a><a href="#lockCard">Lock screen</a><a href="#whoCard">Who may connect</a><a href="#limitsCard">Limits</a><a href="#internetCard">Outside access</a><a href="#networkCard">Network</a><a href="#laptopCard">This laptop</a>
+      <a href="#statusCard">Status</a><a href="#loginCard">Sign-in and credentials</a><a href="#inputCard">Keyboard blocking</a><a href="#lockCard">Lock screen</a><a href="#whoCard">Who may connect</a><a href="#limitsCard">Limits</a><a href="#internetCard">Outside access</a><a href="#networkCard">Network</a><a href="#laptopCard">This laptop</a>
     </nav>
     <section class="card" id="loginCard">
       <h2>How clients sign in</h2>
@@ -102,6 +107,13 @@
         <button type="button" id="credHide">Hide</button>
       </div>
     </section>
+    <section class="card" id="inputCard">
+      <h2>Keyboard blocking</h2>
+      <p id="inputLine"></p>
+      <button type="button" id="inputAllow">Allow keyboard blocking</button>
+      <p class="note">Private sessions block this laptop's built-in keyboard and touchpad, which needs a one-time permission. The button asks for your laptop password in a dialog on this laptop. The permission ends when the laptop restarts, so allow it again after a restart. Shared sessions never need it.</p>
+    </section>
+
     <section class="card" id="lockCard">
       <h2>Remote use while the laptop is locked</h2>
       <div class="toggles"><label class="switch"><input type="checkbox" id="lockOn"><span><b>Allow remote sessions on the lock screen</b><small>Lets you sign in from the tablet while the laptop is locked. While this is on, locking the laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it on only when you need it.</small></span></label></div>
@@ -208,10 +220,10 @@
     </section>
     <section class="card" id="networkCard">
       <h2>Network</h2>
-      <label class="field">Plain http address <input type="text" data-key="http_listen" data-type="string" spellcheck="false" placeholder="127.0.0.1:8080"></label>
+      <label class="field">Plain http: address and port (the part after the colon is the port) <input type="text" data-key="http_listen" data-type="string" spellcheck="false" placeholder="127.0.0.1:8080"></label>
       <div class="toggles"><label class="switch"><input type="checkbox" id="tlsOn"><span><b>Serve https</b><small>Needed for full keyboard capture and for installing the web app.</small></span></label></div>
-      <label class="field">https address <input type="text" id="tlsListen" spellcheck="false" placeholder="0.0.0.0:8443"></label>
-      <p class="note">The certificate files and Internet mode are chosen under "Access from outside". Network changes need a restart. A wrong address stops the console from starting: check them before restarting.</p>
+      <label class="field">https: address and port (default port 8443) <input type="text" id="tlsListen" spellcheck="false" placeholder="0.0.0.0:8443"></label>
+      <p class="note">The certificate files and Internet mode are chosen under "Access from outside". Network changes need a restart. If another program already uses a port, saving is refused and says which one: pick a free port (for example 8081 for http, 8444 for https). A router forward must then use the new https port; "Currently running" lists the ports to forward after the restart. This page's own port (8090) is fixed.</p>
     </section>
     <section class="card" id="laptopCard">
       <h2>This laptop</h2>

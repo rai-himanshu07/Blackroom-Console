@@ -126,6 +126,11 @@ struct Args {
     /// `systemctl`, used to restart the login authority after a new authenticator is confirmed. For tests.
     #[arg(long)]
     systemctl: Option<PathBuf>,
+    /// `pkexec` and the input-grant helper behind the settings page's "Allow keyboard blocking" button. For tests.
+    #[arg(long)]
+    pkexec: Option<PathBuf>,
+    #[arg(long)]
+    grant_input: Option<PathBuf>,
     /// Do not offer the laptop's D-Bus service (the top-bar indicator then shows the console as off). For tests that must
     /// not touch the real session bus.
     #[arg(long)]
@@ -248,6 +253,8 @@ struct HostPageArgs {
     hostd_runtime: PathBuf,
     gnome_extensions: Option<PathBuf>,
     systemctl: Option<PathBuf>,
+    pkexec: Option<PathBuf>,
+    grant_input: Option<PathBuf>,
     internet: blackroom_console::internet::Effective,
 }
 
@@ -321,6 +328,14 @@ async fn start_host_page(args: &HostPageArgs, console: &RemoteConsole) -> Option
             .systemctl
             .clone()
             .unwrap_or_else(|| PathBuf::from("systemctl")),
+        pkexec: args
+            .pkexec
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("pkexec")),
+        grant_input: args
+            .grant_input
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("/usr/sbin/blackroom-grant-input")),
         internet: Some(args.internet.clone()),
         state_dir: args
             .state_dir
@@ -597,6 +612,8 @@ async fn main() -> anyhow::Result<()> {
         hostd_runtime: args.hostd_dir.clone().unwrap_or(default_hostd),
         gnome_extensions: args.gnome_extensions.clone(),
         systemctl: args.systemctl.clone(),
+        pkexec: args.pkexec.clone(),
+        grant_input: args.grant_input.clone(),
         listen: args
             .host_listen
             .or_else(|| (!args.headless).then(|| SocketAddr::from(([127, 0, 0, 1], 8090)))),

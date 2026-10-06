@@ -131,6 +131,23 @@ await js("globalThis.__keys0 = __keys; document.body.dispatchEvent(new KeyboardE
 check("F8 opens the menu from the keyboard and is not sent to the laptop", (await js("!document.getElementById('menu').hidden")) === true && (await js("__keys === __keys0")) === true);
 await js("document.activeElement.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', code: 'Escape', bubbles: true, cancelable: true}))");
 check("the pointer marker is back inside the picture with the menu closed", (await js("(() => { const d = document.getElementById('dot'); if (touchMode !== 'trackpad' || lastState.session.cursor_in_video) return 'skipped'; const r = document.getElementById('stage').getBoundingClientRect(), x = parseFloat(d.style.left), y = parseFloat(d.style.top); return d.style.display === 'block' && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom; })()")) !== false);
+// The session buttons can be dragged; the place is kept, and a drag does not count as a tap.
+await js("closeMenu()");
+const menuBox = await js("(() => { const r = document.getElementById('menuBtn').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, left: r.left, top: r.top }; })()");
+const mouse = (type, x, y) => cdp("Input.dispatchMouseEvent", { type, x, y, button: "left", buttons: type === "mouseReleased" ? 0 : 1, clickCount: 1 });
+await mouse("mousePressed", menuBox.x, menuBox.y);
+for (let i = 1; i <= 6; i++) await mouse("mouseMoved", menuBox.x - 60 * i, menuBox.y + 40 * i);
+await mouse("mouseReleased", menuBox.x - 360, menuBox.y + 240);
+await sleep(300);
+const afterDrag = await js("(() => { const r = document.getElementById('menuBtn').getBoundingClientRect(); return { left: r.left, top: r.top, open: !document.getElementById('menu').hidden, saved: JSON.parse(localStorage.getItem('br.positions.v1') || '{}').menuBtn }; })()");
+check("dragging the menu button moves it and does not open the menu", afterDrag.left < menuBox.left - 200 && afterDrag.top > menuBox.top + 100 && afterDrag.open === false, JSON.stringify(afterDrag));
+check("the new place is saved on this device", !!afterDrag.saved && afterDrag.saved.x > 0 && afterDrag.saved.y > 0);
+await js("document.getElementById('menuBtn').style.left = ''; document.getElementById('menuBtn').style.top = ''; document.getElementById('menuBtn').style.right = ''; window.dispatchEvent(new Event('resize'))");
+await sleep(200);
+check("the saved place is used again on the next start", Math.abs((await js("document.getElementById('menuBtn').getBoundingClientRect().left")) - afterDrag.left) < 3);
+check("a plain tap still opens the menu", (await js("(() => { document.getElementById('menuBtn').click(); const o = !document.getElementById('menu').hidden; closeMenu(); return o; })()")) === true);
+await js("document.getElementById('resetPositions').click()");
+check("Reset puts the buttons back and forgets the places", (await js("document.getElementById('menuBtn').style.left === '' && localStorage.getItem('br.positions.v1') === '{}'")) === true);
 await js("document.getElementById('menuBtn').focus()");
 check("a focused control keeps the keys on the page", (await press("document.activeElement")) === 2);
 await js("document.getElementById('menuBtn').click()");

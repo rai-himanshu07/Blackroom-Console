@@ -57,6 +57,16 @@ fn fixture() -> Fixture {
         std::os::unix::fs::PermissionsExt::from_mode(0o700),
     )
     .unwrap();
+    let pkexec = dir.path().join("pkexec");
+    std::fs::write(
+        &pkexec,
+        format!(
+            "#!/bin/bash\necho \"$@\" >> '{}/pkexec-calls'\nexit 0\n",
+            dir.path().display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&pkexec, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
     let cli = dir.path().join("blackroom");
     std::fs::write(&cli, format!("#!/bin/bash\necho \"$@\" >> '{}/cli-calls'\necho 'secret: S3CRET-ONCE'\necho 'note on stderr' >&2\n[ \"$3\" = status ] && echo not-a-secret\nexit 0\n", dir.path().display())).unwrap();
     std::fs::set_permissions(&cli, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
@@ -82,6 +92,8 @@ fn fixture() -> Fixture {
         hostd_runtime: dir.path().join("runtime"),
         gnome_extensions: tool,
         systemctl,
+        pkexec,
+        grant_input: "/usr/sbin/blackroom-grant-input".into(),
         internet: Some(blackroom_console::internet::Effective {
             public: false,
             public_name: None,
@@ -1255,4 +1267,33 @@ async fn leaving_direct_asks_for_the_password_too_and_other_changes_do_not() {
         .clone();
     plain["allow_clipboard"] = json!(true);
     assert_eq!(post(plain).await.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn allowing_keyboard_blocking_runs_the_packaged_helper_through_pkexec_for_a_signed_in_owner_only()
+ {
+    let fixture = fixture();
+    let call = |cookie: Option<&str>| {
+        send(
+            &fixture.app,
+            request(
+                Method::POST,
+                "/host/inputaccess",
+                HOSTNAME,
+                Some(&own_origin()),
+                cookie,
+                json!({}),
+            ),
+        )
+    };
+    assert_eq!(call(None).await.status(), StatusCode::UNAUTHORIZED);
+    assert!(!fixture.dir.path().join("pkexec-calls").exists());
+    let cookie = signed_in(&fixture.app).await;
+    let done = call(Some(&cookie)).await;
+    assert_eq!(done.status(), StatusCode::OK);
+    let body = json_of(done).await;
+    assert_eq!(body["ok"], json!(true));
+    assert!(body["input"]["nodes"].is_number());
+    let calls = std::fs::read_to_string(fixture.dir.path().join("pkexec-calls")).unwrap();
+    assert_eq!(calls.trim(), "/usr/sbin/blackroom-grant-input grant");
 }

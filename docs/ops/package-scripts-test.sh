@@ -32,4 +32,8 @@ kill -KILL "$stub" 2>/dev/null
 BLACKROOM_PRERM_PIDFILE="$tmp/pids" sh packaging/prerm failed-upgrade 2>/dev/null; [ $? = 0 ] && r=ok || r=bad
 check "failed-upgrade is not blocked" "$r"
 
+# 5. Through pkexec the grant helper refuses to act for another user.
+PKEXEC_UID=$(id -u) sh packaging/blackroom-grant-input grant --user someone-else 2> "$tmp/err2" > /dev/null; rc=$?
+check "the grant helper refuses --user through pkexec (exit $rc)" "$([ $rc = 2 ] && grep -q 'not allowed through pkexec' "$tmp/err2" && echo ok || echo bad)"
+
 [ "$fail" = 0 ] && echo "PACKAGE SCRIPTS OK" || { echo "PACKAGE SCRIPTS FAILED"; exit 1; }

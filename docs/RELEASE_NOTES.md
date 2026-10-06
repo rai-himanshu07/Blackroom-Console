@@ -23,6 +23,7 @@ keyboard and touchpad are grabbed. Built for one owner's own laptop; not a produ
 - **Laptop top-bar indicator (new):** a GNOME extension shows whether a remote session runs (icon, timer, notices) and lets
   you disconnect it, lock the screen, open the host settings, switch remote use on the lock screen on or off, or start and
   stop the console. The client page is not offered on the laptop. See `docs/ops/README.md`.
+- **Setup in the pages:** Host settings has a First steps card, a "Keyboard blocking" button (polkit password dialog on the laptop, once per boot) and ports that can be changed, with a clear refusal when another program already uses one. The session menu and End session buttons can be dragged to where you want them; the place is kept on that device.
 - **Keyboard:** in a running session F8 opens the page's menu (Tab and Enter reach Disconnect there, Esc closes it); F8 is never sent to the laptop.
 - **Laptop sound** to the tablet (Opus over WebRTC, off by default) and an **installable web app** (manifest, icons,
   pass-through service worker; needs a trusted https address or localhost).
@@ -57,8 +58,7 @@ A narrowly supported technical preview. The one authoritative support table (tes
 - **Tested once each:** Direct internet access with a static IP and a Let's Encrypt certificate on an own domain (owner-reported 2026-10-06, secure connection, mobile data), and with a static IP and the console's own certificate (owner-reported 2026-10-06: mobile data and Wi-Fi, WebRTC, 20+ minutes connected; the browser warns "not secure" because the certificate is self-signed).
 - **Not tested:** certificate renewal, Safari and iOS (waived by the owner), Firefox, the OpenH264
   encoder in a live session, AMD/Intel GPUs, a soak of any length, laptop sleep or lid close, a reboot before anyone logs in,
-  certificate renewal, start at login, real credential commands from the host page, and the emergency chord with the packaged
-  console.
+  certificate renewal, start at login, real credential commands from the host page.
 - **Unsupported:** X11, non-GNOME desktops, PipeWire 0.3, more than one output, a second Unix user.
 
 ## Known limits
@@ -81,8 +81,7 @@ A narrowly supported technical preview. The one authoritative support table (tes
 ## Live checks still owed by the owner
 
 Real credential commands from the host page (the next login must still work); start at login and restart under systemd, and a
-reboot with nobody logged in; laptop sleep and lid close with the VPN; the emergency chord with the packaged console;
-certificate renewal; a real 30 minute session; optionally direct mode on a real router. Rebuild and update with
+reboot with nobody logged in; laptop sleep and lid close with the VPN; certificate renewal; a real 30 minute session; optionally direct mode on a real router. Rebuild and update with
 `cargo build --release --workspace` and the `.deb`, then restart the console. Report what failed; a cell becomes PASS only after
 the owner reports it (`docs/ops/compatibility-matrix.md`).
 

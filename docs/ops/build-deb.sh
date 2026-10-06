@@ -67,7 +67,7 @@ Architecture: $ARCH
 Maintainer: $(git config user.name) <$(git config user.email)>
 Installed-Size: $size
 Depends: ${shlibs:+$shlibs, }$runtime
-Recommends: policykit-1 | polkitd
+Recommends: pkexec | policykit-1, polkitd | policykit-1
 Suggests: coturn, tailscale
 Section: utils
 Priority: optional

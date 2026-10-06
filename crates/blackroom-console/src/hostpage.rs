@@ -57,6 +57,9 @@ pub struct Settings {
     pub gnome_extensions: PathBuf,
     /// `systemctl`, used to restart the login authority after the authenticator changes.
     pub systemctl: PathBuf,
+    /// `pkexec` and the packaged helper that gives this user access to the built-in keyboard and touchpad.
+    pub pkexec: PathBuf,
+    pub grant_input: PathBuf,
     /// What the console runs with now, so a saved internet mode can be checked before it can stop the next start.
     pub internet: Option<crate::internet::Effective>,
 }
@@ -114,6 +117,7 @@ pub fn router(console: RemoteConsole, settings: Settings, check: PasswordFactory
         .route("/host/autostart", post(autostart))
         .route("/host/credentials", post(credentials))
         .route("/host/lockscreen", post(lockscreen))
+        .route("/host/inputaccess", post(inputaccess))
         .route("/host/totp/start", post(totp_start))
         .route("/host/totp/verify", post(totp_verify))
         .route("/host/totp/cancel", post(totp_cancel))
@@ -526,6 +530,7 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
             "sinks": sound_outputs(),
             "totp": { "enrolled": totp_enrolled(&settings) },
             "login": { "ready": crate::hostd_auth::sockets_present(&settings.hostd_runtime) },
+            "input": input_access(),
             "lockscreen": with_pending_off(
                 lock_state(&settings.gnome_extensions),
                 matches!(status.phase, crate::console::Phase::Running | crate::console::Phase::Starting),
@@ -540,6 +545,48 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
             "could not read the state",
         ),
     }
+}
+
+/// Why a saved listener address could not start, in words: a port another program holds, one below 1024, or one console listener
+/// taking another's port. An address the console already listens on is left alone (it would find its own port busy).
+fn port_problems(config: &HostConfig, running: &Value, own_port: u16) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut seen: Vec<(&str, u16)> = Vec::new();
+    for (label, saved, key) in [
+        ("plain http", config.http_listen.as_deref(), "http_listen"),
+        ("https", config.tls_listen.as_deref(), "tls_listen"),
+    ] {
+        let Some(text) = saved.filter(|text| !text.is_empty()) else {
+            continue;
+        };
+        let Ok(address) = text.parse::<std::net::SocketAddr>() else {
+            continue;
+        };
+        let port = address.port();
+        if port == own_port {
+            problems.push(format!(
+                "port {port} is this settings page's own port: choose another for {label}"
+            ));
+        }
+        if let Some((other, _)) = seen.iter().find(|(_, p)| *p == port) {
+            problems.push(format!("{label} and {other} cannot share port {port}"));
+        }
+        seen.push((label, port));
+        if running[key].as_str() == Some(text) {
+            continue;
+        }
+        match std::net::TcpListener::bind(address) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => problems.push(format!(
+                "port {port} is already used by another program on this laptop: choose a different port for {label}"
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => problems.push(format!(
+                "port {port} needs more rights than this console has (ports below 1024 are reserved): choose {label} port 1024 or higher"
+            )),
+            Err(error) => problems.push(format!("{label} address {text} cannot be used: {error}")),
+        }
+    }
+    problems
 }
 
 /// The body is a `HostConfig` plus an optional `password` (only needed to switch to or from Direct).
@@ -583,6 +630,13 @@ async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Resp
         && let Err(refusal) = check_password(&app, password).await
     {
         return refusal;
+    }
+    let busy = port_problems(&config, &app.settings.effective, app.settings.port);
+    if !busy.is_empty() {
+        return error(
+            StatusCode::CONFLICT,
+            &format!("not saved: {}", busy.join("; ")),
+        );
     }
     // Internet mode that the next start would refuse must not be saved: the console would not come back.
     if config.public == Some(true)
@@ -894,6 +948,101 @@ async fn credentials(State(app): State<App>, headers: HeaderMap, body: Bytes) ->
     }
 }
 
+/// A node is "built in" when it is a keyboard, mouse or touchpad that is not on USB or Bluetooth (the helper's own rule).
+fn is_builtin_input(properties: &str) -> bool {
+    let has = |line: &str| properties.lines().any(|l| l == line);
+    (has("ID_INPUT_KEYBOARD=1") || has("ID_INPUT_MOUSE=1") || has("ID_INPUT_TOUCHPAD=1"))
+        && !(has("ID_BUS=usb") || has("ID_BUS=bluetooth"))
+}
+
+static INPUT_CACHE: Mutex<Option<(Instant, Value)>> = Mutex::new(None);
+
+/// How many built-in input nodes this user can already open for reading and writing (what blocking the laptop's keyboard
+/// needs). Cached for a few seconds: each node costs a `udevadm` call and the page polls.
+pub fn input_access() -> Value {
+    if let Some((at, value)) = lock(&INPUT_CACHE).as_ref()
+        && at.elapsed() < Duration::from_secs(5)
+    {
+        return value.clone();
+    }
+    let (mut nodes, mut allowed) = (0_u32, 0_u32);
+    if let Ok(entries) = std::fs::read_dir("/dev/input") {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("event"))
+            {
+                continue;
+            }
+            let Ok(output) = std::process::Command::new("udevadm")
+                .args(["info", "--query=property", "--name"])
+                .arg(&path)
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output()
+            else {
+                continue;
+            };
+            if !is_builtin_input(&String::from_utf8_lossy(&output.stdout)) {
+                continue;
+            }
+            nodes += 1;
+            if rustix::fs::access(
+                &path,
+                rustix::fs::Access::READ_OK | rustix::fs::Access::WRITE_OK,
+            )
+            .is_ok()
+            {
+                allowed += 1;
+            }
+        }
+    }
+    let value = json!({ "nodes": nodes, "allowed": allowed });
+    *lock(&INPUT_CACHE) = Some((Instant::now(), value.clone()));
+    value
+}
+
+/// "Allow keyboard blocking": runs the packaged helper through `pkexec`, so the laptop itself asks for the owner's password.
+async fn inputaccess(State(app): State<App>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    let (pkexec, helper) = (
+        app.settings.pkexec.clone(),
+        app.settings.grant_input.clone(),
+    );
+    let ran = tokio::task::spawn_blocking(move || {
+        run_cli(
+            &pkexec,
+            &[helper.to_string_lossy().into_owned(), "grant".into()],
+            Duration::from_secs(180),
+        )
+    })
+    .await;
+    match ran {
+        Ok(Ok((true, _, _))) => {
+            *lock(&INPUT_CACHE) = None;
+            reply(
+                StatusCode::OK,
+                &json!({ "ok": true, "input": input_access() }),
+            )
+        }
+        Ok(Ok((false, _, notice))) => error(
+            StatusCode::BAD_GATEWAY,
+            &format!(
+                "the laptop did not allow it ({}). The password dialog appears on the laptop's own screen: answer it there.",
+                notice.trim().lines().last().unwrap_or("cancelled")
+            ),
+        ),
+        Ok(Err(message)) => error(StatusCode::BAD_GATEWAY, &message),
+        Err(_) => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the change failed to run",
+        ),
+    }
+}
+
 pub const LOCK_EXTENSION: &str = "blackroom-locked-remote@blackroom.local";
 
 fn extension_list(tool: &Path, which: &[&str]) -> Vec<String> {
@@ -1173,6 +1322,60 @@ mod tests {
 \t\tmedia.class = \"Audio/Sink\"
 \t\tnode.name = \"blackroom_test_sink\"
 ";
+
+    #[test]
+    fn a_port_another_program_holds_is_named_and_the_running_ones_are_left_alone() {
+        let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = taken.local_addr().unwrap().port();
+        let mut config = HostConfig {
+            http_listen: Some(format!("127.0.0.1:{port}")),
+            ..HostConfig::default()
+        };
+        let none = json!({});
+        let problems = port_problems(&config, &none, 1);
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains(&format!("port {port} is already used"))),
+            "{problems:?}"
+        );
+        let running = json!({ "http_listen": format!("127.0.0.1:{port}") });
+        assert!(
+            port_problems(&config, &running, 1).is_empty(),
+            "the console's own port is not a clash"
+        );
+        config.tls_listen = Some(format!("0.0.0.0:{port}"));
+        assert!(
+            port_problems(&config, &running, 1)
+                .iter()
+                .any(|p| p.contains("cannot share"))
+        );
+        config.http_listen = Some("127.0.0.1:80".into());
+        config.tls_listen = Some("0.0.0.0:8443".into());
+        let low = port_problems(&config, &none, 1);
+        assert!(
+            low.is_empty()
+                || low
+                    .iter()
+                    .any(|p| p.contains("1024") || p.contains("already used")),
+            "{low:?}"
+        );
+        config.http_listen = Some("127.0.0.1:9".into());
+        assert!(
+            port_problems(&config, &none, 9)
+                .iter()
+                .any(|p| p.contains("own port"))
+        );
+    }
+
+    #[test]
+    fn only_built_in_keyboards_mice_and_touchpads_count() {
+        assert!(is_builtin_input("ID_INPUT_KEYBOARD=1\nID_BUS=i8042\n"));
+        assert!(is_builtin_input("ID_INPUT_TOUCHPAD=1\nID_BUS=i2c\n"));
+        assert!(!is_builtin_input("ID_INPUT_KEYBOARD=1\nID_BUS=usb\n"));
+        assert!(!is_builtin_input("ID_INPUT_MOUSE=1\nID_BUS=bluetooth\n"));
+        assert!(!is_builtin_input("ID_INPUT_SWITCH=1\nID_BUS=platform\n"));
+    }
 
     #[test]
     fn off_is_pending_while_a_session_runs() {
