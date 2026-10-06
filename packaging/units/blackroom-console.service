@@ -13,6 +13,8 @@ After=remote-hostd.service blackroom-console-emergencyd.service graphical-sessio
 [Service]
 Type=simple
 ExecStart=/usr/lib/blackroom/blackroom-console --grab-socket %t/blackroom-live/emergency.sock --listen 127.0.0.1:8080 --tls-listen 0.0.0.0:8443 --hostd-dir %t/blackroom-hostd --clipboard
+# Starting the console also switches on its top-bar icon; the leading `-` ignores a failure (no GNOME Shell yet, extension not found).
+ExecStartPost=-/usr/bin/gnome-extensions enable blackroom-indicator@blackroom.local
 # SIGTERM runs Stop (restore, lock) before exit; leave it time.
 TimeoutStopSec=90
 Restart=on-failure

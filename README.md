@@ -48,7 +48,7 @@ sudo apt install ./target/deb/blackroom-console_0.1.0-1_amd64.deb
 
 Everything after that is done in the pages, step by step:
 
-1. Open **Blackroom Console** from the applications menu. It starts the console, shows a top-bar icon and opens the **Host settings** page; sign in with your laptop password. A **First steps** card lists what is left.
+1. Open **Blackroom Console** from the applications menu. It starts the console (starting it always switches on the top-bar icon) and opens the **Host settings** page; sign in with your laptop password. A **First steps** card lists what is left.
 2. **Set up sign-in:** press "Set up the login authority". It creates your authenticator (a QR code to scan), a Remote Access Key and recovery codes, shown once. Keep them in a password manager.
 3. **Allow keyboard blocking:** press the button under "Keyboard blocking" and answer the password dialog on the laptop. It is needed once per boot, and only for Private sessions.
 4. **Connect:** open the address the First steps card names on the tablet or phone, sign in with your password, an authenticator code and the key, and press Connect.

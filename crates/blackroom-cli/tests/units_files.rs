@@ -36,3 +36,18 @@ fn the_grab_daemon_does_not_lock_on_emergency_until_a_live_run_has_shown_it_safe
         .unwrap();
     assert!(!exec.contains("--lock-on-emergency"), "{exec}");
 }
+
+#[test]
+fn starting_the_console_switches_on_the_top_bar_icon_and_never_fails_for_it() {
+    let console = unit("blackroom-console.service");
+    let line = console
+        .lines()
+        .find(|l| l.starts_with("ExecStartPost="))
+        .expect("the console unit enables its top-bar icon");
+    assert!(
+        line.starts_with(
+            "ExecStartPost=-/usr/bin/gnome-extensions enable blackroom-indicator@blackroom.local"
+        ),
+        "{line}"
+    );
+}
