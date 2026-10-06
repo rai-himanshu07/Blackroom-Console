@@ -167,4 +167,5 @@ Direct marked untested. W2 (deferred review findings, read against the live code
 - Left on purpose: the capitalised name "Himanshu" (LICENSE copyright line, AGENTS.md, plan approvals) and the GitHub handle.
 - Backup before the rewrite (outside the repository, never to be pushed): `~/blackroom-backup-20261007/` (bundle, mirror clone, the three
   held files). The three held files are still local and unscrubbed (they were never committed); scrub them before committing them.
+- Release review (GPT-6.1 Sol, 2026-10-07): 13 findings, 12 fixed in code, tests and docs, 1 accepted (see `docs/RELEASE_NOTES.md`).
 - Signing key: `docs/release-signing.pub` (SHA256:dKAVUtXfy8QJQCtHO/VOR5Jxjn9MV3WW3BSubndAOGE).

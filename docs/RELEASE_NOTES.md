@@ -70,8 +70,10 @@ A narrowly supported technical preview. The one authoritative support table (tes
   Esc, 2 s) works only while the keyboard grab is held, closes every remote login until you clear hostd's stop marker at the
   laptop, and does not lock by itself. Recovery steps for a stranger and for SSH:
   `docs/ops/emergency-recovery.md`. SSH is the backup route, never the only one.
-- Input-device access is an operator step (`sudo blackroom-grant-input grant`, reset at reboot): there is no udev rule on
-  purpose.
+- Input-device access is an operator step (`sudo blackroom-grant-input grant`, or the "Allow keyboard blocking" button, reset at
+  reboot). "Come back after a restart" is the opt-in that installs a permanent udev rule for the built-in keyboard and touchpad: while it
+  is on, any program running as you can read those devices. It also turns on automatic login (locked a few seconds later), needs
+  an administrator's password once, and cannot help when a disk or BIOS password has to be typed at the laptop.
 - hostd runs as you, without sandbox options, because the PAM check needs the setgid `unix_chkpwd` helper.
 - The Remote Access Key and authenticator are not phishing-proof; a self-signed certificate relies on trust on first use.
 - `style-src` still allows inline styles. See `docs/security/red-team-report.md` for the full list.
@@ -80,8 +82,11 @@ A narrowly supported technical preview. The one authoritative support table (tes
 
 ## Live checks still owed by the owner
 
-Real credential commands from the host page (the next login must still work); start at login and restart under systemd, and a
-reboot with nobody logged in; laptop sleep and lid close with the VPN; certificate renewal; a real 30 minute session; optionally direct mode on a real router. Rebuild and update with
+Laptop sleep and lid close with the VPN; certificate renewal; a real 30 minute session; optionally a relayed Tailscale path and
+Direct on other routers. Owner-passed so far (2026-10-04 to 10-07): credential commands from the host page, the emergency chord,
+Direct (self-signed on a static IP, and an own domain with Let's Encrypt), the tray icon, start at login, "Come back after a
+restart" (on the build before the last review fixes; re-check on the final package) and the new-pages checks. A reboot with
+nobody logged in stays unreachable until login (`Linger=no`) unless "Come back after a restart" is on. Rebuild and update with
 `cargo build --release --workspace` and the `.deb`, then restart the console. Report what failed; a cell becomes PASS only after
 the owner reports it (`docs/ops/compatibility-matrix.md`).
 
@@ -91,3 +96,11 @@ Internal tests and one internal red-team pass, plus **one independent read-only 
 findings, 16 fixed, 3 disputed with a reason, the rest deferred (`docs/plans/plan-20261004-status.md`). The fixes were checked
 by tests and the headless suites, not by a second review, and not on the real desktop. A separate read-only UI/UX review
 (same date, 30 findings, 23 fixed) covered the client page, host page and tray; nothing was tried on a device.
+
+**Release review (GPT-6.1 Sol, 2026-10-07, read-only, once):** 13 findings. Fixed: polkit now needs an administrator for both
+root helpers; "off" removes the whole automatic-login block (and fails loudly if it cannot) and revokes the keyboard access it gave;
+setup writes the lock first and rolls back; package removal stops if that cleanup fails or a display-restore timer is pending;
+sign-in method, approval and listener changes and confirming an authenticator now need "Enable editing"; revoking a login stops
+its video and sound; running password checks count against the failure limits; restart access also turns on start at login;
+docs reconciled. Accepted: a Samsung monitor's serial string in the experiment evidence (a generic value, owner-approved
+publication). The fixes were checked by tests and the headless suites, not by a second review.
