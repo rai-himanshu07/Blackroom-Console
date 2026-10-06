@@ -9,7 +9,14 @@ case "$1" in
 esac
 
 # Automatic login and the permanent keyboard rule are this package's doing: a removal takes them back too.
-if [ "$1" = remove ] && [ -x /usr/sbin/blackroom-restart-access ]; then /usr/sbin/blackroom-restart-access off >/dev/null 2>&1 || true; fi
+# If it cannot be undone the removal stops: the lock helper must not vanish while automatic login is still on.
+restart_helper=${BLACKROOM_PRERM_HELPER:-/usr/sbin/blackroom-restart-access}   # test hook
+if [ "$1" = remove ] && [ -x "$restart_helper" ]; then
+  "$restart_helper" off >/dev/null || {
+    echo "Blackroom Console could not remove the automatic login it set up. Run: sudo /usr/sbin/blackroom-restart-access off (or edit /etc/gdm3/custom.conf), then remove the package again." >&2
+    exit 1
+  }
+fi
 
 # BLACKROOM_PRERM_PIDFILE is a test hook (pids to stop, one per line); the real run matches the process name, which the
 # kernel truncates to 15 characters.
@@ -21,8 +28,32 @@ pids() {
   fi
 }
 
+# A pending display-restore timer (armed while a session runs) runs a program this package ships: it must fire or be stopped
+# before the files go. BLACKROOM_PRERM_TIMERFILE is a test hook (what the timer list would print).
+timers() {
+  if [ -n "${BLACKROOM_PRERM_TIMERFILE:-}" ]; then cat "$BLACKROOM_PRERM_TIMERFILE" 2>/dev/null || true; return; fi
+  for d in /run/user/*; do
+    [ -S "$d/bus" ] || continue
+    uid=${d##*/}; user=$(id -nu "$uid" 2>/dev/null) || continue
+    runuser -u "$user" -- env XDG_RUNTIME_DIR="$d" DBUS_SESSION_BUS_ADDRESS="unix:path=$d/bus" \
+      systemctl --user list-timers --all --no-pager --no-legend 'blackroom-console-wd-*' 2>/dev/null || true
+  done
+}
+finish() {
+  [ "$1" = remove ] || exit 0
+  t=0
+  while [ -n "$(timers | tr -d '[:space:]')" ]; do
+    if [ "$t" -ge "${BLACKROOM_PRERM_TIMER_WAIT:-75}" ]; then
+      echo "A display restore timer is still pending, so removal is refused (the program it runs would be gone). It fires within a minute; try again, or stop it: systemctl --user stop 'blackroom-console-wd-*.timer'" >&2
+      exit 1
+    fi
+    sleep 1; t=$((t + 1))
+  done
+  exit 0
+}
+
 running=$(pids)
-[ -z "$running" ] && exit 0
+[ -z "$running" ] && finish "$1"
 
 echo "Blackroom Console is running: asking it to stop first (the display is restored and the laptop locked as set for the session)." >&2
 for pid in $running; do kill -TERM "$pid" 2>/dev/null || true; done
@@ -34,7 +65,7 @@ while [ "$waited" -lt "$limit" ]; do
   for pid in $(pids); do
     kill -0 "$pid" 2>/dev/null && alive="$alive $pid"
   done
-  [ -z "$alive" ] && exit 0
+  [ -z "$alive" ] && finish "$1"
   sleep 1
   waited=$((waited + 1))
 done

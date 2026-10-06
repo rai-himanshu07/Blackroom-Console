@@ -26,8 +26,12 @@ edit_conf() {  # $1 = awk program; rewrites the file in place, keeping its mode 
   chmod --reference="$conf" "$tmp"; chown --reference="$conf" "$tmp" 2>/dev/null || true
   mv "$tmp" "$conf"
 }
+# The marker and every automatic-login directive go: the block is ours, and cleanup must not depend on where its lines sit.
 drop_block() {
-  edit_conf 'skip > 0 { skip--; next } $0 == mark { skip = 2; next } { print }'
+  edit_conf '$0 == mark { next } /^[[:space:]]*AutomaticLogin(Enable)?[[:space:]]*=/ { next } { print }'
+  if grep -Eq '^[[:space:]]*AutomaticLogin(Enable)?[[:space:]]*=' "$conf"; then
+    echo "automatic login could not be removed cleanly from $conf: edit it by hand" >&2; exit 4
+  fi
 }
 
 case "$action" in
@@ -35,9 +39,15 @@ case "$action" in
     [ -f "$rule" ] && echo "input_rule=yes" || echo "input_rule=no"
     if ours; then echo "autologin=ours"; elif other; then echo "autologin=other"; else echo "autologin=no"; fi ;;
   off)
+    # Automatic login first: if that cannot be removed, nothing else is undone and the failure is reported.
+    ! ours || drop_block
+    # Take back the access the rule gave the person it names (devices already opened keep their handle until closed).
+    who=$(sed -n 's/.*-m u:\([a-z_][a-z0-9_-]*\):rw.*/\1/p' "$rule" 2>/dev/null | head -n 1)
+    if [ -z "$root" ] && [ -n "$who" ] && [ -x "$(dirname "$0")/blackroom-grant-input" ]; then
+      env -u PKEXEC_UID "$(dirname "$0")/blackroom-grant-input" revoke --user "$who" >/dev/null 2>&1 || true
+    fi
     rm -f "$rule"
     if [ -z "$root" ] && command -v udevadm >/dev/null 2>&1; then udevadm control --reload 2>/dev/null || true; fi
-    ! ours || drop_block
     echo "restart access: off" ;;
   on)
     user=${SUDO_USER:-}

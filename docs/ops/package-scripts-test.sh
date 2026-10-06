@@ -7,6 +7,10 @@ tmp=$(mktemp -d); trap 'kill -KILL ${stub:-} 2>/dev/null; rm -rf "$tmp"' EXIT
 fail=0
 check() { if [ "$2" = ok ]; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
 
+# The real restart-access helper is never run here: a stand-in that succeeds, and one that fails (case 4b).
+printf '#!/bin/sh\nexit 0\n' > "$tmp/helper-ok"; printf '#!/bin/sh\nexit 4\n' > "$tmp/helper-bad"; chmod +x "$tmp/helper-ok" "$tmp/helper-bad"
+export BLACKROOM_PRERM_HELPER="$tmp/helper-ok"
+
 # 1. no console: nothing to do, exit 0.
 : > "$tmp/pids"
 BLACKROOM_PRERM_PIDFILE="$tmp/pids" sh packaging/prerm remove 2>/dev/null; [ $? = 0 ] && r=ok || r=bad
@@ -32,6 +36,24 @@ kill -KILL "$stub" 2>/dev/null
 BLACKROOM_PRERM_PIDFILE="$tmp/pids" sh packaging/prerm failed-upgrade 2>/dev/null; [ $? = 0 ] && r=ok || r=bad
 check "failed-upgrade is not blocked" "$r"
 
+# 4a. A pending restore timer holds removal back (and an upgrade is not held).
+printf 'Wed 2026-10-07 01:00:00 IST 30s left  blackroom-console-wd-1.timer\n' > "$tmp/timers"
+: > "$tmp/pids"
+BLACKROOM_PRERM_TIMERFILE="$tmp/timers" BLACKROOM_PRERM_TIMER_WAIT=2 BLACKROOM_PRERM_PIDFILE="$tmp/pids" sh packaging/prerm remove 2> "$tmp/err4a"; rc=$?
+check "removal is refused while a restore timer is pending (exit $rc)" "$([ $rc = 1 ] && grep -q 'restore timer' "$tmp/err4a" && echo ok || echo bad)"
+BLACKROOM_PRERM_TIMERFILE="$tmp/timers" BLACKROOM_PRERM_PIDFILE="$tmp/pids" sh packaging/prerm upgrade 2>/dev/null; [ $? = 0 ] && r=ok || r=bad
+check "an upgrade is not held by the timer" "$r"
+: > "$tmp/timers"
+BLACKROOM_PRERM_TIMERFILE="$tmp/timers" BLACKROOM_PRERM_PIDFILE="$tmp/pids" sh packaging/prerm remove 2>/dev/null; [ $? = 0 ] && r=ok || r=bad
+check "removal goes ahead once no timer is pending" "$r"
+
+# 4b. If the automatic login it set up cannot be removed, removal stops (upgrade is not affected).
+: > "$tmp/pids"
+BLACKROOM_PRERM_HELPER="$tmp/helper-bad" BLACKROOM_PRERM_PIDFILE="$tmp/pids" sh packaging/prerm remove 2> "$tmp/err4"; rc=$?
+check "removal stops when automatic login cannot be removed (exit $rc)" "$([ $rc = 1 ] && grep -q 'automatic login' "$tmp/err4" && echo ok || echo bad)"
+BLACKROOM_PRERM_HELPER="$tmp/helper-bad" BLACKROOM_PRERM_PIDFILE="$tmp/pids" sh packaging/prerm upgrade 2>/dev/null; [ $? = 0 ] && r=ok || r=bad
+check "an upgrade does not touch automatic login" "$r"
+
 # 5. Through pkexec the grant helper refuses to act for another user.
 PKEXEC_UID=$(id -u) sh packaging/blackroom-grant-input grant --user someone-else 2> "$tmp/err2" > /dev/null; rc=$?
 check "the grant helper refuses --user through pkexec (exit $rc)" "$([ $rc = 2 ] && grep -q 'not allowed through pkexec' "$tmp/err2" && echo ok || echo bad)"
@@ -44,6 +66,13 @@ helper on > /dev/null 2>&1; helper on > /dev/null 2>&1   # twice: still one bloc
 check "restart access on: one automatic-login block and a udev rule" "$([ "$(grep -c '^AutomaticLogin=someone$' "$ra/etc/gdm3/custom.conf")" = 1 ] && grep -q 'u:someone:rw' "$ra/etc/udev/rules.d/90-blackroom-input.rules" && helper status | grep -qx autologin=ours && echo ok || echo bad)"
 helper off > /dev/null 2>&1
 check "restart access off: the GDM file is back to the original and the rule is gone" "$(cmp -s "$ra/etc/gdm3/custom.conf" "$tmp/gdm-orig" && [ ! -e "$ra/etc/udev/rules.d/90-blackroom-input.rules" ] && echo ok || echo bad)"
+# A block whose lines were separated by hand is still removed whole, and the result is checked.
+helper on > /dev/null 2>&1
+python3 - "$ra/etc/gdm3/custom.conf" <<'PY'
+import sys; p=sys.argv[1]; s=open(p).read().replace("AutomaticLoginEnable=true","\n# note\nAutomaticLoginEnable=true"); open(p,"w").write(s)
+PY
+helper off > /dev/null 2>&1; rc=$?
+check "off removes a block whose lines moved apart (exit $rc)" "$([ $rc = 0 ] && ! grep -q '^AutomaticLogin' "$ra/etc/gdm3/custom.conf" && ! grep -q 'blackroom-console: automatic' "$ra/etc/gdm3/custom.conf" && echo ok || echo bad)"
 printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=other\n' > "$ra/etc/gdm3/custom.conf"; cp "$ra/etc/gdm3/custom.conf" "$tmp/gdm-own"
 helper on > /dev/null 2> "$tmp/err3"; rc=$?
 check "an automatic login the owner set up is left alone (exit $rc)" "$([ $rc = 3 ] && cmp -s "$ra/etc/gdm3/custom.conf" "$tmp/gdm-own" && echo ok || echo bad)"
