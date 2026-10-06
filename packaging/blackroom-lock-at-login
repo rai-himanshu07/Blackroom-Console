@@ -3,6 +3,10 @@
 # and only when "Come back after a restart" is on in the host settings.
 marker="${XDG_DATA_HOME:-$HOME/.local/share}/blackroom-console/lock-at-autologin"
 [ -f "$marker" ] || exit 0
-[ "$(loginctl show-session "${XDG_SESSION_ID:-auto}" -p Service --value 2>/dev/null)" = gdm-autologin ] || exit 0
-sleep 4
-exec loginctl lock-session "${XDG_SESSION_ID:-}"
+# Autostart programs are not inside the session's own scope and XDG_SESSION_ID is not set for them: ask for the user's graphical session.
+sid=$(loginctl show-user "$(id -u)" -p Display --value 2>/dev/null)
+[ -n "$sid" ] || sid=${XDG_SESSION_ID:-}
+[ -n "$sid" ] || exit 0
+[ "$(loginctl show-session "$sid" -p Service --value 2>/dev/null)" = gdm-autologin ] || exit 0
+sleep "${BLACKROOM_LOCK_DELAY:-4}"
+exec loginctl lock-session "$sid"

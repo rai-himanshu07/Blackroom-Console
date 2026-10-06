@@ -50,4 +50,24 @@ check "an automatic login the owner set up is left alone (exit $rc)" "$([ $rc = 
 BLACKROOM_TEST_ROOT="$ra" BLACKROOM_TEST_USER='bad;name' sh packaging/blackroom-restart-access on > /dev/null 2>&1; rc=$?
 check "a user name with odd characters is refused (exit $rc)" "$([ $rc = 2 ] && echo ok || echo bad)"
 
+# 7. Lock at login: locks the user's graphical session after an automatic login only, with the marker on, and never needs XDG_SESSION_ID.
+lk="$tmp/lk"; mkdir -p "$lk/bin" "$lk/data/blackroom-console"
+cat > "$lk/bin/loginctl" <<'STUB'
+#!/bin/sh
+echo "$@" >> "$LK_CALLS"
+case "$1" in
+  show-user) echo 7 ;;
+  show-session) echo "$LK_SERVICE" ;;
+esac
+STUB
+chmod +x "$lk/bin/loginctl"
+lock_run() { : > "$lk/calls"; env -u XDG_SESSION_ID PATH="$lk/bin:$PATH" XDG_DATA_HOME="$lk/data" LK_CALLS="$lk/calls" LK_SERVICE="$1" BLACKROOM_LOCK_DELAY=0 sh packaging/blackroom-lock-at-login; }
+lock_run gdm-autologin
+check "no marker: nothing is locked" "$(grep -q lock-session "$lk/calls" && echo bad || echo ok)"
+: > "$lk/data/blackroom-console/lock-at-autologin"
+lock_run gdm-password
+check "a login with a typed password is not locked" "$(grep -q lock-session "$lk/calls" && echo bad || echo ok)"
+lock_run gdm-autologin
+check "an automatic login locks the user's graphical session (7)" "$(grep -qx 'lock-session 7' "$lk/calls" && echo ok || echo bad)"
+
 [ "$fail" = 0 ] && echo "PACKAGE SCRIPTS OK" || { echo "PACKAGE SCRIPTS FAILED"; exit 1; }
