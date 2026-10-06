@@ -1297,3 +1297,78 @@ async fn allowing_keyboard_blocking_runs_the_packaged_helper_through_pkexec_for_
     let calls = std::fs::read_to_string(fixture.dir.path().join("pkexec-calls")).unwrap();
     assert_eq!(calls.trim(), "/usr/sbin/blackroom-grant-input grant");
 }
+
+#[tokio::test]
+async fn enabling_editing_replaces_the_password_on_every_sensitive_change_for_five_minutes() {
+    let fixture = fixture();
+    let cookie = signed_in(&fixture.app).await;
+    let post = |path: &str, body: Value| {
+        send(
+            &fixture.app,
+            request(
+                Method::POST,
+                path,
+                HOSTNAME,
+                Some(&own_origin()),
+                Some(&cookie),
+                body,
+            ),
+        )
+    };
+    let secs_left = || async {
+        json_of(
+            send(
+                &fixture.app,
+                request(
+                    Method::GET,
+                    "/host/state",
+                    HOSTNAME,
+                    None,
+                    Some(&cookie),
+                    Value::Null,
+                ),
+            )
+            .await,
+        )
+        .await["unlock"]["secs_left"]
+            .as_u64()
+            .unwrap()
+    };
+    assert_eq!(secs_left().await, 0);
+    // Locked: a sensitive change without a password is refused and says how to unlock.
+    let refused = post("/host/lockscreen", json!({ "enabled": true })).await;
+    assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+    assert!(
+        json_of(refused).await["error"]
+            .as_str()
+            .unwrap()
+            .contains("Enable editing")
+    );
+    assert_eq!(
+        post("/host/unlock", json!({ "password": "wrong" }))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(secs_left().await, 0);
+    let opened = post("/host/unlock", json!({ "password": "correct horse" })).await;
+    assert_eq!(opened.status(), StatusCode::OK);
+    let left = secs_left().await;
+    assert!((290..=300).contains(&left), "{left}");
+    // Unlocked: the same change goes through with no password in the request.
+    assert_eq!(
+        post("/host/lockscreen", json!({ "enabled": true }))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    // Locking again, or signing out, closes it.
+    assert_eq!(post("/host/lock", json!({})).await.status(), StatusCode::OK);
+    assert_eq!(secs_left().await, 0);
+    assert_eq!(
+        post("/host/lockscreen", json!({ "enabled": true }))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+}

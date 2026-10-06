@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/host.css">
 </head>
-<body data-view="home">
+<body data-view="home" class="host-page">
 <main id="home">
   <header class="brand">
     <div><h1>Host settings</h1><p id="hostline">What this laptop allows its remote clients</p></div>
@@ -36,16 +36,28 @@
         <div class="actions"><button type="button" id="askAccept" class="primary">Accept</button><button type="button" id="askDeny" class="danger">Deny</button></div>
       </div>
     </section>
+
+
+    <section id="editBar" class="edit-bar" aria-labelledby="editTitle">
+      <div class="edit-copy"><strong id="editTitle">Editing locked</strong><p id="editHelp" class="note">Enable editing once to change protected settings. It stays on for 5 minutes.</p></div>
+      <form id="editForm" class="edit-form"><label class="field" for="editPassword">Laptop password<input id="editPassword" type="password" autocomplete="current-password" required></label><button id="editEnable" class="primary" type="submit">Enable editing</button></form>
+      <div id="editActive" class="edit-active" hidden><span>Locks in <output id="editCountdown" class="countdown">5:00</output></span><button id="editLock" type="button">Lock now</button></div>
+      <p id="editError" class="edit-error" role="alert" hidden></p>
+    </section>
+    <div class="host-shell">
+      <nav class="sections" aria-label="Settings sections"><a href="#setupSection" id="navSetup" hidden>Setup</a><a href="#securitySection">Sign-in &amp; security</a><a href="#accessSection">Access</a><a href="#limitsSection">Limits</a><a href="#laptopSection">This laptop</a></nav>
+      <div class="host-content">
+    <section class="settings-group" id="setupSection" aria-labelledby="setupHeading" hidden>
+      <header class="group-head"><h2 id="setupHeading">Setup</h2></header>
     <section class="card" id="firstCard" hidden>
-      <h2>First steps</h2>
+      <h3>First steps</h3>
       <ol id="firstSteps" class="steps"></ol>
     </section>
-
-    <nav class="sections" aria-label="Settings sections">
-      <a href="#statusCard">Status</a><a href="#loginCard">Sign-in and credentials</a><a href="#inputCard">Keyboard blocking</a><a href="#lockCard">Lock screen</a><a href="#whoCard">Who may connect</a><a href="#limitsCard">Limits</a><a href="#internetCard">Outside access</a><a href="#networkCard">Network</a><a href="#laptopCard">This laptop</a>
-    </nav>
+    </section>
+    <section class="settings-group" id="securitySection" aria-labelledby="securityHeading">
+      <header class="group-head"><h2 id="securityHeading">Sign-in &amp; security</h2></header>
     <section class="card" id="loginCard">
-      <h2>How clients sign in</h2>
+      <h3>Remote sign-in</h3>
       <label class="field">Sign-in method
         <select data-key="login" data-type="string-or-null">
           <option value="">Keep the way the console was started</option>
@@ -54,13 +66,12 @@
         </select>
       </label>
       <p class="note" id="loginNote"></p>
-      <p class="note">The first method needs the login authority: use "Set up the login authority" under Credentials below once, then choose it here, Save and restart the console.</p>
+      <p class="note">The first method needs the login authority: use "Set up remote sign-in" under Login and credentials below once, then choose it here, Save and restart the console.</p>
     </section>
     <section class="card" id="totpCard">
-      <h2>Authenticator app</h2>
+      <h3>Authenticator app</h3>
       <p class="note" id="totpStatus"></p>
       <p class="note">Clients type a 6-digit code from an authenticator app (Google Authenticator, Aegis, 1Password, Microsoft Authenticator and others). You scan a QR code, or type the setup key by hand, then confirm with one code from the app. The old authenticator keeps working until you confirm.</p>
-      <label class="field">Your laptop password, to start <input type="password" id="totpPassword" autocomplete="current-password"></label>
       <div class="actions"><button type="button" id="totpStart">Add or replace the authenticator</button></div>
       <div id="totpBox" hidden>
         <p><b>1.</b> In your authenticator app choose "scan a QR code" and point it at this:</p>
@@ -77,12 +88,11 @@
       </div>
     </section>
     <section class="card" id="credCard">
-      <h2>Login and credentials</h2>
+      <h3>Login and credentials</h3>
       <p class="note">A client signs in with your Linux password, an authenticator code and the Remote Access Key, or from a trusted browser. New secrets appear below once and are never stored here.</p>
       <pre id="credStatus" class="secret">Loading...</pre>
-      <label class="field">Your laptop password, needed for every change below <input type="password" id="credPassword" autocomplete="current-password"></label>
       <div class="actions">
-        <button type="button" id="loginSetup">Set up the login authority</button>
+        <button type="button" id="loginSetup">Set up remote sign-in</button>
         <button type="button" id="credKey">New remote access key</button>
         <button type="button" id="credCodes">New recovery codes</button>
         <button type="button" id="credReset" class="danger">New authenticator, key and codes</button>
@@ -93,9 +103,9 @@
         <button type="button" id="credOff" class="danger">Switch remote access off</button>
         <button type="button" id="credOn">Switch remote access on</button>
       </div>
-      <h3>Trusted browsers</h3>
+      <h4>Trusted browsers</h4>
       <ul id="deviceList" class="devices"></ul>
-      <details><summary>Forget a browser by its id</summary>
+      <details><summary>Advanced: forget a browser by its ID</summary>
         <div class="row">
           <label class="field grow">Trusted device id <input type="text" id="credDevice" spellcheck="false"></label>
           <button type="button" id="credRevoke">Forget this device</button>
@@ -107,21 +117,11 @@
         <button type="button" id="credHide">Hide</button>
       </div>
     </section>
-    <section class="card" id="inputCard">
-      <h2>Keyboard blocking</h2>
-      <p id="inputLine"></p>
-      <button type="button" id="inputAllow">Allow keyboard blocking</button>
-      <p class="note">Private sessions block this laptop's built-in keyboard and touchpad, which needs a one-time permission. The button asks for your laptop password in a dialog on this laptop. The permission ends when the laptop restarts, so allow it again after a restart. Shared sessions never need it.</p>
     </section>
-
-    <section class="card" id="lockCard">
-      <h2>Remote use while the laptop is locked</h2>
-      <div class="toggles"><label class="switch"><input type="checkbox" id="lockOn"><span><b>Allow remote sessions on the lock screen</b><small>Lets you sign in from the tablet while the laptop is locked. While this is on, locking the laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it on only when you need it.</small></span></label></div>
-      <label class="field">Your laptop password, to turn it on <input type="password" id="lockPassword" autocomplete="current-password"></label>
-      <p class="note" id="lockNote"></p>
-    </section>
+    <section class="settings-group" id="accessSection" aria-labelledby="accessHeading">
+      <header class="group-head"><h2 id="accessHeading">Access</h2></header>
     <section class="card" id="whoCard">
-      <h2>Who may connect</h2>
+      <h3>Connection permissions</h3>
       <div class="toggles">
         <label class="switch"><input type="checkbox" data-key="allow_private"><span><b>Private sessions</b><small>The laptop screen goes blank and its keyboard and touchpad are blocked.</small></span></label>
         <label class="switch"><input type="checkbox" data-key="allow_shared"><span><b>Shared sessions</b><small>The screen and input are left alone; you can both use the laptop.</small></span></label>
@@ -134,32 +134,8 @@
       </label>
       <p class="note">With "Ask", nobody can connect while you are away from the laptop.</p>
     </section>
-    <section class="card" id="limitsCard">
-      <h2>Limits a client cannot exceed</h2>
-      <label class="field">When a session ends, lock the laptop
-        <select data-key="force_lock_on_stop" data-type="bool-or-null">
-          <option value="">The client chooses</option><option value="true">Always lock</option><option value="false">Never lock</option>
-        </select>
-      </label>
-      <div class="row">
-        <label class="field">Longest session
-          <select data-key="max_session_hours" data-type="number"><option value="0">No limit</option><option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="12">12 hours</option><option value="24">24 hours</option></select>
-        </label>
-        <label class="field">Longest idle time
-          <select data-key="max_idle_minutes" data-type="number"><option value="0">No limit</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="240">4 hours</option></select>
-        </label>
-      </div>
-      <div class="row">
-        <label class="field">Highest frame rate
-          <select data-key="max_fps" data-type="number"><option value="0">No limit</option><option value="10">10</option><option value="15">15</option><option value="24">24</option><option value="30">30</option><option value="60">60</option></select>
-        </label>
-        <label class="field">Highest bitrate
-          <select data-key="max_bitrate_kbps" data-type="number"><option value="0">No limit</option><option value="1000">1 Mbit/s</option><option value="2500">2.5 Mbit/s</option><option value="5000">5 Mbit/s</option><option value="8000">8 Mbit/s</option><option value="12000">12 Mbit/s</option><option value="20000">20 Mbit/s</option></select>
-        </label>
-      </div>
-    </section>
     <section class="card" id="useCard">
-      <h2>What a client may use</h2>
+      <h3>What a client may use</h3>
       <div class="toggles">
         <label class="switch"><input type="checkbox" data-key="allow_audio"><span><b>Laptop sound</b><small>Send what the laptop plays to the remote device.</small></span></label>
         <label class="switch"><input type="checkbox" data-key="allow_clipboard"><span><b>Clipboard</b><small>Text only, both directions, by explicit buttons.</small></span></label>
@@ -170,7 +146,7 @@
       </label>
     </section>
     <section class="card" id="internetCard">
-      <h2>Access from outside</h2>
+      <h3>Access from outside</h3>
       <label class="field">How this laptop is reached
         <select id="accessMode">
           <option value="vpn">Private VPN, such as Tailscale (recommended: nothing is opened to the internet, no router changes)</option>
@@ -180,7 +156,6 @@
       </label>
       <p class="note" id="accessHelp"></p>
       <p class="note warn pending" id="pendingAccess" role="status" hidden></p>
-      <label class="field" id="accessPasswordRow" hidden>Your laptop password, needed to switch to or from Direct <input type="password" id="accessPassword" autocomplete="current-password"></label>
       <div id="accessVpn" hidden>
         <label class="field">This laptop's VPN name <input type="text" id="vpnName" spellcheck="false" placeholder="laptop.tailnet-name.ts.net"></label>
         <div class="row">
@@ -212,21 +187,62 @@
         <p class="note">Strangers' scanners can reach this. Saving is refused unless login goes through the login authority, the plain-http address is loopback only, https is on and the certificate checks out. Forward the https port and the media ports on the router: <code>blackroom internet</code> prints the exact list.</p>
       </div>
       <p class="note">Settings for the two modes you are not using are remembered, so switching back is one step. A change needs a restart, which ends a running session.</p>
-      <h3>Currently running</h3>
+      <h4>Currently running</h4>
       <p id="listenLine"></p>
       <p id="internetLine"></p>
       <ul id="internetList" class="note"></ul>
       <p class="note">Local checks only; nothing here is tested from the internet. A phone on mobile data is the real test.</p>
     </section>
     <section class="card" id="networkCard">
-      <h2>Network</h2>
+      <h3>Network</h3>
       <label class="field">Plain http: address and port (the part after the colon is the port) <input type="text" data-key="http_listen" data-type="string" spellcheck="false" placeholder="127.0.0.1:8080"></label>
-      <div class="toggles"><label class="switch"><input type="checkbox" id="tlsOn"><span><b>Serve https</b><small>Needed for full keyboard capture and for installing the web app.</small></span></label></div>
+      <div class="toggles"><label class="switch"><input type="checkbox" id="tlsOn"><span><b>Enable HTTPS</b><small>Needed for full keyboard capture and for installing the web app.</small></span></label></div>
       <label class="field">https: address and port (default port 8443) <input type="text" id="tlsListen" spellcheck="false" placeholder="0.0.0.0:8443"></label>
       <p class="note">The certificate files and Internet mode are chosen under "Access from outside". Network changes need a restart. If another program already uses a port, saving is refused and says which one: pick a free port (for example 8081 for http, 8444 for https). A router forward must then use the new https port; "Currently running" lists the ports to forward after the restart. This page's own port (8090) is fixed.</p>
     </section>
+    </section>
+    <section class="settings-group" id="limitsSection" aria-labelledby="limitsHeading">
+      <header class="group-head"><h2 id="limitsHeading">Limits</h2></header>
+    <section class="card" id="limitsCard">
+      <h3>Session limits</h3>
+      <label class="field">When a session ends, lock the laptop
+        <select data-key="force_lock_on_stop" data-type="bool-or-null">
+          <option value="">The client chooses</option><option value="true">Always lock</option><option value="false">Never lock</option>
+        </select>
+      </label>
+      <div class="row">
+        <label class="field">Longest session
+          <select data-key="max_session_hours" data-type="number"><option value="0">No limit</option><option value="1">1 hour</option><option value="2">2 hours</option><option value="4">4 hours</option><option value="8">8 hours</option><option value="12">12 hours</option><option value="24">24 hours</option></select>
+        </label>
+        <label class="field">Longest idle time
+          <select data-key="max_idle_minutes" data-type="number"><option value="0">No limit</option><option value="5">5 minutes</option><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">1 hour</option><option value="240">4 hours</option></select>
+        </label>
+      </div>
+      <div class="row">
+        <label class="field">Highest frame rate
+          <select data-key="max_fps" data-type="number"><option value="0">No limit</option><option value="10">10</option><option value="15">15</option><option value="24">24</option><option value="30">30</option><option value="60">60</option></select>
+        </label>
+        <label class="field">Maximum video bandwidth
+          <select data-key="max_bitrate_kbps" data-type="number"><option value="0">No limit</option><option value="1000">1 Mbit/s</option><option value="2500">2.5 Mbit/s</option><option value="5000">5 Mbit/s</option><option value="8000">8 Mbit/s</option><option value="12000">12 Mbit/s</option><option value="20000">20 Mbit/s</option></select>
+        </label>
+      </div>
+    </section>
+    </section>
+    <section class="settings-group" id="laptopSection" aria-labelledby="laptopHeading">
+      <header class="group-head"><h2 id="laptopHeading">This laptop</h2></header>
+    <section class="card" id="inputCard">
+      <h3>Keyboard blocking</h3>
+      <p id="inputLine"></p>
+      <button type="button" id="inputAllow">Allow keyboard blocking</button>
+      <p class="note">Private sessions block this laptop's built-in keyboard and touchpad, which needs a one-time permission. The button asks for your laptop password in a dialog on this laptop. The permission ends when the laptop restarts, so allow it again after a restart. Shared sessions never need it.</p>
+    </section>
+    <section class="card" id="lockCard">
+      <h3>Remote use while the laptop is locked</h3>
+      <div class="toggles"><label class="switch"><input type="checkbox" id="lockOn"><span><b>Allow remote sessions on the lock screen</b><small>Lets you sign in from the tablet while the laptop is locked. While this is on, locking the laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it on only when you need it.</small></span></label></div>
+      <p class="note" id="lockNote"></p>
+    </section>
     <section class="card" id="laptopCard">
-      <h2>This laptop</h2>
+      <h3>Startup and notifications</h3>
       <div class="toggles">
         <label class="switch"><input type="checkbox" data-key="indicator.notify"><span><b>Notifications</b><small>When a session starts or ends.</small></span></label>
         <label class="switch"><input type="checkbox" data-key="indicator.show_timer"><span><b>Running time in the top bar</b><small>Next to the icon while a session runs.</small></span></label>
@@ -234,6 +250,9 @@
       </div>
       <p class="note" id="unitNote"></p>
     </section>
+    </section>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -241,7 +260,7 @@
   <span id="saveNote" role="status"></span>
   <span id="hint"></span>
   <button type="button" id="save" class="primary" disabled>Save</button>
-  <button type="button" id="restart" class="danger" disabled>Save and restart the console</button>
+  <button type="button" id="restart" disabled>Save and restart the console</button>
 </div>
 <script src="/host.js"></script>
 </body>

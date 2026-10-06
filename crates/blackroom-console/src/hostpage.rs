@@ -33,6 +33,8 @@ const IDLE: Duration = Duration::from_secs(15 * 60);
 const MAX_AGE: Duration = Duration::from_secs(60 * 60);
 const FAILURES_BEFORE_LOCK: u32 = 5;
 const LOCK: Duration = Duration::from_secs(60);
+/// How long one "Enable editing" lasts.
+const UNLOCK_FOR: Duration = Duration::from_secs(300);
 
 pub type PasswordFactory = Arc<dyn Fn() -> Box<dyn PasswordCheck> + Send + Sync>;
 
@@ -67,6 +69,8 @@ pub struct Settings {
 #[derive(Default)]
 struct Sessions {
     live: HashMap<String, (Instant, Instant)>,
+    /// Sessions whose owner proved the laptop password with "Enable editing", until the instant.
+    unlocked: HashMap<String, Instant>,
 }
 
 #[derive(Default)]
@@ -110,6 +114,8 @@ pub fn router(console: RemoteConsole, settings: Settings, check: PasswordFactory
         .route("/host.css", get(host_style))
         .route("/host/login", post(login))
         .route("/host/logout", post(logout))
+        .route("/host/unlock", post(unlock))
+        .route("/host/lock", post(relock))
         .route("/host/state", get(state))
         .route("/host/config", post(config))
         .route("/host/restart", post(restart))
@@ -200,6 +206,73 @@ fn session_ok(app: &App, headers: &HeaderMap) -> bool {
         .find(|(known, _)| crate::server::tokens_equal(known, token))
         .map(|(_, times)| times.1 = now)
         .is_some()
+}
+
+fn unlock_left(app: &App, headers: &HeaderMap) -> u64 {
+    let Some(token) = crate::server::cookie_value(headers, COOKIE_NAME) else {
+        return 0;
+    };
+    let now = Instant::now();
+    let mut sessions = lock(&app.sessions);
+    sessions.unlocked.retain(|_, until| *until > now);
+    sessions
+        .unlocked
+        .iter()
+        .find(|(known, _)| crate::server::tokens_equal(known, token))
+        .map_or(0, |(_, until)| until.duration_since(now).as_secs() + 1)
+}
+
+/// A sensitive change goes through when editing is enabled for this session; a password sent with the request still works
+/// (scripts, the first call of a page that predates the unlock).
+async fn change_allowed(app: &App, headers: &HeaderMap, password: String) -> Result<(), Response> {
+    if unlock_left(app, headers) > 0 {
+        return Ok(());
+    }
+    if password.is_empty() {
+        return Err(error(
+            StatusCode::UNAUTHORIZED,
+            "editing is locked: press \"Enable editing\" at the top of the page and enter your laptop password",
+        ));
+    }
+    check_password(app, password).await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnlockBody {
+    password: String,
+}
+
+/// "Enable editing": the laptop password once, then sensitive changes need no password for five minutes.
+async fn unlock(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    let Ok(UnlockBody { password }) = object::<UnlockBody>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "send {\"password\": \"...\"}");
+    };
+    if let Err(refusal) = check_password(&app, password).await {
+        return refusal;
+    }
+    if let Some(token) = crate::server::cookie_value(&headers, COOKIE_NAME) {
+        lock(&app.sessions)
+            .unlocked
+            .insert(token.to_string(), Instant::now() + UNLOCK_FOR);
+    }
+    reply(
+        StatusCode::OK,
+        &json!({ "secs_left": UNLOCK_FOR.as_secs() }),
+    )
+}
+
+async fn relock(State(app): State<App>, headers: HeaderMap) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    if let Some(token) = crate::server::cookie_value(&headers, COOKIE_NAME) {
+        lock(&app.sessions).unlocked.remove(token);
+    }
+    reply(StatusCode::OK, &json!({ "secs_left": 0 }))
 }
 
 /// `None` lets the request through. A change must also come from this page's own origin.
@@ -358,6 +431,7 @@ async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
         lock(&app.sessions)
             .live
             .retain(|known, _| !crate::server::tokens_equal(known, token));
+        lock(&app.sessions).unlocked.remove(token);
     }
     let mut response = reply(StatusCode::OK, &json!({ "ok": true }));
     response.headers_mut().insert(
@@ -491,6 +565,7 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
     }
     let console = app.console.clone();
     let settings = Arc::clone(&app.settings);
+    let unlock_secs = unlock_left(&app, &headers);
     let built = tokio::task::spawn_blocking(move || {
         let dir = console.settings_dir();
         let (saved, note) = dir
@@ -531,6 +606,7 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
             "totp": { "enrolled": totp_enrolled(&settings) },
             "login": { "ready": crate::hostd_auth::sockets_present(&settings.hostd_runtime) },
             "input": input_access(),
+            "unlock": { "secs_left": unlock_secs },
             "lockscreen": with_pending_off(
                 lock_state(&settings.gnome_extensions),
                 matches!(status.phase, crate::console::Phase::Running | crate::console::Phase::Starting),
@@ -627,7 +703,7 @@ async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Resp
     // Switching to or from Direct changes who can find the login page: it asks for the laptop password like the lock-screen switch.
     let saved_direct = HostConfig::load(&dir).0.public == Some(true);
     if (config.public == Some(true)) != saved_direct
-        && let Err(refusal) = check_password(&app, password).await
+        && let Err(refusal) = change_allowed(&app, &headers, password).await
     {
         return refusal;
     }
@@ -925,7 +1001,7 @@ async fn credentials(State(app): State<App>, headers: HeaderMap, body: Bytes) ->
         Err(message) => return error(StatusCode::BAD_REQUEST, &message),
     };
     // Changing a credential asks for the password again, so a page left open on an unlocked laptop cannot do it.
-    if needs_password && let Err(refusal) = check_password(&app, password).await {
+    if needs_password && let Err(refusal) = change_allowed(&app, &headers, password).await {
         return refusal;
     }
     if !app.settings.cli.is_file() {
@@ -1097,7 +1173,7 @@ async fn lockscreen(State(app): State<App>, headers: HeaderMap, body: Bytes) -> 
             "send {\"enabled\": true, \"password\": \"...\"}",
         );
     };
-    if enabled && let Err(refusal) = check_password(&app, password).await {
+    if enabled && let Err(refusal) = change_allowed(&app, &headers, password).await {
         return refusal;
     }
     let tool = app.settings.gnome_extensions.clone();
@@ -1169,6 +1245,7 @@ fn grouped(secret: &str) -> String {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TotpStartBody {
+    #[serde(default)]
     password: String,
 }
 
@@ -1180,7 +1257,7 @@ async fn totp_start(State(app): State<App>, headers: HeaderMap, body: Bytes) -> 
     let Ok(TotpStartBody { password }) = object::<TotpStartBody>(&body) else {
         return error(StatusCode::BAD_REQUEST, "send {\"password\": \"...\"}");
     };
-    if let Err(refusal) = check_password(&app, password).await {
+    if let Err(refusal) = change_allowed(&app, &headers, password).await {
         return refusal;
     }
     let Ok(secret) = remote_hostd::totp::generate_secret() else {

@@ -1,16 +1,81 @@
-#savebar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 10px; align-items: center; justify-content: flex-end; padding: 10px 16px; background: var(--card); border-top: 1px solid var(--line); z-index: 5; }
-#savebar span { color: var(--dim); font-size: 13px; }
-#saveNote { margin-right: auto; }
-#home { padding-bottom: 90px; max-width: 760px; margin: 0 auto; }
-.card h2 { margin: 0 0 8px; font-size: 16px; }
-.card .field { margin-top: 10px; }
-.card input[type="text"], .card input[type="password"] { background: #1f232c; border: 1px solid var(--field-line); border-radius: 8px; padding: 8px 10px; }
-.card .secret { font: 14px ui-monospace, monospace; background: #0c0e12; border: 1px solid var(--line); border-radius: 8px; padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
-code { background: #1f232c; padding: 1px 5px; border-radius: 4px; }
+/* Host settings page: a sticky section menu beside one content column; sections are separated by rules, not boxes. */
+.host-page { --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --control: #707a8c; --info-bg: #17263d; --warn-bg: #3a2a0c; --error-bg: #351b21; --warning-text: #f5c26b; --error-text: #ffaaa4; --success-bg: #122b20; --success-text: #8ee6a8; }
+.host-page #home { max-width: 1160px; padding: 24px 16px 96px; scroll-padding-block: 24px 96px; }
+.host-page .brand { align-items: flex-start; margin-bottom: var(--s4); }
+.host-page .brand h1 { font-size: 24px; }
+.host-page .brand > div { min-width: 0; }
+.host-page .brand p { overflow-wrap: anywhere; }
 
-.sections { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
-.sections a { color: var(--accent-hi); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
-.pending { background: #3a2a0c; border: 1px solid #f5c26b; border-radius: 8px; padding: 8px 10px; font-weight: 600; }
-.devices { list-style: none; margin: 6px 0; padding: 0; display: grid; gap: 6px; }
-.devices li { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #1f232c; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-.devices .meta { color: var(--dim); font-size: 12.5px; }
+.host-page #statusCard { background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 0 0 var(--s4); margin: 0 0 var(--s4); }
+.host-page #statusCard strong { font-size: 17px; }
+.host-page #loginView { max-width: 520px; margin: 48px auto 0; }
+
+.host-shell { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: var(--s6); }
+.host-shell > * { min-width: 0; }
+.host-page .sections { position: sticky; top: var(--s4); align-self: start; display: grid; gap: 4px; margin: 0; }
+.host-page .sections a { display: flex; align-items: center; min-height: 44px; padding: 8px 12px; color: var(--dim); border: 0; border-left: 3px solid transparent; border-radius: 0; text-decoration: none; overflow-wrap: anywhere; }
+.host-page .sections a:hover, .host-page .sections a:focus-visible { background: var(--info-bg); color: var(--text); border-left-color: var(--accent-hi); }
+
+.settings-group { margin-bottom: var(--s6); scroll-margin-top: var(--s5); }
+.group-head { padding: 0 0 var(--s3); border-bottom: 2px solid var(--line); }
+.group-head h2 { margin: 0; font-size: 18px; }
+.host-content .card { background: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: var(--s5) 0; margin: 0; scroll-margin-top: var(--s5); }
+.host-content .card:last-child { border-bottom: 0; }
+.host-page .card h3 { font-size: 16px; margin: 0 0 var(--s3); }
+.host-page .card h4 { font-size: 14px; margin: var(--s5) 0 var(--s2); }
+.host-page .note, .host-page .switch small { font-size: 14px; line-height: 1.5; }
+.host-page .switch small { color: var(--dim); }
+
+.host-page .field { font-size: 14px; color: var(--text); gap: var(--s2); min-width: 0; margin-block: var(--s3); }
+.host-page .field input, .host-page .field select { width: 100%; min-width: 0; min-height: 44px; background: #1f232c; border: 1px solid var(--control); border-radius: 4px; padding: 10px 12px; }
+.host-page .row { gap: var(--s4); align-items: flex-start; }
+.host-page .row .field { flex: 1 1 220px; min-width: 0; }
+.host-page button { border-color: var(--control); border-radius: 4px; min-width: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.host-page button.primary { padding: 10px 18px; }
+.host-page button.danger { background: transparent; border-color: #ff8b83; color: var(--error-text); }
+.host-page button:disabled { opacity: 1; color: var(--dim); background: transparent; border-color: var(--line); cursor: not-allowed; }
+.host-page :is(button, input, select, summary, a):focus-visible { outline: 3px solid var(--accent-hi); outline-offset: 3px; }
+.host-page .actions { margin-top: var(--s4); }
+.host-page .actions .primary { flex: 0 1 auto; }
+.host-page .switch input { border-color: var(--control); }
+.host-page summary { min-height: 44px; padding-block: var(--s3); cursor: pointer; }
+.host-page code { background: #1f232c; padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.host-page .secret { font: 14px/1.5 ui-monospace, monospace; background: #0c0e12; border: 1px solid var(--line); border-radius: 4px; padding: var(--s3); white-space: pre-wrap; overflow-wrap: anywhere; }
+.host-page img { max-width: 100%; height: auto; }
+
+.edit-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); background: var(--card); border: 1px solid var(--control); border-radius: 6px; padding: var(--s4); margin-bottom: var(--s5); }
+.edit-bar.open { border-color: var(--good); background: var(--success-bg); }
+.edit-copy { flex: 1 1 240px; min-width: 0; }
+.edit-copy p { margin: 4px 0 0; }
+.edit-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s3); flex: 1 1 380px; }
+.host-page .edit-form .field { flex: 1 1 180px; margin: 0; }
+.edit-active { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap; }
+.edit-error { flex-basis: 100%; margin: 0; color: var(--error-text); }
+.countdown { font-variant-numeric: tabular-nums; display: inline-block; min-width: 4ch; font-weight: 600; }
+
+.pending, .host-page .note.warn.actionnote { padding: var(--s3) var(--s4); border: 1px solid var(--warning-text); border-radius: 6px; background: var(--warn-bg); color: var(--warning-text); font-weight: 400; overflow-wrap: anywhere; }
+.host-page .pending { font-weight: 600; }
+.host-page #configNote, .host-page #certBanner { padding: var(--s3) var(--s4); border: 1px solid var(--warning-text); border-radius: 6px; background: var(--warn-bg); }
+
+.devices { list-style: none; margin: var(--s3) 0; padding: 0; display: block; }
+.devices li { display: flex; align-items: center; gap: var(--s4); padding: var(--s3) 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
+.devices li:last-child { border-bottom: 0; }
+.device-info { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.devices .meta { display: block; margin-top: 4px; color: var(--dim); font-size: 13px; }
+.devices button { flex-shrink: 0; }
+
+#savebar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center; justify-content: flex-end; padding: var(--s3) max(16px, calc((100vw - 1160px) / 2 + 16px)) max(var(--s3), env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--control); z-index: 5; }
+#savebar span { color: var(--dim); font-size: 13px; overflow-wrap: anywhere; }
+#saveNote { flex: 1 1 160px; margin-right: auto; }
+
+@media (max-width: 959px) {
+  .host-shell { grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
+  .host-page .sections { position: static; display: flex; flex-wrap: wrap; }
+  .host-page .sections a { border-left: 0; border-bottom: 3px solid transparent; }
+  .host-page .sections a:hover, .host-page .sections a:focus-visible { border-bottom-color: var(--accent-hi); }
+}
+@media (max-width: 639px) {
+  .host-page #home { padding-top: var(--s4); }
+  .edit-form button { width: 100%; }
+  .host-page #savebar { padding-inline: 16px; }
+}

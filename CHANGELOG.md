@@ -16,6 +16,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions: SemVer.
 - Outside access: `blackroom internet` (private VPN recommended, Home only, Direct), certificate checks and renewal reminders.
 - F8 opens the session menu from the keyboard; the menu and End session buttons can be dragged and stay where they are put (per device).
 - Host settings drive setup: a First steps card, "Keyboard blocking" (a password dialog on the laptop through polkit), ports as plain numbers with a clear refusal when another program holds one.
+- Host settings: one "Enable editing" bar (laptop password once, valid for 5 minutes, Lock now) replaces the password field in each section; a sticky section menu with grouped sections; trusted browsers show readable dates and hide forgotten ones.
 
 ### Known limits
 See the support table in `docs/ops/compatibility-matrix.md`: Safari/iOS, certificate renewal, other hardware and a soak are untested.

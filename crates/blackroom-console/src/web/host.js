@@ -34,7 +34,8 @@ function show(view) {
   if (view !== "app") {
     hideSecret();
     closeTotp();
-    for (const id of ["credPassword", "totpPassword", "lockPassword", "accessPassword"]) $(id).value = "";
+    $("editPassword").value = "";
+    setUnlock(0);
     $("credStatus").textContent = "";
   }
 }
@@ -101,7 +102,7 @@ function fillAccess(config) {
   showAccess();
 }
 
-// Switching to or from Direct changes who can find the login page, so the laptop asks for its password.
+// Switching to or from Direct changes who can find the login page, so it needs "Enable editing".
 function directChanges() { return !!saved && ($("accessMode").value === "direct") !== (saved.public === true); }
 
 const MODE_LABEL = { home: "home network only", vpn: "a private VPN", direct: "direct from the internet" };
@@ -113,7 +114,7 @@ function renderPending() {
   const chosen = $("accessMode").value;
   const waiting = !!state?.restart_needed;
   $("pendingAccess").hidden = !(chosen !== running || waiting);
-  $("pendingAccess").textContent = `Pending settings: ${MODE_LABEL[chosen]}. Currently running: ${MODE_LABEL[running]}. Nothing changes until you save and restart the console, which ends a running session.`;
+  $("pendingAccess").textContent = `Selected: ${MODE_LABEL[chosen]}. Running: ${MODE_LABEL[running]}. Save and restart to apply; restarting ends any active session.`;
   $("vpnCommands").textContent = vpnCommands($("vpnName").value.trim());
   $("fpSteps").hidden = !($("accessMode").value === "direct" && $("directCert").value === "self_signed");
 }
@@ -129,7 +130,6 @@ function vpnCommands(name) {
 function showAccess() {
   const mode = $("accessMode").value;
   renderPending();
-  $("accessPasswordRow").hidden = !directChanges();
   $("accessVpn").hidden = mode !== "vpn";
   $("accessDirect").hidden = mode !== "direct";
   $("directFiles").hidden = $("directCert").value === "self_signed";
@@ -247,7 +247,7 @@ function describeListen(address) {
 function renderFirstSteps(snapshot) {
   const input = snapshot.input || { nodes: 0, allowed: 0 };
   const steps = [
-    [snapshot.login.ready && snapshot.totp.enrolled, "Set up sign-in", "Under \"Login and credentials\" press \"Set up the login authority\": it creates your authenticator, a Remote Access Key and recovery codes, shown once. Keep them in a password manager."],
+    [snapshot.login.ready && snapshot.totp.enrolled, "Set up sign-in", "Under \"Login and credentials\" press \"Set up remote sign-in\": it creates your authenticator, a Remote Access Key and recovery codes, shown once. Keep them in a password manager."],
     [input.nodes === 0 || input.allowed === input.nodes, "Allow keyboard blocking", "Under \"Keyboard blocking\" press the button and answer the password dialog on this laptop. Only needed for Private sessions, and again after each restart."],
     [false, "Connect from your tablet or phone", `Open https://${snapshot.host || "this-laptop"}:${(snapshot.effective.tls_listen || "").split(":").pop() || "8443"}/ (or this laptop's address on your network). Your browser warns about the certificate the first time: compare the fingerprint under \"Access from outside\" before you continue.`],
   ];
@@ -259,7 +259,10 @@ function renderFirstSteps(snapshot) {
     item.append(strong, document.createTextNode(done ? "" : text));
     return item;
   }));
-  $("firstCard").hidden = steps[0][0] && steps[1][0];
+  const finished = steps[0][0] && steps[1][0];
+  $("firstCard").hidden = finished;
+  $("setupSection").hidden = finished;
+  $("navSetup").hidden = finished;
 }
 
 function renderInput(snapshot) {
@@ -292,28 +295,41 @@ function renderInternet(snapshot) {
   $("certBanner").textContent = report.renew_note ? report.renew_note.charAt(0).toUpperCase() + report.renew_note.slice(1) + "." : "";
 }
 
+const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+// The list prints seconds since 1970; people read dates.
+function lastUsed(field) {
+  const seconds = Number((field || "").replace("last_used=", ""));
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  if (!Number.isFinite(seconds) || seconds < 0) { meta.textContent = "Last used: unknown"; return meta; }
+  if (seconds === 0) { meta.textContent = "Never used"; return meta; }
+  const when = new Date(seconds * 1000);
+  const time = document.createElement("time");
+  time.dateTime = when.toISOString();
+  time.textContent = DATE.format(when);
+  meta.append("Last used ", time);
+  return meta;
+}
+
 function renderDevices(text) {
   const list = $("deviceList");
   list.replaceChildren();
   for (const line of text.split("\n")) {
     const [id, label, , used, status] = line.split("\t");
-    if (!id || status === undefined) continue;
+    if (!id || status !== "trusted") continue;   // a forgotten browser is not a trusted one: do not list it
     const item = document.createElement("li");
     const info = document.createElement("span");
-    info.textContent = `${label || "Unnamed browser"} `;
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    meta.textContent = `${status}; ${(used || "").replace("last_used=", "last used ")}`;
-    info.append(meta);
-    item.append(info);
-    if (status === "trusted") {
-      const forget = document.createElement("button");
-      forget.type = "button";
-      forget.textContent = "Forget";
-      forget.setAttribute("aria-label", `Forget ${label || "this browser"}`);
-      forget.addEventListener("click", () => change("revoke_device", { device: id }, `Forget ${label || "this browser"}?`));
-      item.append(forget);
-    }
+    info.className = "device-info";
+    const name = document.createElement("strong");
+    name.textContent = label || "Unnamed browser";
+    info.append(name, lastUsed(used));
+    const forget = document.createElement("button");
+    forget.type = "button";
+    forget.textContent = "Forget";
+    forget.setAttribute("aria-label", `Forget ${label || "this browser"}`);
+    forget.addEventListener("click", () => change("revoke_device", { device: id }, `Forget ${label || "this browser"}?`));
+    item.append(info, forget);
     list.append(item);
   }
   if (!list.children.length) { const none = document.createElement("li"); none.textContent = "No trusted browsers."; list.append(none); }
@@ -348,6 +364,7 @@ async function load(first) {
   if (status !== 200) { $("loginMsg").textContent = data.error ?? "The laptop did not answer."; show("login"); return false; }
   state = data;
   show("app");
+  setUnlock(data.unlock ? data.unlock.secs_left : 0);
   $("configNote").hidden = !data.note;
   $("configNote").textContent = data.note ? "Warning: " + data.note + ". Saving this page writes a valid file again." : "";
   if (first || !dirty()) renderForm(data);
@@ -406,10 +423,7 @@ let saving = false;
 async function save() {
   if (saving) return false;
   const config = collect();
-  if (directChanges()) {
-    if ($("accessPassword").value === "") { $("saveNote").textContent = "Type your laptop password to switch to or from Direct."; return false; }
-    config.password = $("accessPassword").value;
-  }
+  if (directChanges() && !needUnlock("switch to or from Direct")) return false;
   if (config.public === true && saved.public !== true
     && !window.confirm("Direct internet access lets anyone who finds this address reach the login page. Only continue if the router forwarding and the login are set up as described here. Save it?")) {
     $("saveNote").textContent = "Not saved.";
@@ -421,7 +435,6 @@ async function save() {
   try { reply = await api("POST", "/host/config", config); } finally { saving = false; }
   const { ok, data } = reply;
   updateDirty();
-  $("accessPassword").value = "";
   cardNote("internetCard", ok ? "" : (data.error ?? "Could not save."));
   $("saveNote").textContent = ok ? "Saved." : (data.error ?? "Could not save.");
   if (ok) await load(true);
@@ -501,14 +514,67 @@ for (const [id, accept] of [["askAccept", true], ["askDeny", false]]) {
 
 $("lockOn").addEventListener("change", async () => {
   const wanted = $("lockOn").checked;
+  if (wanted && !needUnlock("turn on remote use on the lock screen")) { $("lockOn").checked = false; return; }
   if (wanted && !window.confirm("Allow remote sessions on the lock screen? While this is on, locking the laptop no longer ends a remote session.")) { $("lockOn").checked = false; return; }
-  const reply = await api("POST", "/host/lockscreen", { enabled: wanted, password: $("lockPassword").value });
-  $("lockPassword").value = "";
+  const reply = await api("POST", "/host/lockscreen", { enabled: wanted });
   if (!reply.ok) { $("lockOn").checked = !wanted; $("saveNote").textContent = reply.data.error ?? "That did not work."; cardNote("lockCard", reply.data.error ?? "That did not work."); return; }
   cardNote("lockCard", "");
   $("saveNote").textContent = wanted ? "Remote use on the lock screen is on." : "Remote use on the lock screen is off. A session already open on a locked screen keeps running until it ends.";
   await load(false);
 });
+
+// ---- "Enable editing": one password for the whole page, good for five minutes ----
+let unlockUntil = 0;   // when editing locks again (ms since 1970); the laptop is the authority, this only shows it
+let editTicker = 0;
+function unlocked() { return Date.now() < unlockUntil; }
+function setUnlock(secs) {
+  const was = unlocked();
+  unlockUntil = secs > 0 ? Date.now() + secs * 1000 : 0;
+  clearInterval(editTicker);
+  if (secs > 0) editTicker = setInterval(renderEdit, 1000);
+  renderEdit();
+  if (was && !unlocked()) $("editError").hidden = true;
+}
+function renderEdit() {
+  const on = unlocked();
+  const left = Math.max(0, Math.ceil((unlockUntil - Date.now()) / 1000));
+  $("editForm").hidden = on;
+  $("editActive").hidden = !on;
+  $("editBar").classList.toggle("open", on);
+  $("editTitle").textContent = on ? "Editing enabled" : "Editing locked";
+  $("editHelp").textContent = on ? "Protected changes need no password until the time runs out." : "Enable editing once to change protected settings. It stays on for 5 minutes.";
+  $("editCountdown").textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  if (!on && unlockUntil !== 0) { unlockUntil = 0; clearInterval(editTicker); }
+}
+// A protected action pressed while locked does nothing but say how to unlock.
+function needUnlock(what) {
+  if (unlocked()) return true;
+  $("editError").textContent = `Enable editing to ${what}.`;
+  $("editError").hidden = false;
+  $("saveNote").textContent = `Enable editing to ${what}.`;
+  $("editBar").scrollIntoView({ block: "center" });
+  $("editPassword").focus();
+  return false;
+}
+$("editForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("editEnable").disabled = true;
+  let reply;
+  try { reply = await api("POST", "/host/unlock", { password: $("editPassword").value }); } finally {
+    $("editPassword").value = "";
+    $("editEnable").disabled = false;
+  }
+  if (!reply.ok) { $("editError").textContent = reply.data.error ?? "That did not work."; $("editError").hidden = false; return; }
+  $("editError").hidden = true;
+  $("saveNote").textContent = "Editing is enabled for 5 minutes.";
+  setUnlock(reply.data.secs_left);
+});
+$("editLock").addEventListener("click", async () => {
+  setUnlock(0);   // protected requests stop at once, even before the laptop answers
+  const reply = await api("POST", "/host/lock", {}).catch(() => ({ ok: false, data: {} }));
+  $("saveNote").textContent = reply.ok ? "Editing is locked." : "Could not confirm that the laptop locked editing.";
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden && state) load(false).catch(() => {}); });
 
 // ---- authenticator app: scan or type the key, then one right code stores it ----
 let totpTimer = 0;
@@ -522,8 +588,8 @@ function closeTotp() {
 }
 
 $("totpStart").addEventListener("click", async () => {
-  const reply = await api("POST", "/host/totp/start", { password: $("totpPassword").value });
-  $("totpPassword").value = "";
+  if (!needUnlock("change the authenticator")) return;
+  const reply = await api("POST", "/host/totp/start", {});
   if (!reply.ok) { $("saveNote").textContent = reply.data.error ?? "That did not work."; cardNote("totpCard", reply.data.error ?? "That did not work."); return; }
   cardNote("totpCard", "");
   $("totpQr").src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(reply.data.svg);
@@ -569,7 +635,7 @@ function cardNote(cardId, text) {
     note = document.createElement("p");
     note.className = "note warn actionnote";
     note.setAttribute("role", "alert");
-    card.querySelector("h2").after(note);
+    card.querySelector("h3").after(note);
   }
   note.textContent = text;
   note.hidden = text === "";
@@ -580,10 +646,6 @@ let credBusy = false;
 async function credential(action, extra = {}, needsPassword = true) {
   if (needsPassword && credBusy) return null;
   const body = { action, ...extra };
-  if (needsPassword) {
-    body.password = $("credPassword").value;
-    if (body.password === "") { $("saveNote").textContent = "Type your laptop password first."; cardNote("credCard", "Type your laptop password first."); return null; }
-  }
   // Reads (status, devices) may run together; a change holds the card's buttons until the laptop answers.
   const buttons = needsPassword ? [...$("credCard").querySelectorAll("button")] : [];
   if (needsPassword) credBusy = true;
@@ -593,7 +655,6 @@ async function credential(action, extra = {}, needsPassword = true) {
     if (needsPassword) credBusy = false;
     buttons.forEach((button) => { button.disabled = false; });
   }
-  if (needsPassword) $("credPassword").value = "";
   if (!reply.ok) { const text = reply.data.error ?? "That did not work."; $("saveNote").textContent = text; cardNote("credCard", text); return null; }
   cardNote("credCard", "");
   return reply.data;
@@ -607,6 +668,7 @@ async function loadCredentials() {
 }
 
 async function change(action, extra, question) {
+  if (!needUnlock("change sign-in settings")) return;
   if (question && !window.confirm(question)) return;
   const data = await credential(action, extra);
   if (!data) return;
