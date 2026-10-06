@@ -21,6 +21,8 @@ pub struct Effective {
     pub tls_listen: Option<SocketAddr>,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    /// The certificate pair the command line gave, before `host.json`: what a saved file with no pair falls back to.
+    pub cli_tls: Option<(PathBuf, PathBuf)>,
     /// Where the console's own self-signed certificate lives.
     pub cert_dir: PathBuf,
     /// Login goes through remote-hostd, and whether its sockets exist now.
@@ -50,9 +52,17 @@ impl Effective {
             Some(text) => e.tls_listen = text.parse().ok().or(e.tls_listen),
             None => {}
         }
-        if let (Some(cert), Some(key)) = (&host.tls_cert, &host.tls_key) {
-            e.tls_cert = Some(cert.clone());
-            e.tls_key = Some(key.clone());
+        match (&host.tls_cert, &host.tls_key) {
+            (Some(cert), Some(key)) => {
+                e.tls_cert = Some(cert.clone());
+                e.tls_key = Some(key.clone());
+            }
+            // No saved pair: a restart uses the command line's, so the running file's pair must not linger.
+            _ => {
+                let (cert, key) = e.cli_tls.clone().unzip();
+                e.tls_cert = cert;
+                e.tls_key = key;
+            }
         }
         if let Some(public) = host.public {
             e.public = public;
@@ -364,6 +374,7 @@ mod tests {
             tls_listen: Some("0.0.0.0:8443".parse().unwrap()),
             tls_cert: None,
             tls_key: None,
+            cli_tls: None,
             cert_dir: dir.to_path_buf(),
             hostd_login: true,
             hostd_running: true,
@@ -549,6 +560,18 @@ mod tests {
             running.listen,
             "silence changes nothing"
         );
+    }
+
+    #[test]
+    fn a_saved_file_without_a_pair_drops_the_pair_the_running_console_got_from_host_json() {
+        let mut running = effective(Path::new("/tmp"));
+        running.tls_cert = Some("/x/cert.pem".into());
+        running.tls_key = Some("/x/key.pem".into());
+        let cleared = running.overlaid(&HostConfig::default());
+        assert!(cleared.tls_cert.is_none() && cleared.tls_key.is_none());
+        running.cli_tls = Some(("/c/cert.pem".into(), "/c/key.pem".into()));
+        let kept = running.overlaid(&HostConfig::default());
+        assert_eq!(kept.tls_cert, Some("/c/cert.pem".into()));
     }
 
     #[test]

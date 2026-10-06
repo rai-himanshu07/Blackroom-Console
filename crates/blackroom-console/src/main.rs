@@ -412,6 +412,7 @@ fn effective(
     args: &Args,
     host: &blackroom_console::host::HostConfig,
     damaged: bool,
+    cli_tls: Option<(PathBuf, PathBuf)>,
 ) -> blackroom_console::internet::Effective {
     blackroom_console::internet::Effective {
         public: args.public,
@@ -421,6 +422,7 @@ fn effective(
         tls_listen: args.tls_listen,
         tls_cert: args.tls_cert.clone(),
         tls_key: args.tls_key.clone(),
+        cli_tls,
         cert_dir: args.cert_dir.clone().unwrap_or_else(default_data_dir),
         hostd_login: args.hostd_dir.is_some(),
         hostd_running: args.hostd_dir.as_deref().is_some_and(sockets_present),
@@ -456,12 +458,13 @@ fn internet_command(mut args: Args) -> anyhow::Result<()> {
             }
         }
     }
+    let cli_tls = args.tls_cert.clone().zip(args.tls_key.clone());
     merge_host(&mut args, &config, damaged)?;
     if config.login == Some(blackroom_console::host::LoginMethod::Token) {
         args.hostd_dir = None;
     }
     let report = blackroom_console::internet::preflight(
-        &effective(&args, &config, damaged),
+        &effective(&args, &config, damaged, cli_tls),
         blackroom_console::internet::now_unix(),
     );
     println!(
@@ -548,6 +551,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let host_damaged = loaded.damaged;
     let host = loaded.config;
+    let cli_tls = args.tls_cert.clone().zip(args.tls_key.clone());
     merge_host(&mut args, &host, host_damaged)?;
     if let Some(clipboard) = host.allow_clipboard {
         args.clipboard = clipboard;
@@ -585,7 +589,7 @@ async fn main() -> anyhow::Result<()> {
         }
         None => {}
     }
-    let running = effective(&args, &host, host_damaged);
+    let running = effective(&args, &host, host_damaged, cli_tls);
     let internet_report =
         blackroom_console::internet::preflight(&running, blackroom_console::internet::now_unix());
     let args_for_host_page = HostPageArgs {

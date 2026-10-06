@@ -90,6 +90,7 @@ fn fixture() -> Fixture {
             tls_listen: Some("0.0.0.0:8443".parse().unwrap()),
             tls_cert: None,
             tls_key: None,
+            cli_tls: None,
             cert_dir: dir.path().to_path_buf(),
             hostd_login: false,
             hostd_running: false,
