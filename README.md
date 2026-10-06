@@ -52,7 +52,8 @@ Everything after that is done in the pages, step by step:
 2. **Set up sign-in:** press "Set up the login authority". It creates your authenticator (a QR code to scan), a Remote Access Key and recovery codes, shown once. Keep them in a password manager.
 3. **Allow keyboard blocking:** press the button under "Keyboard blocking" and answer the password dialog on the laptop. It is needed once per boot, and only for Private sessions.
 4. **Connect:** open the address the First steps card names on the tablet or phone, sign in with your password, an authenticator code and the key, and press Connect.
-5. **Outside your home:** under "Access from outside" pick Private VPN (recommended) or Direct; the page checks what you enter and lists the router forwards. Ports are plain numbers there and can be changed if another program uses them.
+5. **After a restart (optional):** switch on "Come back after a restart" under "This laptop" to reach the laptop after a remote restart. The laptop then logs in by itself at boot and locks the screen, the keyboard-blocking permission becomes permanent for your account, and you type the laptop password on the lock screen from the tablet. It does not work with a disk or BIOS password (someone must type that at the laptop); see `docs/ops/settings-guide.md`.
+6. **Outside your home:** under "Access from outside" pick Private VPN (recommended) or Direct; the page checks what you enter and lists the router forwards. Ports are plain numbers there and can be changed if another program uses them.
 
 Nothing is enabled or started by installing the package. A terminal is never required, but `blackroom setup`, `blackroom internet` and `sudo blackroom-grant-input grant` do the same things. Day-to-day use, the reset levels and every recovery step: [docs/ops/runbook.md](docs/ops/runbook.md).
 

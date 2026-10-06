@@ -241,6 +241,12 @@
       <div class="toggles"><label class="switch"><input type="checkbox" id="lockOn"><span><b>Allow remote sessions on the lock screen</b><small>Lets you sign in from the tablet while the laptop is locked. While this is on, locking the laptop no longer ends a remote session, and any program of yours can open one on the lock screen. Turn it on only when you need it.</small></span></label></div>
       <p class="note" id="lockNote"></p>
     </section>
+    <section class="card" id="restartCard">
+      <h3>Come back after a restart</h3>
+      <div class="toggles"><label class="switch"><input type="checkbox" id="restartOn"><span><b>Reachable after this laptop restarts</b><small>After a restart the laptop logs in by itself and locks the screen, keeps the keyboard-blocking permission, and allows remote use on the lock screen. You open it from the tablet and type the laptop password on the lock screen.</small></span></label></div>
+      <p class="note" id="restartNote"></p>
+      <p class="note">Turning it on asks for your laptop password in a dialog on the laptop. Limits: a disk or BIOS password still has to be typed at the laptop; while it is on, anyone who can start this laptop sees the desktop for a few seconds before it locks; Wi-Fi saved only for your user, and the login keyring, stay locked until you unlock.</p>
+    </section>
     <section class="card" id="laptopCard">
       <h3>Startup and notifications</h3>
       <div class="toggles">

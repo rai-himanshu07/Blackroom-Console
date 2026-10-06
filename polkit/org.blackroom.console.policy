@@ -25,4 +25,15 @@
     <annotate key="org.freedesktop.policykit.exec.path">/usr/sbin/blackroom-grant-input</annotate>
     <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
   </action>
+  <action id="org.blackroom.console.restart-access">
+    <description>Let Blackroom Console come back after this laptop restarts</description>
+    <message>Authentication is required to turn on automatic login and permanent keyboard access for Blackroom Console</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/sbin/blackroom-restart-access</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
 </policyconfig>

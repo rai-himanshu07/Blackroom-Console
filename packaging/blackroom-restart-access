@@ -1,0 +1,70 @@
+#!/bin/sh
+# "Come back after a restart": the two root-owned parts. Run through pkexec by the host settings page (or with sudo).
+#   blackroom-restart-access on      udev rule giving the person who asked the built-in keyboard/touchpad at every boot,
+#                                    and GDM automatic login for that person
+#   blackroom-restart-access off     removes both (what this helper wrote, nothing else)
+#   blackroom-restart-access status  prints input_rule=yes|no and autologin=ours|other|no
+# Automatic login is only added when /etc/gdm3/custom.conf (or /etc/gdm/custom.conf) sets none of its own; the original is
+# kept once as custom.conf.blackroom-bak. BLACKROOM_TEST_ROOT (tests only) moves every path under a throwaway directory.
+set -eu
+action=${1:-}
+root=${BLACKROOM_TEST_ROOT:-}
+rule="$root/etc/udev/rules.d/90-blackroom-input.rules"
+conf=""
+for c in "$root/etc/gdm3/custom.conf" "$root/etc/gdm/custom.conf"; do [ -f "$c" ] && { conf=$c; break; }; done
+mark="# blackroom-console: automatic login (remove with: blackroom-restart-access off)"
+
+case "$action" in on|off|status) ;; *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;; esac
+[ "$action" = status ] || [ "$(id -u)" -eq 0 ] || [ -n "$root" ] || { echo "run with sudo or through pkexec" >&2; exit 2; }
+
+ours() { [ -n "$conf" ] && grep -qxF "$mark" "$conf"; }
+other() { [ -n "$conf" ] && grep -Eq '^[[:space:]]*AutomaticLoginEnable[[:space:]]*=' "$conf" && ! ours; }
+
+edit_conf() {  # $1 = awk program; rewrites the file in place, keeping its mode and owner
+  tmp=$(mktemp "$conf.XXXXXX")
+  awk -v mark="$mark" -v user="${user:-}" "$1" "$conf" > "$tmp"
+  chmod --reference="$conf" "$tmp"; chown --reference="$conf" "$tmp" 2>/dev/null || true
+  mv "$tmp" "$conf"
+}
+drop_block() {
+  edit_conf 'skip > 0 { skip--; next } $0 == mark { skip = 2; next } { print }'
+}
+
+case "$action" in
+  status)
+    [ -f "$rule" ] && echo "input_rule=yes" || echo "input_rule=no"
+    if ours; then echo "autologin=ours"; elif other; then echo "autologin=other"; else echo "autologin=no"; fi ;;
+  off)
+    rm -f "$rule"
+    if [ -z "$root" ] && command -v udevadm >/dev/null 2>&1; then udevadm control --reload 2>/dev/null || true; fi
+    ! ours || drop_block
+    echo "restart access: off" ;;
+  on)
+    user=${SUDO_USER:-}
+    if [ -n "${PKEXEC_UID:-}" ]; then user=$(id -nu "$PKEXEC_UID" 2>/dev/null || true); fi
+    [ -n "${BLACKROOM_TEST_USER:-}" ] && user=$BLACKROOM_TEST_USER
+    case "$user" in ""|root|[!a-z_]*|*[!a-z0-9_-]*) echo "no ordinary user to do this for: use pkexec from the host settings page or sudo from your own account" >&2; exit 2 ;; esac
+    id -u "$user" >/dev/null 2>&1 || [ -n "$root" ] || { echo "no such user: $user" >&2; exit 2; }
+    [ -n "$conf" ] || { echo "no GDM configuration found (/etc/gdm3/custom.conf): this desktop does not use GDM" >&2; exit 3; }
+    if other; then echo "automatic login is already set in $conf: left alone, so nothing was changed" >&2; exit 3; fi
+    setfacl=$(command -v setfacl || true)
+    [ -n "$setfacl" ] || [ -n "$root" ] || { echo "setfacl is missing (apt install acl)" >&2; exit 2; }
+    [ -f "$conf.blackroom-bak" ] || cp -p "$conf" "$conf.blackroom-bak"
+    install -d -m 755 "$(dirname "$rule")"
+    {
+      echo "# Written by blackroom-restart-access: $user may use this laptop's built-in keyboard, mouse and touchpad at every boot,"
+      echo "# which the remote console needs to block them during a Private session. Remove with: blackroom-restart-access off"
+      for kind in KEYBOARD MOUSE TOUCHPAD; do
+        echo "ACTION==\"add|change\", SUBSYSTEM==\"input\", KERNEL==\"event*\", ENV{ID_INPUT_$kind}==\"1\", ENV{ID_BUS}!=\"usb\", ENV{ID_BUS}!=\"bluetooth\", RUN+=\"${setfacl:-/usr/bin/setfacl} -m u:$user:rw \$env{DEVNAME}\""
+      done
+    } > "$rule"
+    chmod 644 "$rule"
+    ! ours || drop_block
+    edit_conf '{ print } $0 == "[daemon]" && !done { print mark; print "AutomaticLoginEnable=true"; print "AutomaticLogin=" user; done = 1 } END { if (!done) { print "[daemon]"; print mark; print "AutomaticLoginEnable=true"; print "AutomaticLogin=" user } }'
+    if [ -z "$root" ]; then
+      udevadm control --reload 2>/dev/null || true
+      # Apply to the nodes that exist now, so the current boot needs no restart.
+      "$(dirname "$0")/blackroom-grant-input" grant >/dev/null 2>&1 || true
+    fi
+    echo "restart access: on for $user" ;;
+esac

@@ -293,6 +293,20 @@ check("off with a session running is shown as pending off", /Pending off/.test(a
 await js("renderLock({lockscreen: {installed: true, enabled: false, active: false, pending_off: false}})");
 check("off with no session is plain off", /^Off:/.test(await js("document.getElementById('lockNote').textContent")));
 
+// Come back after a restart: root-owned parts through pkexec (stubbed here), the lock marker and the lock-screen extension.
+check("the restart card starts off and can be switched on", (await js("document.getElementById('restartOn').checked")) === false && (await js("document.getElementById('restartOn').disabled")) === false);
+await relock();
+await js("document.getElementById('restartOn').click()");
+await sleep(600);
+check("switching it on while locked is refused and runs nothing", (await js("document.getElementById('restartOn').checked")) === false && /Enable editing/.test(await js("document.getElementById('saveNote').textContent")) && !existsSync(`${stateDir}/pkexec-calls`));
+await unlock("hostpass");
+await js("window.confirm = () => true; document.getElementById('restartOn').click(); true");
+await sleep(1800);
+check("with editing enabled it asks pkexec for the helper, marks the lock at login and enables the extension", (await js("document.getElementById('restartOn').checked")) === true && /blackroom-restart-access on/.test(readFileSync(`${stateDir}/pkexec-calls`, "utf8")) && existsSync(`${stateDir}/lock-at-autologin`) && existsSync(`${stateDir}/ext-on`) && /On:/.test(await js("document.getElementById('restartNote').textContent")));
+await js("document.getElementById('restartOn').click(); true");
+await sleep(1500);
+check("switching it off takes the marker back", (await js("document.getElementById('restartOn').checked")) === false && !existsSync(`${stateDir}/lock-at-autologin`) && /blackroom-restart-access off/.test(readFileSync(`${stateDir}/pkexec-calls`, "utf8")));
+
 // U15: unsaved changes are not lost to a stray Sign out.
 await js("(() => { const el = document.querySelector('[data-key=\"allow_clipboard\"]'); el.checked = !el.checked; el.dispatchEvent(new Event('change', {bubbles: true})); })()");
 await js("window.confirm = () => false; document.getElementById('logout').click(); true");

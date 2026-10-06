@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Blackroom Console: lock after automatic login
+Exec=/usr/bin/blackroom-lock-at-login
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

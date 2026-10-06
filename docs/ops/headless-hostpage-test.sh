@@ -37,9 +37,21 @@ exit 0
 STUB
 chmod 700 "$state/ext-stub"
 mkdir -p "$state/run"
+# A stand-in for pkexec: records the call and plays the helper's effect on a throwaway /etc (nothing real is changed).
+mkdir -p "$state/etc/gdm3"; printf '[daemon]\n' > "$state/etc/gdm3/custom.conf"
+cat > "$state/pkexec-stub" <<STUB
+#!/bin/bash
+echo "\$@" >> "$state/pkexec-calls"
+e="$state/etc"
+case "\$2" in
+  on) mkdir -p "\$e/udev/rules.d"; printf '[daemon]\n# blackroom-console: automatic login (x)\nAutomaticLoginEnable=true\n' > "\$e/gdm3/custom.conf"; : > "\$e/udev/rules.d/90-blackroom-input.rules" ;;
+  off) rm -f "\$e/udev/rules.d/90-blackroom-input.rules"; printf '[daemon]\n' > "\$e/gdm3/custom.conf" ;;
+esac
+STUB
+chmod 700 "$state/pkexec-stub"
 printf '#!/bin/bash\necho "$@" >> "%s/systemctl-calls"\nexit 0\n' "$state" > "$state/systemctl-stub"
 chmod 700 "$state/systemctl-stub"
-BLACKROOM_HOSTNAME=${BR_SHOT_DIR:+my-laptop} XDG_RUNTIME_DIR="$state/run" "$BIN" --headless --no-control --gnome-extensions "$state/ext-stub" --systemctl "$state/systemctl-stub" --listen 127.0.0.1:18095 --host-listen 127.0.0.1:18096 --pam-helper "$state/pam-stub" --blackroom-cli "$state/blackroom-stub" --hostd-state-dir "$state/hostd" --state-dir "$state" > "$log" 2>&1 &
+BLACKROOM_HOSTNAME=${BR_SHOT_DIR:+my-laptop} XDG_RUNTIME_DIR="$state/run" "$BIN" --headless --no-control --gnome-extensions "$state/ext-stub" --pkexec "$state/pkexec-stub" --etc-dir "$state/etc" --systemctl "$state/systemctl-stub" --listen 127.0.0.1:18095 --host-listen 127.0.0.1:18096 --pam-helper "$state/pam-stub" --blackroom-cli "$state/blackroom-stub" --hostd-state-dir "$state/hostd" --state-dir "$state" > "$log" 2>&1 &
 srv=$!
 trap 'kill "$srv" 2>/dev/null' EXIT
 for _ in $(seq 1 50); do grep -q "Host settings" "$log" && break; sleep 0.2; done

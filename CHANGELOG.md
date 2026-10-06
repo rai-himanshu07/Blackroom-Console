@@ -18,5 +18,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions: SemVer.
 - Host settings drive setup: a First steps card, "Keyboard blocking" (a password dialog on the laptop through polkit), ports as plain numbers with a clear refusal when another program holds one.
 - Host settings: one "Enable editing" bar (laptop password once, valid for 5 minutes, Lock now) replaces the password field in each section; a sticky section menu with grouped sections; trusted browsers show readable dates and hide forgotten ones.
 
+- "Come back after a restart" (host settings, "This laptop"): GDM automatic login plus an automatic lock at that login, a permanent udev rule for the built-in keyboard and touchpad, and remote use on the lock screen, set up through one polkit password dialog on the laptop and removed again with the package. Not tested on a cold boot yet.
+
 ### Known limits
 See the support table in `docs/ops/compatibility-matrix.md`: Safari/iOS, certificate renewal, other hardware and a soak are untested.

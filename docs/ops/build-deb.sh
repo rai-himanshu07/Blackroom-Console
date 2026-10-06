@@ -25,7 +25,7 @@ stage=$(mktemp -d /tmp/br-deb.XXXXXX)
 trap 'rm -rf "$stage"' EXIT
 root="$stage/root"
 install -d -m 755 "$root/usr/bin" "$root/usr/sbin" "$root/usr/lib/blackroom" "$root/usr/lib/systemd/user" \
-  "$root/etc/pam.d" "$root/usr/share/polkit-1/actions" "$root/usr/share/doc/$PKG" "$root/DEBIAN" \
+  "$root/etc/pam.d" "$root/etc/xdg/autostart" "$root/usr/share/polkit-1/actions" "$root/usr/share/doc/$PKG" "$root/DEBIAN" \
   "$root/usr/share/gnome-shell/extensions"
 for b in "${BINS[@]}"; do install -m 755 "target/release/$b" "$root/usr/lib/blackroom/$b"; done
 install -m 755 target/release/blackroom "$root/usr/bin/blackroom"
@@ -37,6 +37,9 @@ install -m 644 crates/blackroom-console/src/web/icon.svg "$root/usr/share/icons/
 install -m 644 crates/blackroom-console/src/web/icons/icon-192.png "$root/usr/share/icons/hicolor/192x192/apps/blackroom-console.png"
 install -m 644 crates/blackroom-console/src/web/icons/icon-512.png "$root/usr/share/icons/hicolor/512x512/apps/blackroom-console.png"
 install -m 755 packaging/blackroom-grant-input "$root/usr/sbin/blackroom-grant-input"
+install -m 755 packaging/blackroom-restart-access "$root/usr/sbin/blackroom-restart-access"
+install -m 755 packaging/blackroom-lock-at-login "$root/usr/bin/blackroom-lock-at-login"
+install -m 644 packaging/blackroom-lock-at-login.desktop "$root/etc/xdg/autostart/blackroom-lock-at-login.desktop"
 install -m 644 packaging/units/*.service "$root/usr/lib/systemd/user/"
 install -m 644 pam/blackroom-console "$root/etc/pam.d/blackroom-console"
 install -m 644 polkit/org.blackroom.console.policy "$root/usr/share/polkit-1/actions/"
@@ -92,14 +95,14 @@ echo "built $deb ($(stat -c %s "$deb") bytes)"
 fail=0
 check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; fail=1; fi; }
 contents=$(dpkg-deb -c "$deb")
-check "nothing outside the expected prefixes" '! echo "$contents" | awk "{print \$6}" | grep -Ev "^\./($|usr/|etc/pam.d/)" | grep -v "^\./etc/$" | grep -q .'
+check "nothing outside the expected prefixes" '! echo "$contents" | awk "{print \$6}" | grep -Ev "^\./($|usr/|etc/pam.d/|etc/xdg/)" | grep -v "^\./etc/$" | grep -q .'
 check "no setuid or setgid bits" '! echo "$contents" | awk "{print \$1}" | grep -Eq "^-..[sS]|^-.....[sS]"'
 check "nothing writable by group or others" '! echo "$contents" | awk "{print \$1}" | grep -Eq "^.....w|^........w"'
 check "no unit has an [Install] section" '! tar -xOf <(dpkg-deb --fsys-tarfile "$deb") --wildcards "./usr/lib/systemd/user/*.service" 2>/dev/null | grep -q "^\[Install\]"'
 check "units run only /usr/lib/blackroom binaries" '! tar -xOf <(dpkg-deb --fsys-tarfile "$deb") --wildcards "./usr/lib/systemd/user/*.service" 2>/dev/null | grep "^ExecStart=" | grep -v "ExecStart=/usr/lib/blackroom/" | grep -q .'
 check "no path of this repository inside the units" '! tar -xOf <(dpkg-deb --fsys-tarfile "$deb") --wildcards "./usr/lib/systemd/user/*.service" 2>/dev/null | grep -q "Playground"'
 check "conffile is the PAM service only" '[ "$(dpkg-deb -I "$deb" conffiles 2>/dev/null)" = "/etc/pam.d/blackroom-console" ]'
-check "maintainer scripts parse" 'sh -n packaging/postinst && sh -n packaging/prerm && sh -n packaging/postrm && sh -n packaging/blackroom-grant-input && bash -n packaging/blackroom-app'
+check "maintainer scripts parse" 'sh -n packaging/postinst && sh -n packaging/prerm && sh -n packaging/postrm && sh -n packaging/blackroom-grant-input && sh -n packaging/blackroom-restart-access && sh -n packaging/blackroom-lock-at-login && bash -n packaging/blackroom-app'
 check "the menu launcher is a valid desktop entry with its icon" 'desktop-file-validate packaging/blackroom-console.desktop && echo "$contents" | grep -q "usr/share/applications/blackroom-console.desktop" && echo "$contents" | grep -q "hicolor/scalable/apps/blackroom-console.svg"'
 if sim=$(apt-get -s install "$deb" 2>&1); then
   echo "ok   apt-get --simulate install: $(echo "$sim" | grep -c '^Inst') package(s) would be installed"

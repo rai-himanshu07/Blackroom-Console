@@ -265,6 +265,21 @@ function renderFirstSteps(snapshot) {
   $("navSetup").hidden = finished;
 }
 
+// "Come back after a restart" is on only when every part is: the keyboard rule, GDM login, the lock marker, the lock-screen extension.
+let restartBusy = false;
+function renderRestart(snapshot) {
+  if (restartBusy) return;
+  const r = snapshot.restart_access;
+  const ready = r.input_rule && r.autologin === "ours" && r.lock_at_login && snapshot.lockscreen.enabled;
+  const some = r.input_rule || r.autologin === "ours" || r.lock_at_login;
+  $("restartOn").checked = ready;
+  $("restartOn").disabled = !r.gdm || r.autologin === "other";
+  $("restartNote").textContent = !r.gdm ? "This desktop does not use GDM, so automatic login cannot be set up from here."
+    : r.autologin === "other" ? "Automatic login is already set in the GDM settings by someone else: it was left alone. Remove it there first."
+    : ready ? "On: after a restart the laptop logs in, locks, and waits for you."
+    : some ? "Partly set up. Switch it on again to finish, or off to undo it." : "";
+}
+
 function renderInput(snapshot) {
   const input = snapshot.input || { nodes: 0, allowed: 0 };
   $("inputLine").textContent = input.nodes === 0 ? "No built-in keyboard or touchpad was found, so there is nothing to block."
@@ -373,6 +388,7 @@ async function load(first) {
   renderTotp(data);
   renderLock(data);
   renderInput(data);
+  renderRestart(data);
   renderFirstSteps(data);
   renderInternet(data);
   return true;
@@ -575,6 +591,22 @@ $("editLock").addEventListener("click", async () => {
   $("saveNote").textContent = reply.ok ? "Editing is locked." : "Could not confirm that the laptop locked editing.";
 });
 document.addEventListener("visibilitychange", () => { if (!document.hidden && state) load(false).catch(() => {}); });
+
+$("restartOn").addEventListener("change", async () => {
+  const wanted = $("restartOn").checked;
+  if (restartBusy) { $("restartOn").checked = !wanted; return; }
+  if (wanted && !needUnlock("turn on restart access")) { $("restartOn").checked = false; return; }
+  if (wanted && !window.confirm("After a restart this laptop will log in by itself and lock the screen, and remote use on the lock screen will be on. Continue?")) { $("restartOn").checked = false; return; }
+  restartBusy = true;
+  $("restartOn").disabled = true;
+  if (wanted) cardNote("restartCard", "A password dialog is waiting on this laptop's screen. Answer it there.");
+  let reply;
+  try { reply = await api("POST", "/host/restartaccess", { enabled: wanted }); } finally { restartBusy = false; $("restartOn").disabled = false; }
+  if (!reply.ok) { $("restartOn").checked = !wanted; cardNote("restartCard", reply.data.error ?? "That did not work."); await load(false); return; }
+  cardNote("restartCard", "");
+  $("saveNote").textContent = wanted ? "The laptop will log in and lock itself after a restart." : "Restart access is off. Remote use on the lock screen stays as set above.";
+  await load(false);
+});
 
 // ---- authenticator app: scan or type the key, then one right code stores it ----
 let totpTimer = 0;

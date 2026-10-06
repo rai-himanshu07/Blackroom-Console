@@ -8,6 +8,9 @@ case "$1" in
   *) exit 0 ;;
 esac
 
+# Automatic login and the permanent keyboard rule are this package's doing: a removal takes them back too.
+if [ "$1" = remove ] && [ -x /usr/sbin/blackroom-restart-access ]; then /usr/sbin/blackroom-restart-access off >/dev/null 2>&1 || true; fi
+
 # BLACKROOM_PRERM_PIDFILE is a test hook (pids to stop, one per line); the real run matches the process name, which the
 # kernel truncates to 15 characters.
 pids() {

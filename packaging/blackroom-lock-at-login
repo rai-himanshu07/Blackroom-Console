@@ -1,0 +1,8 @@
+#!/bin/sh
+# Started at every login by /etc/xdg/autostart. Locks the screen only after GDM's automatic login (no one typed a password)
+# and only when "Come back after a restart" is on in the host settings.
+marker="${XDG_DATA_HOME:-$HOME/.local/share}/blackroom-console/lock-at-autologin"
+[ -f "$marker" ] || exit 0
+[ "$(loginctl show-session "${XDG_SESSION_ID:-auto}" -p Service --value 2>/dev/null)" = gdm-autologin ] || exit 0
+sleep 4
+exec loginctl lock-session "${XDG_SESSION_ID:-}"

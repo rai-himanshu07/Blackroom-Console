@@ -131,6 +131,11 @@ struct Args {
     pkexec: Option<PathBuf>,
     #[arg(long)]
     grant_input: Option<PathBuf>,
+    /// The "Come back after a restart" helper, and the directory it edits (`/etc`). For tests.
+    #[arg(long)]
+    restart_access: Option<PathBuf>,
+    #[arg(long)]
+    etc_dir: Option<PathBuf>,
     /// Do not offer the laptop's D-Bus service (the top-bar indicator then shows the console as off). For tests that must
     /// not touch the real session bus.
     #[arg(long)]
@@ -255,6 +260,8 @@ struct HostPageArgs {
     systemctl: Option<PathBuf>,
     pkexec: Option<PathBuf>,
     grant_input: Option<PathBuf>,
+    restart_access: Option<PathBuf>,
+    etc_dir: Option<PathBuf>,
     internet: blackroom_console::internet::Effective,
 }
 
@@ -336,6 +343,14 @@ async fn start_host_page(args: &HostPageArgs, console: &RemoteConsole) -> Option
             .grant_input
             .clone()
             .unwrap_or_else(|| PathBuf::from("/usr/sbin/blackroom-grant-input")),
+        restart_access: args
+            .restart_access
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("/usr/sbin/blackroom-restart-access")),
+        etc: args
+            .etc_dir
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("/etc")),
         internet: Some(args.internet.clone()),
         state_dir: args
             .state_dir
@@ -614,6 +629,8 @@ async fn main() -> anyhow::Result<()> {
         systemctl: args.systemctl.clone(),
         pkexec: args.pkexec.clone(),
         grant_input: args.grant_input.clone(),
+        restart_access: args.restart_access.clone(),
+        etc_dir: args.etc_dir.clone(),
         listen: args
             .host_listen
             .or_else(|| (!args.headless).then(|| SocketAddr::from(([127, 0, 0, 1], 8090)))),

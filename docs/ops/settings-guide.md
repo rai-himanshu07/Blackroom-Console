@@ -83,3 +83,14 @@ your approval, and the host page shows the reason; saving the page writes a vali
 
 Saved servers (several laptops) and named connection profiles in the client; the client's "remember this device" is the
 existing trusted-browser login.
+
+## Come back after a restart
+
+For a laptop you restart from far away. One switch on the host page (under "This laptop"; it needs "Enable editing" and a password dialog on the laptop's own screen) sets up four things:
+
+- GDM **automatic login** for your account (`/etc/gdm3/custom.conf`; the original is kept as `custom.conf.blackroom-bak`; an automatic login you set up yourself is left alone and the switch says so);
+- a screen **lock** right after that login (`blackroom-lock-at-login` runs only after an automatic login, never after you type a password);
+- a **permanent udev rule** (`/etc/udev/rules.d/90-blackroom-input.rules`) giving your account the built-in keyboard, mouse and touchpad at every boot, so Private sessions can block them without the per-boot button. Any program that runs as you can then read those devices, which is why the rule is opt-in; USB and Bluetooth devices are never touched;
+- **remote use on the lock screen**, so a session can start on the locked screen; you type the laptop password there.
+
+Switching it off, or removing the package, takes back the rule and the automatic login. Limits: a disk (LUKS) or BIOS password must still be typed at the laptop; the desktop shows for a few seconds before the lock; Wi-Fi saved only for your user and the login keyring stay locked until you unlock; GDM is required.

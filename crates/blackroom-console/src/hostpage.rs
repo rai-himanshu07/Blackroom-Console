@@ -62,6 +62,9 @@ pub struct Settings {
     /// `pkexec` and the packaged helper that gives this user access to the built-in keyboard and touchpad.
     pub pkexec: PathBuf,
     pub grant_input: PathBuf,
+    /// The helper behind "Come back after a restart", and the `/etc` it reports on.
+    pub restart_access: PathBuf,
+    pub etc: PathBuf,
     /// What the console runs with now, so a saved internet mode can be checked before it can stop the next start.
     pub internet: Option<crate::internet::Effective>,
 }
@@ -124,6 +127,7 @@ pub fn router(console: RemoteConsole, settings: Settings, check: PasswordFactory
         .route("/host/credentials", post(credentials))
         .route("/host/lockscreen", post(lockscreen))
         .route("/host/inputaccess", post(inputaccess))
+        .route("/host/restartaccess", post(restartaccess))
         .route("/host/totp/start", post(totp_start))
         .route("/host/totp/verify", post(totp_verify))
         .route("/host/totp/cancel", post(totp_cancel))
@@ -606,6 +610,7 @@ async fn state(State(app): State<App>, headers: HeaderMap) -> Response {
             "totp": { "enrolled": totp_enrolled(&settings) },
             "login": { "ready": crate::hostd_auth::sockets_present(&settings.hostd_runtime) },
             "input": input_access(),
+            "restart_access": restart_access_state(&settings.etc, dir.as_deref()),
             "unlock": { "secs_left": unlock_secs },
             "lockscreen": with_pending_off(
                 lock_state(&settings.gnome_extensions),
@@ -1108,6 +1113,107 @@ async fn inputaccess(State(app): State<App>, headers: HeaderMap) -> Response {
             StatusCode::BAD_GATEWAY,
             &format!(
                 "the laptop did not allow it ({}). The password dialog appears on the laptop's own screen: answer it there.",
+                notice.trim().lines().last().unwrap_or("cancelled")
+            ),
+        ),
+        Ok(Err(message)) => error(StatusCode::BAD_GATEWAY, &message),
+        Err(_) => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the change failed to run",
+        ),
+    }
+}
+
+const LOCK_MARKER: &str = "lock-at-autologin";
+const AUTOLOGIN_MARK: &str = "# blackroom-console: automatic login";
+
+/// What is set up for "Come back after a restart": the permanent keyboard rule, GDM automatic login that this
+/// package wrote, and the marker that makes the login lock the screen. Plain reads; the root-owned files are world-readable.
+fn restart_access_state(etc: &Path, settings_dir: Option<&Path>) -> Value {
+    let rule = etc.join("udev/rules.d/90-blackroom-input.rules").is_file();
+    let conf = ["gdm3/custom.conf", "gdm/custom.conf"]
+        .iter()
+        .find_map(|name| std::fs::read_to_string(etc.join(name)).ok());
+    let autologin = match &conf {
+        Some(text) if text.lines().any(|l| l.starts_with(AUTOLOGIN_MARK)) => "ours",
+        Some(text)
+            if text.lines().any(|l| {
+                l.trim_start()
+                    .strip_prefix("AutomaticLoginEnable")
+                    .is_some_and(|rest| rest.trim_start().starts_with('='))
+            }) =>
+        {
+            "other"
+        }
+        _ => "no",
+    };
+    let lock = settings_dir.is_some_and(|dir| dir.join(LOCK_MARKER).is_file());
+    json!({ "gdm": conf.is_some(), "input_rule": rule, "autologin": autologin, "lock_at_login": lock })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComeBackBody {
+    enabled: bool,
+}
+
+/// "Come back after a restart": the laptop's own password dialog (pkexec) covers the root-owned parts; the lock-at-login
+/// marker and the lock-screen extension are the owner's own.
+async fn restartaccess(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
+    if let Some(refusal) = guard(&app, &headers, true) {
+        return refusal;
+    }
+    let Ok(ComeBackBody { enabled }) = object::<ComeBackBody>(&body) else {
+        return error(StatusCode::BAD_REQUEST, "send {\"enabled\": true}");
+    };
+    if enabled && let Err(refusal) = change_allowed(&app, &headers, String::new()).await {
+        return refusal;
+    }
+    let Some(dir) = app.console.settings_dir() else {
+        return error(StatusCode::BAD_GATEWAY, "the laptop has no settings folder");
+    };
+    let settings = Arc::clone(&app.settings);
+    let ran = tokio::task::spawn_blocking(move || {
+        let verb = if enabled { "on" } else { "off" };
+        let (ok, _, notice) = run_cli(
+            &settings.pkexec,
+            &[
+                settings.restart_access.to_string_lossy().into_owned(),
+                verb.into(),
+            ],
+            Duration::from_secs(180),
+        )?;
+        if !ok {
+            return Ok((false, notice));
+        }
+        let marker = dir.join(LOCK_MARKER);
+        if enabled {
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            std::fs::write(&marker, b"").map_err(|e| e.to_string())?;
+            let (shown, _, why) = run_cli(
+                &settings.gnome_extensions,
+                &["enable".into(), LOCK_EXTENSION.into()],
+                Duration::from_secs(20),
+            )?;
+            if !shown {
+                return Ok((false, format!("the lock-screen extension could not be switched on ({}); the rest is set up", why.trim())));
+            }
+        } else {
+            let _ = std::fs::remove_file(&marker);
+        }
+        *lock(&INPUT_CACHE) = None;
+        Ok::<_, String>((true, String::new()))
+    })
+    .await;
+    match ran {
+        Ok(Ok((true, _))) => reply(
+            StatusCode::OK,
+            &json!({ "ok": true, "restart_access": restart_access_state(&app.settings.etc, app.console.settings_dir().as_deref()) }),
+        ),
+        Ok(Ok((false, notice))) => error(
+            StatusCode::BAD_GATEWAY,
+            &format!(
+                "not completed ({}). The password dialog appears on the laptop's own screen: answer it there.",
                 notice.trim().lines().last().unwrap_or("cancelled")
             ),
         ),

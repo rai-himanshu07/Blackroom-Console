@@ -28,8 +28,10 @@ tablet needs the key. **Send back:** which step, if any, failed, with the messag
 4. Restart the laptop and stop at the login screen without logging in. From the tablet, open the address.
 
 **Pass:** 2 prints `active` and a URL, the tablet logs in; 3 comes back within about 10 s with no new setup; 4 is expected to
-**not answer** (a user service starts only after login; `loginctl show-user $USER -p Linger` says `no`). **Send back:** whether 4
+**not answer** (a user service starts only after login; `loginctl show-user $USER -p Linger` says `no`; owner result 2026-10-07: did not answer, Linger=no). **Send back:** whether 4
 answered, and the Linger value, so the support table can say it in one line.
+
+**2b. Come back after a restart** (after the install of the new package): Host settings, "This laptop": press **Enable editing**, switch on "Come back after a restart", answer the password dialog on the laptop. Then restart the laptop from the tablet (desktop power menu) and stop touching it. After about a minute open the address on the tablet, sign in, press Start: the lock screen shows; type the laptop password. **Pass:** the tablet reaches the lock screen and the laptop unlocks; a Private session can block the keyboard without pressing "Allow keyboard blocking". **Send back:** how long after the restart the page answered, what the laptop screen showed, and any step that failed.
 
 ## 3. Laptop sleep and lid close with Tailscale
 

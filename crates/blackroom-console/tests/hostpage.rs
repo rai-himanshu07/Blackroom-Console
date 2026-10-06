@@ -94,6 +94,8 @@ fn fixture() -> Fixture {
         systemctl,
         pkexec,
         grant_input: "/usr/sbin/blackroom-grant-input".into(),
+        restart_access: "/usr/sbin/blackroom-restart-access".into(),
+        etc: dir.path().join("etc"),
         internet: Some(blackroom_console::internet::Effective {
             public: false,
             public_name: None,
@@ -1370,5 +1372,81 @@ async fn enabling_editing_replaces_the_password_on_every_sensitive_change_for_fi
             .await
             .status(),
         StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn coming_back_after_a_restart_needs_editing_enabled_and_runs_the_helper_through_pkexec() {
+    let fixture = fixture();
+    let dir = fixture.dir.path();
+    let cookie = signed_in(&fixture.app).await;
+    let post = |path: &str, body: Value| {
+        send(
+            &fixture.app,
+            request(
+                Method::POST,
+                path,
+                HOSTNAME,
+                Some(&own_origin()),
+                Some(&cookie),
+                body,
+            ),
+        )
+    };
+    let on = json!({ "enabled": true });
+    assert_eq!(
+        post("/host/restartaccess", on.clone()).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert!(!dir.join("pkexec-calls").exists() && !dir.join("lock-at-autologin").exists());
+    assert_eq!(
+        post("/host/unlock", json!({ "password": "correct horse" }))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let done = post("/host/restartaccess", on).await;
+    assert_eq!(done.status(), StatusCode::OK);
+    assert_eq!(
+        json_of(done).await["restart_access"]["lock_at_login"],
+        json!(true)
+    );
+    let calls = std::fs::read_to_string(dir.join("pkexec-calls")).unwrap();
+    assert_eq!(calls.trim(), "/usr/sbin/blackroom-restart-access on");
+    assert!(
+        std::fs::read_to_string(dir.join("ext-calls"))
+            .unwrap()
+            .contains("enable blackroom-locked-remote@blackroom.local")
+    );
+    // What the helper wrote is read back from /etc, not assumed.
+    std::fs::create_dir_all(dir.join("etc/gdm3")).unwrap();
+    std::fs::write(
+        dir.join("etc/gdm3/custom.conf"),
+        "[daemon]\n# blackroom-console: automatic login (x)\nAutomaticLoginEnable=true\n",
+    )
+    .unwrap();
+    let state = json_of(
+        send(
+            &fixture.app,
+            request(
+                Method::GET,
+                "/host/state",
+                HOSTNAME,
+                None,
+                Some(&cookie),
+                Value::Null,
+            ),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(state["restart_access"]["autologin"], json!("ours"));
+    let off = post("/host/restartaccess", json!({ "enabled": false })).await;
+    assert_eq!(off.status(), StatusCode::OK);
+    assert!(!dir.join("lock-at-autologin").exists());
+    assert!(
+        std::fs::read_to_string(dir.join("pkexec-calls"))
+            .unwrap()
+            .ends_with("blackroom-restart-access off\n")
     );
 }
