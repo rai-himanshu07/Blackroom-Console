@@ -54,7 +54,7 @@ A narrowly supported technical preview. The one authoritative support table (tes
 - **Tested:** Ubuntu 26.04.1, GNOME Shell 50.1 on Wayland, PipeWire 1.6, NVIDIA RTX 3050 Ti with NVENC, the built-in panel as the
   only output, Chrome on an Android tablet, and the **private VPN route (Tailscale) from mobile data**, which is the recommended way
   to use it outside the home. Owner runs are owner-reported and kept without logs.
-- **Tested once:** Direct internet access with a static IP and the console's own certificate (owner-reported 2026-10-06, 20+ minutes connected).
+- **Tested once:** Direct internet access with a static IP and the console's own certificate (owner-reported 2026-10-06: mobile data and Wi-Fi, WebRTC, 20+ minutes connected; the browser warns "not secure" because the certificate is self-signed).
 - **Not tested:** Direct with a name and a real certificate, Safari and iOS (waived by the owner), Firefox, the OpenH264
   encoder in a live session, AMD/Intel GPUs, a soak of any length, laptop sleep or lid close, a reboot before anyone logs in,
   certificate renewal, start at login, real credential commands from the host page, and the emergency chord with the packaged
