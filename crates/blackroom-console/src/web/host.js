@@ -136,7 +136,7 @@ function showAccess() {
   $("accessHelp").textContent = {
     home: "Meant for your own network only. This is what is configured; \"Listening now\" below shows which network interfaces the running console actually answers on.",
     vpn: "Your phone and this laptop join the same private network (Tailscale, NetBird, Headscale). No port is forwarded to the internet by this setting; the VPN's relay is used when no direct path exists. The console still answers on the interfaces under \"Listening now\".",
-    direct: "The router forwards ports to this laptop, so anyone who finds the address can reach the login page. Needs a static IP address or a name that follows your address, and a router that accepts incoming connections.",
+    direct: "The router forwards ports to this laptop, so anyone who finds the address can reach the login page. Needs a static IP address or a name that follows your address, and a router that accepts incoming connections. Choosing it also moves plain http to this laptop only, turns https on and makes the login authority the only way to sign in; the router forwards to set up are listed under \"Currently running\" after you save and restart.",
   }[mode];
 }
 
@@ -155,7 +155,14 @@ function collectAccess(config) {
   const files = mode === "vpn" ? vpn : mode === "direct" && direct.public_cert === "ca" ? direct : { tls_cert: null, tls_key: null };
   config.tls_cert = files.tls_cert;
   config.tls_key = files.tls_key;
-  if (mode === "direct") config.ice_ports = direct.ice_ports;
+  if (mode === "direct") {
+    config.ice_ports = direct.ice_ports;
+    // What the console insists on for internet use is set together with the mode, so no unit file needs editing.
+    const [host, port] = (config.http_listen || "127.0.0.1:8080").replace(/^\[|\]$/g, "").split(/:(?=\d+$)/);
+    if (!["127.0.0.1", "::1", "localhost"].includes(host)) config.http_listen = `127.0.0.1:${port || "8080"}`;
+    if (config.tls_listen === "") config.tls_listen = "0.0.0.0:8443";
+    config.login = "hostd";
+  }
 }
 
 $("internetCard").addEventListener("input", () => { accessTouched = true; showAccess(); });

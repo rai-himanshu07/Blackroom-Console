@@ -141,6 +141,7 @@ check("switching back brings the remembered name back", (await js("document.getE
 await setAccess("accessMode", "direct");
 await setAccess("directName", "203.0.113.7");
 await setAccess("directCert", "self_signed");
+check("choosing Direct also sets the safe listeners and the login", (await js("(() => { const c = collect(); return c.public === true && /^127\\.0\\.0\\.1:\\d+$/.test(c.http_listen) && c.tls_listen !== '' && c.login === 'hostd'; })()")) === true);
 check("self-signed direct mode shows the fingerprint steps before any credentials", (await visible("fpSteps")) && /before/.test(await js("document.getElementById('fpSteps').textContent")));
 check("a self-signed direct mode hides the certificate files", !(await visible("directFiles")) && (await visible("accessDirect")));
 await shotOf("host-3-access-direct", "#internetCard");

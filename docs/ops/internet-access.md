@@ -58,6 +58,8 @@ question: the console keeps its own self-signed certificate and you accept the b
 
 ## Way 2: directly over the internet
 
+On the host settings page, choosing **Directly from the internet** also moves plain http to this laptop only, turns https on and makes the login authority the only sign-in, so no unit file has to be edited. The router forwards cannot be automated: they are listed under "Currently running" after you save and restart.
+
 Answer first: **can your router accept incoming connections?** (How to tell: above.) If not, or if unsure, use the VPN. This way
 is **untested** against a real router, certificate authority and mobile network; the checks below are local only.
 
