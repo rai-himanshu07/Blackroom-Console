@@ -257,16 +257,13 @@ await sleep(3000);
 const mj = await js("({shown: getComputedStyle(document.getElementById('mjpeg')).display, w: document.getElementById('mjpeg').naturalWidth})");
 check("MJPEG fallback shows frames", mj.shown === "block" && mj.w === 1920, JSON.stringify(mj));
 
-// W4: the End session control, and a failed Disconnect that keeps a persistent warning with Retry and the recovery steps.
+// W4: a failed Disconnect keeps a persistent warning with Retry and the recovery steps.
 await js("closeMenu()");
-const endShown = await js("(() => { const b = document.getElementById('endBtn'); return !b.hidden && /End session/.test(b.textContent); })()");
-check("End session is on screen with the menu closed in a Private session", endShown === true);
+check("no End session button covers the remote desktop", (await js("document.getElementById('endBtn')")) === null);
 await shot("client-4-private-session-menu-closed");
-await js("document.getElementById('menuBtn').click()");
-check("it steps aside while the menu is open", (await js("document.getElementById('endBtn').hidden")) === true);
-await js("closeMenu()");
 await js("globalThis.__post = post; post = (path, body) => path === '/stop' ? Promise.resolve({ ok: false, status: 503 }) : __post(path, body)");
-await js("document.getElementById('endBtn').click()");
+await js("document.getElementById('menuBtn').click()");
+await js("document.getElementById('stop').click()");
 await sleep(2500);
 check("a failed Disconnect keeps a warning with Retry", (await js("!document.getElementById('endfail').hidden && !document.getElementById('endRetry').hidden")) === true);
 await shot("client-5-disconnect-failed");

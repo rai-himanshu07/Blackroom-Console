@@ -107,7 +107,6 @@ body[data-view="session"] #mods, body[data-view="session"] #clip { display: flex
 .isolation { display: grid; gap: 4px; margin: 6px 0; }
 .iso { font-size: 13px; padding: 4px 8px; border-radius: 6px; border-left: 3px solid var(--good); background: #12201a; }
 .iso.bad { border-left-color: #f5c26b; background: #3a2a0c; color: #ffd98a; font-weight: 600; }
-#endBtn { position: fixed; top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); z-index: 20; min-height: 44px; }
 #endfail { position: fixed; left: 50%; transform: translateX(-50%); top: max(64px, calc(env(safe-area-inset-top) + 56px)); z-index: 30; width: min(520px, calc(100vw - 16px)); background: #3a2a0c; border: 1px solid #f5c26b; border-radius: 10px; padding: 12px 14px; color: #ffe2a8; }
 #endfail .row { margin-top: 8px; }
 .steps { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }

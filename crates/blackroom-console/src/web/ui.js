@@ -259,7 +259,6 @@ function onState(state) {
     $("soundrow").hidden = false;
     if (state.mode) document.body.dataset.mode = state.mode;
     renderIsolation(state);
-    syncEnd();
     return;
   }
   const busy = state.phase === "starting" || state.phase === "stopping";
@@ -301,25 +300,17 @@ function renderIsolation(state) {
   }));
 }
 
-// A labelled End session control stays on screen in a Private session, where the screen is blank and the keyboard blocked.
-function syncEnd() {
-  const asked = (lastState && lastState.session) || {};
-  $("endBtn").hidden = !running || !(asked.blank_panel || asked.block_local_input) || !$("menu").hidden;
-}
-
 // ---- in-session menu ----
 function openMenu() {
   releaseAll();
   $("menu").hidden = false;
   $("menuBtn").setAttribute("aria-expanded", "true");
-  syncEnd();
   placeDot();
   $("menuClose").focus();
 }
 function closeMenu() {
   $("menu").hidden = true;
   $("menuBtn").setAttribute("aria-expanded", "false");
-  syncEnd();
   placeDot();
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
 }
@@ -559,10 +550,9 @@ function makeMovable(el) {
   apply();
 }
 makeMovable($("menuBtn"));
-makeMovable($("endBtn"));
 
 function resetPositions() {
   writePositions({});
-  for (const el of [$("menuBtn"), $("endBtn")]) { el.style.left = el.style.top = el.style.right = ""; }
+  $("menuBtn").style.left = $("menuBtn").style.top = $("menuBtn").style.right = "";
 }
 $("resetPositions").addEventListener("click", () => { resetPositions(); toast("Button positions reset."); });

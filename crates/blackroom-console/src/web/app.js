@@ -649,7 +649,7 @@ let ending = false;
 async function endSession() {
   if (ending) return;
   ending = true;
-  const buttons = ["stop", "endBtn", "endRetry"].map($);
+  const buttons = ["stop", "endRetry"].map($);
   buttons.forEach((button) => { button.disabled = true; });
   releaseAll();
   await flush();
@@ -667,7 +667,6 @@ async function endSession() {
   $("endRetry").focus();
 }
 $("stop").addEventListener("click", endSession);
-$("endBtn").addEventListener("click", endSession);
 $("endRetry").addEventListener("click", endSession);
 $("endHow").addEventListener("click", () => {
   const open = $("endHelp").hidden;

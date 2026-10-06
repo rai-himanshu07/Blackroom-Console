@@ -8,7 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/); versions: SemVer.
 - Remote console: WebRTC H.264 (NVENC, software fallback) and MJPEG, pointer, keyboard, touch, scroll, Opus laptop sound, text
   clipboard, Private and Shared sessions, per-device settings, installable web app.
 - Safety: display restore, lock on disconnect (when set), input-grab release, a restore timer after a crash, an emergency chord
-  with a durable stop marker, a labelled End session control, a warning that stays until Disconnect is confirmed, and a session
+  with a durable stop marker, a Disconnect button in the menu (F8 opens it), a warning that stays until Disconnect is confirmed, and a session
   menu block showing what the session confirmed doing to the laptop.
 - Login: Linux password, authenticator, Remote Access Key or trusted browser; rate limits; revocation.
 - Laptop side: host settings page, top-bar indicator, lock-screen extension, approve-each-connection, `blackroom` command
