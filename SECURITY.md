@@ -24,8 +24,8 @@ the `blackroom` command, and the package scripts.
 
 Known limits are listed, not hidden: [docs/security/red-team-report.md](docs/security/red-team-report.md) and
 [docs/security/threat-model.md](docs/security/threat-model.md). In particular the key and authenticator are not phishing-proof, a
-self-signed certificate relies on trust on first use, the console runs as the logged-in user, and Direct internet access has not
-been tried on a real router.
+self-signed certificate relies on trust on first use, the console runs as the logged-in user, and Direct internet access has been tried on one
+home router only.
 
 ## If you run it
 

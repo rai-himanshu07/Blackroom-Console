@@ -29,8 +29,8 @@ is at the top of [docs/ops/compatibility-matrix.md](docs/ops/compatibility-matri
   SSH is the backup, never the only way out.
 - In a running session **F8** opens the page's menu (it is never sent to the laptop).
 - Login is the Linux password (PAM) + an authenticator code + a Remote Access Key or a trusted browser, with rate limits.
-- Outside the home network, three choices: **Home only** (the default), **Private VPN (recommended)** and **Direct** (riskier,
-  untested). `blackroom internet` walks through them. See [docs/ops/internet-access.md](docs/ops/internet-access.md).
+- Outside the home network, three choices: **Home only** (the default), **Private VPN (recommended)** and **Direct** (riskier;
+  tried on one home router only, with a static IP and with an own domain). `blackroom internet` walks through them. See [docs/ops/internet-access.md](docs/ops/internet-access.md).
 
 ![Session menu](docs/screenshots/client-3-session-menu-open-tablet.png)
 
