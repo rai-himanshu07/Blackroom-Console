@@ -96,6 +96,10 @@ if (process.env.BR_SHOT) {
 }
 await set("max_fps", "30");
 await set("approval", "ask");
+await js("document.getElementById('save').click()");
+await sleep(600);
+check("changing how a connection is approved needs editing enabled and saves nothing", /Enable editing/.test(await js("document.getElementById('saveNote').textContent")) && !existsSync(`${stateDir}/host.json`));
+await unlock("hostpass");
 await set("allow_text", false);
 check("a change turns Save on", (await js("!document.getElementById('save').disabled")) === true);
 await js("document.getElementById('save').click()");
@@ -152,6 +156,7 @@ check("choosing Direct also sets the safe listeners and the login", (await js("(
 check("self-signed direct mode shows the fingerprint steps before any credentials", (await visible("fpSteps")) && /before/.test(await js("document.getElementById('fpSteps').textContent")));
 check("a self-signed direct mode hides the certificate files", !(await visible("directFiles")) && (await visible("accessDirect")));
 await shotOf("host-3-access-direct", "#internetCard");
+await relock();
 check("editing starts locked, with one password field for the whole page", (await visible("editForm")) && !(await visible("editActive")) && /locked/i.test(await js("document.getElementById('editTitle').textContent")));
 check("no section asks for a password of its own", (await js("document.querySelectorAll('input[type=password]:not(#password):not(#editPassword)').length")) === 0);
 await js("document.getElementById('save').click()");

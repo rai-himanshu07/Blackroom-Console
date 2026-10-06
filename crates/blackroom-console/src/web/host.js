@@ -104,6 +104,12 @@ function fillAccess(config) {
 
 // Switching to or from Direct changes who can find the login page, so it needs "Enable editing".
 function directChanges() { return !!saved && ($("accessMode").value === "direct") !== (saved.public === true); }
+// So do the sign-in method, how a connection is approved and where the console listens (the laptop checks the same list).
+function securityChanges() {
+  if (!saved) return false;
+  const now = collect();
+  return directChanges() || ["login", "approval", "http_listen", "tls_listen"].some((key) => JSON.stringify(now[key]) !== JSON.stringify(saved[key]));
+}
 
 const MODE_LABEL = { home: "home network only", vpn: "a private VPN", direct: "direct from the internet" };
 const RUNNING_MODE = { direct: "direct", "private-network": "vpn" };
@@ -270,7 +276,7 @@ let restartBusy = false;
 function renderRestart(snapshot) {
   if (restartBusy) return;
   const r = snapshot.restart_access;
-  const ready = r.input_rule && r.autologin === "ours" && r.lock_at_login && snapshot.lockscreen.enabled;
+  const ready = r.input_rule && r.autologin === "ours" && r.lock_at_login && snapshot.lockscreen.enabled && snapshot.unit.autostart;
   const some = r.input_rule || r.autologin === "ours" || r.lock_at_login;
   $("restartOn").checked = ready;
   $("restartOn").disabled = !r.gdm || r.autologin === "other";
@@ -439,7 +445,7 @@ let saving = false;
 async function save() {
   if (saving) return false;
   const config = collect();
-  if (directChanges() && !needUnlock("switch to or from Direct")) return false;
+  if (securityChanges() && !needUnlock("change sign-in, approval or network settings")) return false;
   if (config.public === true && saved.public !== true
     && !window.confirm("Direct internet access lets anyone who finds this address reach the login page. Only continue if the router forwarding and the login are set up as described here. Save it?")) {
     $("saveNote").textContent = "Not saved.";
@@ -635,6 +641,7 @@ $("totpStart").addEventListener("click", async () => {
 });
 
 $("totpVerify").addEventListener("click", async () => {
+  if (!needUnlock("confirm the authenticator")) return;
   const reply = await api("POST", "/host/totp/verify", { code: $("totpCode").value.trim() });
   if (reply.ok) {
     closeTotp();

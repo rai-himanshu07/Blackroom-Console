@@ -276,6 +276,7 @@ async fn relock(State(app): State<App>, headers: HeaderMap) -> Response {
     if let Some(token) = crate::server::cookie_value(&headers, COOKIE_NAME) {
         lock(&app.sessions).unlocked.remove(token);
     }
+    *lock(&app.totp) = None;
     reply(StatusCode::OK, &json!({ "secs_left": 0 }))
 }
 
@@ -437,6 +438,7 @@ async fn logout(State(app): State<App>, headers: HeaderMap) -> Response {
             .retain(|known, _| !crate::server::tokens_equal(known, token));
         lock(&app.sessions).unlocked.remove(token);
     }
+    *lock(&app.totp) = None;
     let mut response = reply(StatusCode::OK, &json!({ "ok": true }));
     response.headers_mut().insert(
         SET_COOKIE,
@@ -705,11 +707,25 @@ async fn config(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Resp
             "this console has no settings directory",
         );
     };
-    // Switching to or from Direct changes who can find the login page: it asks for the laptop password like the lock-screen switch.
-    let saved_direct = HostConfig::load(&dir).0.public == Some(true);
-    if (config.public == Some(true)) != saved_direct
-        && let Err(refusal) = change_allowed(&app, &headers, password).await
-    {
+    // Direct mode, the sign-in method, how a connection is approved and where the console listens decide who can get in: they need "Enable editing".
+    let current = HostConfig::load(&dir).0;
+    let listen = |key: &str| {
+        let running = app.settings.effective.get(key).and_then(Value::as_str);
+        move |value: &Option<String>| {
+            value
+                .as_deref()
+                .or(running)
+                .filter(|text| !text.is_empty())
+                .map(str::to_owned)
+        }
+    };
+    let (http, tls) = (listen("http_listen"), listen("tls_listen"));
+    let sensitive = (config.public == Some(true)) != (current.public == Some(true))
+        || config.login != current.login
+        || config.approval != current.approval
+        || http(&config.http_listen) != http(&current.http_listen)
+        || tls(&config.tls_listen) != tls(&current.tls_listen);
+    if sensitive && let Err(refusal) = change_allowed(&app, &headers, password).await {
         return refusal;
     }
     let busy = port_problems(&config, &app.settings.effective, app.settings.port);
@@ -1157,6 +1173,74 @@ struct ComeBackBody {
     enabled: bool,
 }
 
+/// The order matters: the lock at login is put in place before automatic login is, and a failed step takes the lock marker back
+/// only while automatic login is not on, so a login is never left unlocked by a half-finished setup.
+fn apply_restart_access(
+    settings: &Settings,
+    dir: &Path,
+    enabled: bool,
+) -> Result<(bool, String), String> {
+    let marker = dir.join(LOCK_MARKER);
+    let helper = |verb: &str| {
+        run_cli(
+            &settings.pkexec,
+            &[
+                settings.restart_access.to_string_lossy().into_owned(),
+                verb.into(),
+            ],
+            Duration::from_secs(180),
+        )
+    };
+    if !enabled {
+        let (ok, _, notice) = helper("off")?;
+        if ok {
+            let _ = std::fs::remove_file(&marker);
+        }
+        return Ok((ok, notice));
+    }
+    let existed = marker.exists();
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::write(&marker, b"").map_err(|e| e.to_string())?;
+    let undo = || {
+        let on = restart_access_state(&settings.etc, Some(dir))["autologin"] == json!("ours");
+        if !existed && !on {
+            let _ = std::fs::remove_file(&marker);
+        }
+    };
+    if let Err(message) = set_autostart(&settings.home, &settings.unit_dirs, &settings.unit, true) {
+        undo();
+        return Ok((false, message));
+    }
+    reload_systemd();
+    let (ok, _, notice) = match helper("on") {
+        Ok(done) => done,
+        Err(message) => {
+            undo();
+            return Err(message);
+        }
+    };
+    if !ok {
+        undo();
+        return Ok((false, notice));
+    }
+    let (shown, _, why) = run_cli(
+        &settings.gnome_extensions,
+        &["enable".into(), LOCK_EXTENSION.into()],
+        Duration::from_secs(20),
+    )?;
+    if !shown {
+        return Ok((
+            false,
+            format!(
+                "the lock-screen extension could not be switched on ({}); the rest is set up",
+                why.trim()
+            ),
+        ));
+    }
+    *lock(&INPUT_CACHE) = None;
+    Ok((true, String::new()))
+}
+
 /// "Come back after a restart": the laptop's own password dialog (pkexec) covers the root-owned parts; the lock-at-login
 /// marker and the lock-screen extension are the owner's own.
 async fn restartaccess(State(app): State<App>, headers: HeaderMap, body: Bytes) -> Response {
@@ -1173,38 +1257,8 @@ async fn restartaccess(State(app): State<App>, headers: HeaderMap, body: Bytes) 
         return error(StatusCode::BAD_GATEWAY, "the laptop has no settings folder");
     };
     let settings = Arc::clone(&app.settings);
-    let ran = tokio::task::spawn_blocking(move || {
-        let verb = if enabled { "on" } else { "off" };
-        let (ok, _, notice) = run_cli(
-            &settings.pkexec,
-            &[
-                settings.restart_access.to_string_lossy().into_owned(),
-                verb.into(),
-            ],
-            Duration::from_secs(180),
-        )?;
-        if !ok {
-            return Ok((false, notice));
-        }
-        let marker = dir.join(LOCK_MARKER);
-        if enabled {
-            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-            std::fs::write(&marker, b"").map_err(|e| e.to_string())?;
-            let (shown, _, why) = run_cli(
-                &settings.gnome_extensions,
-                &["enable".into(), LOCK_EXTENSION.into()],
-                Duration::from_secs(20),
-            )?;
-            if !shown {
-                return Ok((false, format!("the lock-screen extension could not be switched on ({}); the rest is set up", why.trim())));
-            }
-        } else {
-            let _ = std::fs::remove_file(&marker);
-        }
-        *lock(&INPUT_CACHE) = None;
-        Ok::<_, String>((true, String::new()))
-    })
-    .await;
+    let ran =
+        tokio::task::spawn_blocking(move || apply_restart_access(&settings, &dir, enabled)).await;
     match ran {
         Ok(Ok((true, _))) => reply(
             StatusCode::OK,
@@ -1408,6 +1462,9 @@ async fn totp_verify(State(app): State<App>, headers: HeaderMap, body: Bytes) ->
     let Ok(TotpVerifyBody { code }) = object::<TotpVerifyBody>(&body) else {
         return error(StatusCode::BAD_REQUEST, "send {\"code\": \"123456\"}");
     };
+    if let Err(refusal) = change_allowed(&app, &headers, String::new()).await {
+        return refusal;
+    }
     let settings = Arc::clone(&app.settings);
     let pending = Arc::clone(&app.totp);
     let result = tokio::task::spawn_blocking(move || {

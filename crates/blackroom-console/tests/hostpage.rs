@@ -85,7 +85,7 @@ fn fixture() -> Fixture {
         effective: json!({ "http_listen": "127.0.0.1:8080", "tls_listen": null, "public": false, "clipboard": false }),
         unit: "blackroom-console.service".into(),
         managed: false,
-        unit_dirs: vec![],
+        unit_dirs: vec![dir.path().join("units")],
         home: dir.path().to_path_buf(),
         cli,
         state_dir: dir.path().join("hostd"),
@@ -115,6 +115,12 @@ fn fixture() -> Fixture {
             damaged: false,
         }),
     };
+    std::fs::create_dir_all(dir.path().join("units")).unwrap();
+    std::fs::write(
+        dir.path().join("units/blackroom-console.service"),
+        "[Service]\nExecStart=/bin/true\n",
+    )
+    .unwrap();
     let check: PasswordFactory = Arc::new(|| Box::new(Fake) as Box<dyn PasswordCheck>);
     Fixture {
         app: router(console, settings, check),
@@ -172,6 +178,25 @@ async fn login(app: &Router, password: &str) -> Response<Body> {
         ),
     )
     .await
+}
+
+/// Signed in and with "Enable editing" on, for tests of changes that need it.
+async fn signed_in_unlocked(app: &Router) -> String {
+    let cookie = signed_in(app).await;
+    let opened = send(
+        app,
+        request(
+            Method::POST,
+            "/host/unlock",
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            json!({ "password": "correct horse" }),
+        ),
+    )
+    .await;
+    assert_eq!(opened.status(), StatusCode::OK);
+    cookie
 }
 
 async fn signed_in(app: &Router) -> String {
@@ -462,7 +487,7 @@ async fn an_unusable_certificate_is_not_saved_and_remembered_modes_need_no_resta
 #[tokio::test]
 async fn settings_are_saved_validated_and_only_from_the_pages_own_origin() {
     let fixture = fixture();
-    let cookie = signed_in(&fixture.app).await;
+    let cookie = signed_in_unlocked(&fixture.app).await;
     let state = send(
         &fixture.app,
         request(
@@ -911,7 +936,7 @@ async fn lock_screen_access_is_the_extension_and_turning_it_on_needs_the_passwor
 #[tokio::test]
 async fn the_sign_in_method_needs_a_running_login_authority_and_setup_needs_the_password() {
     let fixture = fixture();
-    let cookie = signed_in(&fixture.app).await;
+    let cookie = signed_in_unlocked(&fixture.app).await;
     let state = json_of(
         send(
             &fixture.app,
@@ -947,6 +972,18 @@ async fn the_sign_in_method_needs_a_running_login_authority_and_setup_needs_the_
         "no login authority yet"
     );
     assert!(!fixture.dir.path().join("host.json").exists());
+    send(
+        &fixture.app,
+        request(
+            Method::POST,
+            "/host/lock",
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            json!({}),
+        ),
+    )
+    .await;
     let setup = |password: &str| {
         request(
             Method::POST,
@@ -973,6 +1010,24 @@ async fn the_sign_in_method_needs_a_running_login_authority_and_setup_needs_the_
     std::fs::create_dir_all(&runtime).unwrap();
     std::fs::write(runtime.join("auth.sock"), "").unwrap();
     std::fs::write(runtime.join("admin.sock"), "").unwrap();
+    // Changing how clients sign in needs editing enabled, whatever else the request holds.
+    assert_eq!(
+        send(&fixture.app, save(config.clone())).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert!(!fixture.dir.path().join("host.json").exists());
+    send(
+        &fixture.app,
+        request(
+            Method::POST,
+            "/host/unlock",
+            HOSTNAME,
+            Some(&own_origin()),
+            Some(&cookie),
+            json!({ "password": "correct horse" }),
+        ),
+    )
+    .await;
     assert_eq!(
         send(&fixture.app, save(config.clone())).await.status(),
         StatusCode::OK
@@ -1078,7 +1133,27 @@ async fn a_new_authenticator_replaces_the_old_one_only_after_a_right_code() {
     );
     assert_eq!(store(), before, "nothing is stored before a code proves it");
 
-    // A wrong or malformed code stores nothing; a right one does.
+    // Confirming needs editing enabled, and a wrong or malformed code stores nothing; a right one does.
+    let locked = send(
+        &fixture.app,
+        post("/host/totp/verify", json!({ "code": "000000" })),
+    )
+    .await;
+    assert!(
+        json_of(locked).await["error"]
+            .as_str()
+            .unwrap()
+            .contains("Enable editing")
+    );
+    assert_eq!(
+        send(
+            &fixture.app,
+            post("/host/unlock", json!({ "password": "correct horse" }))
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
     for bad in ["000000", "12345", "abcdef", ""] {
         let wrong = send(
             &fixture.app,
