@@ -83,10 +83,11 @@ Keep the key and recovery codes private. Do not photograph the QR code for shari
 2. On the tablet or phone, open the **HTTPS address** shown under **First steps** on the laptop. It usually looks like
    `https://YOUR-LAPTOP-ADDRESS:8443/`. Use the address actually shown by your laptop; do not type this example literally.
    `localhost` always means the device you are holding, so it is not the laptop's remote address.
-3. If the browser shows a certificate warning, **do not enter credentials yet**. Compare its certificate's SHA-256
-   fingerprint with the laptop's, using the [certificate-check steps](docs/ops/internet-access.md#2b-you-have-only-a-static-ip-address).
-   A fingerprint is an identifying string for the certificate; the two must match exactly. Stop if they differ or you
-   cannot verify them. A changed fingerprint on a later visit also needs checking.
+3. **Optional, recommended: check the certificate.** A first-visit browser warning is expected when Blackroom uses its own
+   self-signed certificate. For extra assurance, you can compare its SHA-256 fingerprint with the laptop's using the
+   [certificate-check steps](docs/ops/internet-access.md#2b-you-have-only-a-static-ip-address). A fingerprint identifies the
+   certificate; matching values help confirm you are connecting to your laptop. If they differ or change unexpectedly
+   later, check the address and certificate on the laptop before signing in.
 4. Enter the laptop account name, password, current authenticator code and Remote Access Key. Choose **Trust this browser**
    only on your own device: it replaces the key on future visits, **not** the password or authenticator code.
 5. For the first test, choose **Shared**, then **Connect**. You should see the same desktop on both devices. Move the
