@@ -589,12 +589,12 @@ async fn main() -> anyhow::Result<()> {
     if host.audio_sink.is_some() {
         args.audio_sink.clone_from(&host.audio_sink);
     }
-    // How clients sign in: the owner's choice wins; a login authority that is not running falls back to the token address.
+    // How clients sign in: the owner's choice wins; an unavailable authority never lowers the selected protection.
     let default_hostd = runtime
         .as_ref()
         .map_or_else(|| state_dir.clone(), Clone::clone)
         .join("blackroom-hostd");
-    let mut login_note = None::<String>;
+    let login_note = None::<String>;
     match host.login {
         Some(blackroom_console::host::LoginMethod::Hostd) => {
             args.auth_dir = None;
@@ -602,16 +602,11 @@ async fn main() -> anyhow::Result<()> {
                 .hostd_dir
                 .clone()
                 .unwrap_or_else(|| default_hostd.clone());
-            if sockets_present(&dir) {
-                args.hostd_dir = Some(dir);
-            } else {
-                args.hostd_dir = None;
-                login_note = Some(
-                    "the login authority (remote-hostd) is not running, so the one-time address is used: set it up in the host settings"
-                        .into(),
-                );
-                tracing::warn!("{}", login_note.as_deref().unwrap_or_default());
-            }
+            anyhow::ensure!(
+                sockets_present(&dir),
+                "three-factor sign-in is configured but the login authority is unavailable: start remote-hostd.service or run blackroom setup on this laptop; refusing to use a token address"
+            );
+            args.hostd_dir = Some(dir);
         }
         Some(blackroom_console::host::LoginMethod::Token) => {
             args.hostd_dir = None;
@@ -861,7 +856,7 @@ async fn main() -> anyhow::Result<()> {
     }
     blackroom_console::display::write_private(&state_dir, "url", all_urls.join("\n").as_bytes())?;
     println!(
-        "Panel stuck black? pkill -KILL -x remote-emergenc; exp07_restore --keep-live-virtual --lock-after --backup {}/backup.json; loginctl unlock-session <id>",
+        "Panel stuck black? Wait up to 60 seconds for recovery. Do not unlock the screen over SSH. See /usr/share/doc/blackroom-console/emergency-recovery.md (docs/ops/emergency-recovery.md in the source tree). Backup: {}/backup.json",
         state_dir.display()
     );
 

@@ -71,7 +71,18 @@ listeners=$(ss -ltnH 2> /dev/null)
 check "plain http is on 127.0.0.1" "$(echo "$listeners" | grep -c '127.0.0.1:18180')" 1
 check "https is on 127.0.0.1" "$(echo "$listeners" | grep -c '127.0.0.1:18443')" 1
 check "nothing listens on all addresses" "$(echo "$listeners" | grep -cE '(0.0.0.0|\*):1(8180|8443)')" 0
+check "startup recovery advice never suggests unlocking" "$(grep -c 'loginctl unlock-session' "$home/serve.log")" 0
+check "startup recovery advice warns against an SSH unlock" "$(grep -c 'Do not unlock the screen over SSH' "$home/serve.log")" 1
 kill "$pid" 2> /dev/null; wait "$pid" 2> /dev/null
+
+echo "== configured three-factor sign-in never falls back to a token when the authority is absent"
+printf '{"login":"hostd"}\n' > "$profile/host.json"
+timeout 5s "$C" --headless --no-control --state-dir "$home/state" --cert-dir "$home/cert" --profile-dir "$profile" \
+  --hostd-dir "$home/missing-authority" --listen 127.0.0.1:18180 --tls-listen 127.0.0.1:18443 > "$home/serve.log" 2>&1
+code=$?
+check "startup fails promptly, not after a timeout" "$([ "$code" != 0 ] && [ "$code" != 124 ] && echo yes || echo no)" yes
+check "the authority failure is explained" "$(grep -c 'three-factor sign-in is configured' "$home/serve.log")" 1
+check "no token address is offered" "$(grep -cE 'Open one of these|one-time address is used' "$home/serve.log")" 0
 
 echo "== the real start-up refuses internet mode with a gap"
 rm -f "$profile/host.json"

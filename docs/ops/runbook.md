@@ -5,7 +5,7 @@ For the person who owns the laptop. Everything here is a command you type; nothi
 ## First time
 
 From the pages (no terminal): open **Blackroom Console** in the applications menu and sign in to Host settings with your laptop
-password; the **First steps** card lists what is left. Press "Set up the login authority" (authenticator QR, Remote Access Key and
+password; the **First steps** card lists what is left. Press **Enable editing**, then "Set up remote sign-in" (authenticator QR, Remote Access Key and
 recovery codes, shown once), then "Allow keyboard blocking" (a password dialog on the laptop; needed once per boot, only for
 Private sessions), then open the address the card names on the tablet. Store the key and the recovery codes in a password manager.
 
@@ -51,7 +51,7 @@ Clipboard: the two buttons under the keyboard row send text to the laptop or fet
 | Anything odd | `blackroom repair` (read-only report; it also names an older `blackroom` earlier in `PATH` and a plain-http address left on `0.0.0.0` while https is on), then `blackroom repair --fix` for the safe fixes |
 | Panel stays black, no tablet | Wait 60 s (the restore timer restores the display and locks). Then you see the lock screen: type your password. Still black: from another device over SSH run `systemctl --user stop blackroom-console.service`, then see `emergency-recovery.md`. Do not use `loginctl unlock-session` to fix a black panel: it removes the lock |
 | "no rw access" or the grab does not start | `sudo blackroom-grant-input status`, then `sudo blackroom-grant-input grant` (the ACLs reset at reboot) |
-| Login says the authority is unavailable | `systemctl --user status remote-hostd.service`, `journalctl --user -u remote-hostd -n 30`; `blackroom repair --fix` |
+| Login says the authority is unavailable, or startup refuses because three-factor sign-in is configured | `systemctl --user status remote-hostd.service --no-pager`, `journalctl --user -u remote-hostd -n 30`; `blackroom repair --fix`. Start `remote-hostd.service`, then the console. Missing authority sockets no longer fall back to a token login |
 | Login refused after typos | Five failures from one address lock it for 15 minutes (doubling to 4 hours). Wait, or use a trusted browser |
 | Lost phone or authenticator | `blackroom reset security` on the laptop (new authenticator, key and recovery codes; every trusted browser is dropped) |
 | Lost the key only | `blackroom --state-dir ~/.local/share/blackroom-console/hostd rotate-key --account $USER --revoke-devices` |

@@ -169,3 +169,19 @@ Direct marked untested. W2 (deferred review findings, read against the live code
   held files). The three held files are still local and unscrubbed (they were never committed); scrub them before committing them.
 - Release review (GPT-6.1 Sol, 2026-10-07): 13 findings, 12 fixed in code, tests and docs, 1 accepted (see `docs/RELEASE_NOTES.md`).
 - Signing key: `docs/release-signing.pub` (SHA256:dKAVUtXfy8QJQCtHO/VOR5Jxjn9MV3WW3BSubndAOGE).
+
+## Requested security, host UI and README follow-up (2026-10-07)
+- Fixed a reproduced authentication downgrade: saved three-factor login with missing authority sockets refuses startup,
+  rather than falling back to a token URL. The existing real-process internet test was red before and green after the fix.
+- Removed runtime recovery advice that suggested an SSH screen unlock; startup output now warns against it and points
+  to the recovery guide. The real-process test pins the privacy-preserving message; no unlock was performed.
+- Host UI only: desktop label/control columns, current-section navigation, shorter dropdown labels, responsive layout and
+  a save footer that cannot cover settings when errors are long. Existing host-page suite passes, with new checks and
+  synthetic screenshots at 360, 390, 768 and 1280 pixels. Client UI unchanged.
+- README rewritten for first-time nontechnical users; local file/heading links checked. Review and limits recorded in
+  `docs/security/red-team-report.md`, final follow-up section. No guarantee of zero bypasses; automatic login, lock-screen
+  access, phishing and same-user compromise remain explicit risks.
+- Passed: workspace Rust tests (agent separately), fmt, clippy, deny, audit, host-page Chrome, internet startup regression,
+  adversarial HTTP/TLS and package scripts. No real GNOME mutation, live console restart, clean-machine install or new soak.
+- Owner-held HANDOFF, experiment-safety and Phase 5 plan kept untouched. New installer must be installed by the owner;
+  the running installed console has not received these changes.

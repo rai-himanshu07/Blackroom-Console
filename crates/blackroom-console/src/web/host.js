@@ -7,6 +7,21 @@ let saved = null;     // the host.json the laptop holds
 let state = null;     // the last /host/state
 let timer = 0;
 
+const sectionLinks = [...document.querySelectorAll(".sections a")];
+function updateSection() {
+  const top = $("home").getBoundingClientRect().top + 48;
+  const visible = sectionLinks.filter((link) => !document.querySelector(link.hash).hidden);
+  let current = visible[0];
+  for (const link of visible) {
+    if (document.querySelector(link.hash).getBoundingClientRect().top <= top) current = link;
+  }
+  for (const link of sectionLinks) {
+    if (link === current) link.setAttribute("aria-current", "location");
+    else link.removeAttribute("aria-current");
+  }
+}
+$("home").addEventListener("scroll", updateSection, { passive: true });
+
 async function api(method, path, body) {
   const response = await fetch(path, {
     method, credentials: "same-origin",
@@ -30,6 +45,7 @@ function show(view) {
   $("appView").hidden = view !== "app";
   $("savebar").hidden = view !== "app";
   $("logout").hidden = view !== "app";
+  if (view === "app") updateSection();
   // Leaving the signed-in view (sign out, expired session) must not leave secrets or typed passwords behind.
   if (view !== "app") {
     hideSecret();

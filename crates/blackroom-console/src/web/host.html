@@ -12,7 +12,7 @@
 <body data-view="home" class="host-page">
 <main id="home">
   <header class="brand">
-    <div><h1>Host settings</h1><p id="hostline">What this laptop allows its remote clients</p></div>
+    <div><h1>Blackroom Console</h1><p id="hostline">Host settings</p></div>
     <button type="button" id="logout" class="ghost" hidden>Sign out</button>
   </header>
 
@@ -61,8 +61,8 @@
       <label class="field">Sign-in method
         <select data-key="login" data-type="string-or-null">
           <option value="">Keep the way the console was started</option>
-          <option value="hostd">Linux password + authenticator code + Remote Access Key (recommended)</option>
-          <option value="token">One-time address with a token (no sign-in page)</option>
+          <option value="hostd">Password, code and key (recommended)</option>
+          <option value="token">One-time token address</option>
         </select>
       </label>
       <p class="note" id="loginNote"></p>
@@ -128,8 +128,8 @@
       </div>
       <label class="field">Approving a connection
         <select data-key="approval">
-          <option value="never">Never ask: a client with the right login connects at once</option>
-          <option value="ask">Ask on this laptop: Accept or Deny, denied after 30 seconds</option>
+          <option value="never">Connect after sign-in</option>
+          <option value="ask">Ask on this laptop (30 seconds)</option>
         </select>
       </label>
       <p class="note">With "Ask", nobody can connect while you are away from the laptop.</p>
@@ -149,9 +149,9 @@
       <h3>Access from outside</h3>
       <label class="field">How this laptop is reached
         <select id="accessMode">
-          <option value="vpn">Private VPN, such as Tailscale (recommended: nothing is opened to the internet, no router changes)</option>
+          <option value="vpn">Private VPN (recommended)</option>
           <option value="home">Home network only</option>
-          <option value="direct">Directly from the internet (riskier: reachable by scanners, needs router forwarding; tested once with a static IP)</option>
+          <option value="direct">Direct internet access (advanced)</option>
         </select>
       </label>
       <p class="note" id="accessHelp"></p>
@@ -170,8 +170,8 @@
         <label class="field">The address or name your devices type <input type="text" id="directName" spellcheck="false" placeholder="home.example.org or 203.0.113.7"></label>
         <label class="field">Certificate
           <select id="directCert">
-            <option value="ca">Files from a real authority (a name, for example Let's Encrypt)</option>
-            <option value="self_signed">The console's own self-signed one (a bare IP address; compare the fingerprint on the first visit)</option>
+            <option value="ca">Trusted certificate files</option>
+            <option value="self_signed">Self-signed (compare fingerprint)</option>
           </select>
         </label>
         <div class="row" id="directFiles">

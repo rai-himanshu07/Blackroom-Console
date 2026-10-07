@@ -1,5 +1,8 @@
 # Red-team report (hardware-free) — 2026-10-03
 
+**Current follow-up review: 2026-10-07**, recorded at the end of this document. Earlier dated sections are historical,
+not a list of defects still open. No review establishes that every possible bypass has been excluded.
+
 Scope: what a hostile browser tab, a hostile page on another origin, a network peer, a malformed or oversized request, or a
 non-root local user can do to the console without any display, input device or Shell. This is an internal review by the
 author of the code with automated tests; it is **not** an independent penetration test. Items that need hardware, a
@@ -54,7 +57,8 @@ second Unix user, or a real phone are listed at the end as untested.
 - **Lock-screen access** is a switch (host page, tray) that enables the existing lock-screen extension. The host page asks for
   the password to turn it on and warns that locking then no longer ends a remote session; the tray switch needs a person at
   the unlocked laptop. **Sign-in method** (`host.json` `login`): saving "hostd" is refused while the login authority is not
-  running, and at start an absent authority falls back to the token address rather than leaving the console unreachable.
+  running. The original startup token fallback was removed in the 2026-10-07 follow-up below: configured three-factor login
+  now fails closed when the authority is absent.
 - **Limits are enforced by the laptop**, not the page: a start outside the owner's modes is refused (403), numbers are
   clamped, sound and text typing are refused when switched off (`tests/adversarial.rs`).
 - **Approve each connection** (Ask): only the laptop's D-Bus service or the host page can answer; a stale or invented id
@@ -126,3 +130,67 @@ trust-on-first-use; nothing was tried against a real router, authority or mobile
 Real phone on mobile data, Safari and iOS behaviour, a second Unix user on the same laptop, the one-hour live soak, the
 packaged install on a clean account, a CGNAT/symmetric-NAT client without TURN, and any test by someone other than the
 author. The one independent review of the release was the read-only round above (2026-10-04); its fixes were not re-reviewed.
+
+## Final security follow-up (2026-10-07)
+
+Requested after the earlier release review and fixes. This is a source review with hardware-free tests, not an independent
+external penetration test. It covers the shipped console's HTTP/control routes, login authority, host-page editing,
+credential store, media authorization callbacks, startup exposure checks and packaged privileged helpers. The old
+simulation gateway is not the installed entry point. GNOME isolation results already accepted with limits were not reopened.
+
+### Confirmed findings and fixes
+
+**High: a configured three-factor login could downgrade at startup.** In
+[main.rs](../../crates/blackroom-console/src/main.rs), saved `login=hostd` plus missing authority sockets cleared `hostd_dir`
+and served a token URL instead. Public-mode preflight refused that downgrade, but LAN/VPN startup did not. A token holder
+could therefore use a weaker login than the owner selected; missing sockets alone did not give an anonymous caller access.
+
+Fixed: startup refuses before creating network listeners when the selected authority is missing. It explains how to start
+the authority or run local setup, and does not issue a token URL. Explicit token mode remains an opt-in development mode;
+it is not a substitute chosen automatically for configured three-factor login.
+
+The real-process regression in [internet-test.sh](../ops/internet-test.sh) failed on the old binary (token URL offered,
+process stayed running) and passed after the change (prompt startup error, no token URL). The test uses a throwaway HOME,
+missing authority path and headless mode; it never starts a desktop session.
+
+**Medium: startup recovery advice removed the screen lock.** The runtime message still suggested
+`loginctl unlock-session` after a black panel, despite the runbook warning not to do that. Following it remotely could
+reveal the desktop to someone beside the laptop; it was unsafe recovery advice, not an anonymous remote-login exploit.
+Fixed: the message warns against an SSH unlock and points to the recovery guide. The same real-process script confirms
+that the unlock command is absent and the warning is present. No unlock was performed during this review.
+
+### Boundaries checked
+
+| Boundary | Evidence in this run |
+|---|---|
+| Anonymous requests, near-miss cookies, hostile origins, body limits and malformed input | Workspace console/adversarial tests passed |
+| Host-page login, five-minute edit permission, protected saves, credential changes, authenticator confirmation and sign-out | Host-page Rust and isolated Chrome tests passed |
+| Concurrent password reservations, independent factors, recovery-code limits, replay, revocation and emergency latch | Login-authority and credential-lifecycle tests passed |
+| Owner-only credential files, no-follow reads, atomic writes and socket peer UID checks | Live-source inspection and existing store/authority tests passed |
+| MJPEG and WebRTC/data-channel authorization | Source inspection of gates and generation checks, plus existing gate tests; no new end-to-end revoked WebRTC peer test |
+| TLS, Secure/HttpOnly/SameSite cookies, CSP, stale/hostile HTTP clients | `adversarial-net-test.sh`: NET OK |
+| Administrator requirement, GDM cleanup, lock-first setup and package-removal safeguards | Polkit/source inspection, host-page tests and `package-scripts-test.sh`: PACKAGE SCRIPTS OK |
+| Dependency security and lint | `cargo clippy --workspace --all-targets -- -D warnings`, `cargo deny check`, `cargo audit`: passed |
+
+The workspace test checkpoint was `cargo test --workspace --exclude gnome-session-agent`, then
+`cargo test -p gnome-session-agent`; both passed, as did `cargo fmt --check`. Real-GNOME ignored tests stayed ignored.
+Graph discovery was checked against live source; coverage metadata is best-effort and not proof of completeness.
+
+### Residual risks and limits
+
+- No further authentication bypass was confirmed in the reviewed paths. This is a bounded result, **not a guarantee of no
+  bypass**. No fresh UDP/DTLS/SCTP fuzzing, exhaustive race exploration, sustained denial-of-service test or external
+  penetration test was performed. Media revocation is polled and is not instantaneous.
+- The owner account is the trust boundary. A compromised same-user program can reach the owner's files and sockets; this
+  application does not isolate remote work from malicious programs already running as that user.
+- **Automatic login is not a fail-closed boot privacy boundary.** The optional restart-access feature shows the desktop
+  before a later lock and grants persistent input access. Leave it off when that trade-off is unacceptable. A failed boot
+  lock on real hardware was not exercised here.
+- **Lock-screen remote access changes GNOME's lock semantics.** While enabled, locking alone is not a remote-session kill
+  switch. This does not remove the Linux password requirement, but same-user processes can also open remote handles.
+- Self-signed certificates require independent fingerprint comparison, and the login factors are not phishing-resistant.
+  Prefer a private VPN and a trusted certificate. Home/VPN labels do not enforce a firewall boundary.
+- The emergency chord releases blocked input and closes remote login, but does not lock by itself; it is only available
+  while the keyboard grab is active. Physical privacy/recovery was not newly observed in this run.
+- A new clean-machine install/upgrade/remove, sleep/lid-close test, certificate renewal, long live soak, second Unix user
+  and untested browsers remain outside this run. The installed console was not restarted or replaced.

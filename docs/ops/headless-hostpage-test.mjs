@@ -128,6 +128,27 @@ const shotOf = async (name, selector) => {
 };
 check("sign-in and credentials come before the limits, with a section menu", (await js("(() => { const ids = [...document.querySelectorAll('#appView section.card')].map((s) => s.id); return ids.indexOf('credCard') < ids.indexOf('whoCard') && document.querySelectorAll('#appView nav.sections a').length >= 4 && [...document.querySelectorAll('#appView nav.sections a')].every((a) => document.querySelector(a.getAttribute('href'))); })()")) === true);
 check("what is listening is shown by interface, not claimed private", /Listening now: plain http on 127\.0\.0\.1:\d+ \(this laptop only\)/.test(await js("document.getElementById('listenLine').textContent")));
+for (const width of [360, 390, 768, 1280]) {
+  await cdp("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+  await js("document.getElementById('home').scrollTop = 0; true");
+  await sleep(100);
+  const layout = await js(`(() => {
+    const home = document.getElementById('home');
+    const controls = [...document.querySelectorAll('#appView input, #appView select, #appView button, #savebar button')].filter((el) => el.getClientRects().length);
+    return { fits: home.scrollWidth <= home.clientWidth, controls: controls.every((el) => { const box = el.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth && box.width >= 20 && box.height >= 20; }), named: document.querySelectorAll('.sections a[aria-current="location"]').length === 1, footer: home.getBoundingClientRect().bottom <= document.getElementById('savebar').getBoundingClientRect().top + 1 };
+  })()`);
+  check(`settings fit at ${width}px with no horizontal overflow, footer overlap or ambiguous current section`, layout.fits && layout.controls && layout.named && layout.footer, JSON.stringify(layout));
+  const longNotice = await js(`(() => { const note = document.getElementById('saveNote'); const original = note.textContent; note.textContent = 'A protected setting could not be saved. '.repeat(24); const home = document.getElementById('home').getBoundingClientRect(); const bar = document.getElementById('savebar').getBoundingClientRect(); const fits = home.bottom <= bar.top + 1 && home.height > 0 && bar.height <= innerHeight * 0.41; note.textContent = original; return fits; })()`);
+  check(`a long action error cannot cover settings at ${width}px`, longNotice);
+  if (process.env.BR_SHOT_DIR) {
+    const shot = await cdp("Page.captureScreenshot", { format: "png" });
+    writeFileSync(`${process.env.BR_SHOT_DIR}/host-layout-${width}.png`, Buffer.from(shot.result.data, "base64"));
+  }
+}
+await cdp("Emulation.clearDeviceMetricsOverride");
+await js("document.getElementById('laptopSection').scrollIntoView(); true");
+await sleep(150);
+check("the section menu follows the scrolled section", (await js("document.querySelector('.sections a[aria-current=location]')?.hash")) === "#laptopSection");
 await shotOf("host-1-full-page");
 check("the access switch starts on home only, without a renewal banner", (await js("document.getElementById('accessMode').value")) === "home" && !(await visible("certBanner")));
 await setAccess("accessMode", "vpn");

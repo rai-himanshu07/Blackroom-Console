@@ -104,3 +104,12 @@ sign-in method, approval and listener changes and confirming an authenticator no
 its video and sound; running password checks count against the failure limits; restart access also turns on start at login;
 docs reconciled. Accepted: a Samsung monitor's serial string in the experiment evidence (a generic value, owner-approved
 publication). The fixes were checked by tests and the headless suites, not by a second review.
+
+**Requested final follow-up (2026-10-07):** found and fixed a startup authentication downgrade: a saved three-factor login
+with missing authority sockets now refuses to start instead of serving a token URL. A real-process test reproduced the old
+behavior and verified the fix. Host settings now has aligned desktop sections, current-section navigation, shorter dropdown
+labels and a non-overlapping save footer, checked at 360/390/768/1280 pixels. Runtime recovery advice no longer suggests
+removing the Ubuntu screen lock to recover a black panel; that wording is tested too. The client UI is unchanged. The README now walks
+through installation, sign-in, first Shared connection, Private mode, outside access and recovery. Details and remaining
+security limitations: [red-team-report.md](security/red-team-report.md#final-security-follow-up-2026-10-07). No claim of zero
+possible bypasses is made; no new live desktop or clean-machine package test was performed.
