@@ -29,13 +29,21 @@ This preview has no file transfer and no multi-user or multi-controller support.
 
 ## 1. Install on the laptop
 
-You need the **Blackroom Console `.deb` installer** from a source you trust. The source-code ZIP is not an installer.
-If you only have the source code, use [Build from source](#build-from-source) below, or have someone build the installer
-for you. Do not install an unknown copy: this application can control your desktop.
+Download the **[Ubuntu installer (.deb)](https://github.com/rai-himanshu07/Blackroom-Console/releases/download/v0.1.0/blackroom-console_0.1.0-1_amd64.deb)**
+from the **[v0.1.0 release page](https://github.com/rai-himanshu07/Blackroom-Console/releases/tag/v0.1.0)** and save it in
+**Downloads**. This installer is for 64-bit Intel/AMD processors (`amd64`), with the laptop requirements listed above.
+Choose the `.deb` file, not GitHub's "Source code" ZIP or tarball. You do not need to build the application yourself.
 
-For a signed release, check the package with the supplied [verification script](docs/ops/verify-release.sh) before
-installing it. It needs the package, `SHA256SUMS`, `SHA256SUMS.sig` and a trusted copy of the
-[release public key](docs/release-signing.pub). A technically confident person can help with this check.
+The release also includes `SHA256SUMS`, `SHA256SUMS.sig`, `verify-release.sh` and `release-signing.pub` for checking the
+installer's integrity and signature. A technically confident person can help: download those four files alongside the
+installer, then run:
+
+```bash
+bash ~/Downloads/verify-release.sh ~/Downloads ~/Downloads/release-signing.pub
+```
+
+The expected signing-key fingerprint is `SHA256:dKAVUtXfy8QJQCtHO/VOR5Jxjn9MV3WW3BSubndAOGE`; a successful check ends with
+**RELEASE OK**. Keep the files together and use a trusted copy of the [release public key](docs/release-signing.pub).
 
 If Ubuntu offers **Open With > Software Install** for the downloaded `.deb`, open it that way and choose **Install**.
 Otherwise, for version 0.1.0, put the installer in **Downloads**, open **Terminal** and enter these two lines:
