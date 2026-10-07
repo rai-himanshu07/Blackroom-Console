@@ -1,6 +1,31 @@
 # Experiment safety procedure
 
-§1–4 are mandatory before any experiment that changes **physical** display or input state
+## Standing approval (2026-10-02, owner decision; current for the validated flow only)
+
+The integrated live flow (`docs/ops/live-integrated-run.sh`, later the product Start/Stop) is validated on this host:
+eDP-only, scale 1.0, built-in input nodes, restore watchdogs with `--keep-live-virtual`. For that flow:
+
+This section supersedes older run-by-run approval and no-repeat restrictions only for the declared flow. It does not
+authorize HDMI, hotplug, another layout or an untested recovery change. The dated incidents and spent approvals below
+remain historical evidence, not standing permission. Product recovery steps are in [emergency-recovery.md](emergency-recovery.md).
+
+- The operator's instruction to run it, or to run the product, is the approval: no per-run approval question, no
+  independent review, no repeat prohibition.
+- The kit stays because it is cheap and this is the only machine: work saved, tablet SSH connected, AC on, kill timer
+  and restore watchdog armed by the tool, input ACLs set by the operator.
+- A NEW risk class gets one chat sentence first (the risk and the recovery; the operator says go): a different layout
+  or scale, HDMI or hotplug, self-kill tests, lock or disconnect while remote input is live, a change to the restore
+  config path, or the first live use of new product code.
+- Evidence is the tool's generated evidence directory plus one line in the active plan's log: what ran, pass or fail,
+  what it did not cover. No observation documents and no doc rewrites per run; roadmap and handoff are updated at
+  milestones only.
+- A Shell crash or a panel that stays blank is still a stop: report, recover, fix, then continue. It does not freeze the
+  project.
+- Never remove the live virtual monitor from an applied config while its PipeWire consumer streams. Do not apply display
+  config immediately after owner death; preserve the validated restore ordering and original Shell/session identity.
+
+The recovery safeguards in §1–4 remain mandatory before an experiment that changes **physical** display or input state;
+historical command-specific approvals do not override the current standing-approval scope.
 (Document 10 Experiment 6 "Physical Output Isolation" onward, Experiment 9 "Physical Input
 Isolation" onward — **not** required for the read-only Phase 0–1 experiments 0–2, nor for
 Phase 4's Experiments 3–5, which create only a virtual monitor alongside the existing
@@ -24,8 +49,8 @@ this selection rule; the prerequisites below and §7 still apply to each run.
 
 ## 1. Out-of-band access (prerequisite, verified once)
 
-- `openssh-server` is installed and socket-activated (`ssh.socket`), LAN address
-  `192.168.1.50`.
+- On the tested host, `openssh-server` is installed and socket-activated (`ssh.socket`). Use the host's current address;
+  no machine-specific network address is published here. Confirm a fresh second-device SSH connection before a live run.
 - A second device (tablet/phone, e.g. Termux) must reach the host over SSH using
   **key-based** authentication before Experiment 6/9 run for the first time.
 - Status as of 2026-09-05: **Verified.** `ssh.socket` active; tablet ed25519 key installed
@@ -38,12 +63,14 @@ this selection rule; the prerequisites below and §7 still apply to each run.
 ## 2. Experiment watchdog (armed before every mutating experiment)
 
 - Before applying a display- or input-state change, the experiment binary arms a restore
-  timer: `systemd-run --user --on-active=<N>s <restore-command>` (or an in-process
-  equivalent), default `N = 45` seconds.
+  timer: `systemd-run --user --timer-property=AccuracySec=1s --working-directory=<absolute-run-directory>
+  --on-active=<N>s -- <absolute-restore-command>` (or the validated equivalent), with an absolute backup path.
+  The historical exp06 default is 45 seconds; the product uses a rolling 60-second restore watchdog.
 - The watchdog is disarmed only after the operator confirms recovery over the out-of-band
   SSH channel (not over the connection/session being tested).
 - If confirmation does not arrive in time, the timer fires and restores the pre-experiment
-  state unconditionally.
+  state only against the original Shell/session identity. If that identity changed, restoration must refuse rather than
+  applying an old backup to a replacement session; recover locally and record the failure.
 - Status as of 2026-09-05 (Phase 5, first implementation): `exp06_isolate_outputs` arms
   `systemd-run --user --unit=blackroom-exp06-watchdog-<unix-timestamp>
   --on-active=<N>s -- <path-to-exp07_restore> --backup <path-to-backup.json>` before its
@@ -63,7 +90,8 @@ this selection rule; the prerequisites below and §7 still apply to each run.
   invoked `exp07_restore` with the correct absolute path, and restored correctly
   (`journalctl` showed `Result: PASS`; independently confirmed via a fresh
   `GetCurrentState` read and a `gnome-shell` health check). The watchdog mechanism is now
-  considered trustworthy for `eDP-1`/`HDMI-1` zero-physical isolation on this host.
+  proven to have worked for that recorded run. This did not establish every topology or abnormal-termination case;
+  the later connected-HDMI failures below limit the accepted product layout to the built-in panel.
 
 ## 3. VT fallback (display-only experiments)
 
@@ -132,6 +160,10 @@ this selection rule; the prerequisites below and §7 still apply to each run.
 
 ## 7. Supervised diagnostics (product stop still applies)
 
+**Historical procedure (September 2026).** Its command-specific approvals and original product-stop statements are
+preserved below. For today's supported-flow work, use the standing-approval section at the top; unsupported layouts and
+new risk classes still need explicit approval and recovery controls. No historical PASS authorizes a new support claim.
+
 This is a recovery procedure, not blanket authorization to run an experiment. Before
 any new GNOME mutation, the operator must be at the workstation, establish a fresh SSH
 login from a second device, and approve the exact command and run conditions. Keep that
@@ -166,7 +198,7 @@ GNOME session is still alive:
    the exact absolute `backup.json` path exp06 printed. From SSH as the same user:
 
    ```sh
-   repo='/media/user/Playground/Playground_Sys/Blackroom Console'
+  repo='/absolute/path/to/Blackroom Console'
    backup='/absolute/path/printed/by/exp06/backup.json'
    cd "$repo"
    test -f "$backup" && XDG_RUNTIME_DIR="/run/user/$(id -u)" \
@@ -174,7 +206,9 @@ GNOME session is still alive:
      "$repo/target/debug/exp07_restore" --backup "$backup"
    ```
 
-   Confirm physical output and desktop visibility independently. If exp06 is still
+   Confirm physical output and desktop visibility independently. For an `exp06 --integrated-probe` run with its owner
+   still alive, add `--keep-live-virtual` to that command (Mutter crashes otherwise; see docs/gnome/display-isolation.md).
+   If exp06 is still
    paused, send Enter to its original terminal only after restoration so it can stop
    its ScreenCast session; never assume exp07 removed that session for it.
 
@@ -298,7 +332,9 @@ second-device SSH remained usable, but original physical inventory was not
 restored. No manual exp07 retry, GPU reset or extra cable cycle is authorized
 by that run. The service reported success despite exp07 printing FAIL; a
 subsequent synthetic-tested change makes future FAIL reports exit nonzero.
-Preserve this failure and the product/Gate C stop.
+The external monitor normally enters standby without an input signal; standby
+alone is neither evidence of a monitor fault nor independent proof of physical
+privacy. Preserve the kernel/Mutter findings and the product/Gate C stop.
 
 **2026-09-27 unplugged-HDMI outcome: no repeat.** The one approved run reached
 Meta-0-only logical topology with power OFF. The first exp07 watchdog PASS
@@ -432,3 +468,9 @@ whether a deliberate exp06 kill preceded it is unknown (the operator no longer r
 Doc 00 §49 / Doc 10 §49's Mutter-instability stop condition now applies: do not run
 another physical-output mutation or the crash-recovery scenario on this host without
 a new safety review and explicit operator approval. Gate FEAS-C is not proven.
+
+2026-10-01 update: for the declared single built-in eDP-1 layout only, FEAS-C is recorded
+PASS-WITH-LIMITS (`docs/gnome/display-isolation.md`) after a supervised, operator-approved
+run; this supersedes the stop above for that layout and nothing else. Connected HDMI stays
+stopped. Since 2026-10-02, the standing approval at the top governs the validated flow; a new layout, intentional kill,
+or recovery change still requires its own explicit risk/approval step. The older run-specific rules above are historical.

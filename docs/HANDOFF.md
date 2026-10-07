@@ -1,40 +1,33 @@
 # Handoff: Blackroom Console
 
-**Updated:** 2026-09-27 (implementation-first; Gate FEAS-C stopped)
-**Workspace or branch:** Git repo, branch `main`
-**Active plan:** docs/plans/plan-20260927-offline-phase7-11.md (Phase 6 PoC remains partial)
-**Task tier:** governed
-**Memory:** wing `blackroom_console`
+**Updated:** 2026-10-07 (v0.1.0 public technical preview)
+**Current status:** [release and implementation record](plans/plan-20261004-status.md)
+**Plan:** [final implementation plan](plans/plan-20261004-final-plan.md), under the MVP fast path
+**Branch:** `main` | **Memory:** wing `blackroom_console` | Routine work: mini/compact; release: governed
 
 ## Current State
-- Steps 1–4 complete. Watchdog path/cwd and pause-restore bugs fixed; unattended
-  restore verified. PowerSaveMode blanking observed on `eDP-1` and both outputs.
-- Connected-HDMI run: exp06 FAIL (pre-repair eDP+HDMI active); local reapply
-  corrected logical topology; first exp07 PASS, second exp07 FAIL after raw
-  HDMI vanished despite plugged cable and one re-seat. eDP/SSH usable;
-  Shell/session/power stable, no timers, service disabled/inactive. Gate C STOP.
-- Earlier GNOME Shell SIGSEGV/logout unexplained; old logs absent.
+- [v0.1.0 release](https://github.com/rai-himanshu07/Blackroom-Console/releases/tag/v0.1.0): signed tag, installer,
+  checksum manifest/signature, public key and verification script; public downloads verified with `RELEASE OK`.
+- Shipped app: `blackroom-console`, with Private/Shared sessions, WebRTC video/sound, MJPEG fallback, text clipboard,
+  three-factor hostd login, host settings, tray, credential CLI and packaged units. The old simulation chain is not the MVP.
+- [README](../README.md) covers install, setup, connection, ports and recovery; host settings are laptop-only on port 8090.
+- Code gates, headless/browser/network/package checks and release review passed with recorded limits. Do not rerun them
+  merely for documentation. Latest security fixes and evidence: [security report](security/red-team-report.md).
+- Support is narrow: [compatibility table](ops/compatibility-matrix.md). Built-in panel only; external outputs unsupported.
 
-- Separated HTTP idle/start/input/revoke; verified hostd EOF cleanup permits
-  restart at a new epoch; agent loss stays FAILED_SAFE. Scratch remnants in `/tmp`.
-- Offline Phase 7–11: fake input/lock/transaction, signed lease and rotating
-  Start proof, emergency epoch, idle expiry. Durable pending marker clears
-  after verified fake cleanup; unverified restart reports FAILED_SAFE.
+## Safety and Decisions
+- Never remove the live virtual monitor from a config while its PipeWire consumer streams, or apply display config
+  immediately after owner death. Restore only against the original Shell/session identity; never auto-unlock.
+- Normal Stop restores display/input and locks only per the session setting. The emergency chord needs an active grab,
+  closes remote login until local recovery and does not lock by itself. See [recovery](ops/emergency-recovery.md).
+- Lock-screen remote access and automatic login have explicit privacy trade-offs; missing configured hostd fails closed.
+- Accepted FEAS-A/C/D/E and integrated results remain scoped and accepted; do not reopen them or infer unobserved PASS.
+- [Experiment safety](ops/experiment-safety.md): supported-flow standing approval, recovery kit, one log line per live run;
+  a new risk class needs the risk/recovery explained and operator approval. Operator cues must be audible when blanked.
 
-## Decisions
-- Browser supports EPHEMERAL, PERSISTED and opt-in SEPARATE local processes.
-  No installed service, distinct UID or live EIS authority is enabled.
-- Emergency marker never auto-clears; fake lock/physical isolation are not
-  live safety evidence. Phase 10 Go and Phase 11 certification remain blocked.
-- All run approvals consumed; Gate C stop holds. Local reapply and versioned
-  backup observed once; privacy and stable unassisted restore unproven.
-- Continue adjacent approved offline work without step-by-step reapproval;
-  build host, gateway and UI local paths with affected checks. Stop hook is
-  disabled; doctor is manual only. Live gates still block activation, not code.
-
-## Blockers
-- Connected HDMI lost from kernel inventory during cleanup; Gate C and product
-  activation stopped. FEAS-A/D/E/F/G/H remain unproven.
-
-## Next Actions
-1. Diagnose kernel HDMI loss; exp07 FAIL exit fixed but not live-retested.
+## Next
+- Unverified: sleep/lid-close recovery, certificate renewal, long live soak, untested browsers and a new clean-machine
+  package acceptance. Owner-reported results are not independent evidence; formal Phase 9/10 gates remain separate.
+- HDMI/hotplug, other layouts/GPUs and multi-user work remain deferred. No new live experiments are implied by this handoff.
+- Install/update remains the owner's action; publication did not replace the running app. Commit explicit paths and run
+  the publication secret scans before pushing; never publish local credentials or machine-specific details.

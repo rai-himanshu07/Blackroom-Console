@@ -1,15 +1,21 @@
 # Plan: Phase 5 — Physical Display Isolation
 
 **Created:** 2026-09-05
-**Status:** stopped: eDP-1 cleanup reactivated HDMI-1 after watchdog PASS; Gate FEAS-C unproven
+**Status:** historical Phase 5 plan; FEAS-C PASS-WITH-LIMITS for the declared single built-in eDP-1 layout only (2026-10-01). The MVP subsequently shipped as v0.1.0; connected HDMI remains unsupported and the deferred rows below are not claimed.
 **Approved by:** user ("approved proceed", 2026-09-05)
 **Task tier:** governed
 
-The recorded one-run approvals are spent and Gate FEAS-C remains stopped. For
-future diagnostic work, use the prospective run-specific route in
-`docs/ops/experiment-safety.md` §7: preserve the product stop and the failed
-connected-HDMI observation, but do not require another independent review for
-each same-mechanism supervised diagnostic with unchanged recovery controls.
+**Current context (2026-10-07):** this document preserves Phase 5 decisions and evidence, not the current delivery order.
+See [display-isolation.md](../gnome/display-isolation.md) for the scoped FEAS-C verdict,
+[the release status](plan-20261004-status.md) for the shipped MVP and remaining formal gates, and
+[experiment-safety.md](../ops/experiment-safety.md) for current supported-flow approval and recovery rules.
+The dated activation blocks and spent one-run approvals remain historical; they are not a claim that the shipped MVP
+is disabled, nor that the unfinished formal Phase 9/10 gates or HDMI work have passed. No evidence is upgraded by this note.
+
+The recorded one-run approvals are spent. **Superseded for the declared single-display
+layout by the 2026-10-01 entry in the Execution Log**; the unsupported-layout stop still applies (notably connected HDMI).
+For current live work, use the standing approval in `docs/ops/experiment-safety.md`; its §7 retains historical diagnostic
+procedures. Preserve failed observations and recovery safeguards; changed layouts or recovery paths require explicit approval.
 Offline implementation may continue independently; no live run is approved by
 this plan alone.
 The matrix, hotplug/mode variants, and cycle counts below are the original
@@ -17,8 +23,9 @@ comprehensive acceptance targets, not prerequisites for building the app
 offline. Select the minimum live evidence for a *supported* display layout
 before enabling isolation there; leave connected-HDMI support disabled while
 its final restoration remains unreliable. Defer other runs until a named
-failure or expanded support claim calls for them. Do not mark FEAS-C PASS
-from the unplugged-HDMI diagnostic or from incomplete privacy/restore proof.
+failure or expanded support claim calls for them. (Historical wording, now
+limited to other layouts: do not mark FEAS-C PASS from the unplugged-HDMI
+diagnostic or from incomplete privacy/restore proof.)
 
 **2026-09-28 supported-layout decision:** A second physical monitor is not a
 product prerequisite. A laptop with only its built-in panel, or a desktop with
@@ -500,19 +507,23 @@ read-only run. See Risks.
     ends with a PARTIAL pre-kill report; independent journal/GetCurrentState
     and exp07 evidence must establish the post-kill outcome. Record the
     privacy observation separately; this step does not promote Gate FEAS-C.
-- [ ] 6. Live-run `exp06`+`exp07` for the `eDP-1`-alone row — **operator-
+- [x] 6. Live-run `exp06`+`exp07` for the `eDP-1`-alone row — **operator-
       required** — only after step 5 is fully green and the watchdog has been
-      proven to fire correctly at least once.
+      proven to fire correctly at least once. **Closed 2026-10-01 for the
+      declared single-display layout** (2026-10-01 run: operator photo kept
+      off-repo, hash plus fields; 2026-09-27-2 had neither hash nor photo; see
+      `docs/gnome/display-isolation.md`).
   - Files: `docs/experiments/evidence/exp06/`, `docs/experiments/evidence/exp07/`
   - Depends on: step 5
   - Verify: same as step 5; additionally confirm `Ctrl+Alt+F3` behaves as step
     1 predicted (or record the discrepancy).
-- [ ] 7. Live-run `exp06`+`exp07` for the both-together row (highest risk,
+- [ ] 7. DEFERRED, not claimed (2026-09-28 supported-layout decision; four
+      connected-HDMI runs failed restoration). Live-run `exp06`+`exp07` for the both-together row (highest risk,
       last) — **operator-required**.
   - Files: `docs/experiments/evidence/exp06/`, `docs/experiments/evidence/exp07/`
   - Depends on: step 6
   - Verify: same as step 5.
-- [ ] 8. Implement and live-run `exp26_hotplug.rs` (Decision 4): subscribe to
+- [ ] 8. DEFERRED, not claimed (needs a connected, detectable HDMI). Implement and live-run `exp26_hotplug.rs` (Decision 4): subscribe to
       `MonitorsChanged` before triggering; **operator-required**: physically
       disconnect/reconnect `HDMI-1` during isolation. Document `eDP-1`
       hotplug and dock/undock as not-applicable (no hardware) rather than
@@ -523,7 +534,7 @@ read-only run. See Risks.
   - Verify: `report.md` shows the reconnected output stayed isolated (or
     triggered documented safe teardown) and that restoration still succeeded
     afterward.
-- [ ] 9. Implement and live-run `exp27_modes.rs` (Doc 10 §34): resolution/
+- [ ] 9. DEFERRED, not claimed. Implement and live-run `exp27_modes.rs` (Doc 10 §34): resolution/
       refresh-rate matrix (1920×1080, 2560×1440, 3840×2160 @ 60 Hz where
       supported; high-refresh where available) across the three topology
       rows, folding in Decision 5's GPU-matrix fields per row. Uses a smaller
@@ -536,7 +547,7 @@ read-only run. See Risks.
     teardown/restoration reliability per Doc 10 §34's exact field list, for
     every mode actually supported (unsupported modes documented, not silently
     dropped).
-- [ ] 10. Run the 50-cycle bounded-timeout reliability loop via `exp06
+- [ ] 10. DEFERRED, not claimed (reliability claim; no repeats without a named failure). Run the 50-cycle bounded-timeout reliability loop via `exp06
       --cycles=50` on one representative row/resolution (Decision 8) —
       machine-verified via `GetCurrentState` + hash per cycle, no per-cycle
       operator photo.
@@ -544,7 +555,10 @@ read-only run. See Risks.
   - Depends on: step 7
   - Verify: 50/50 cycles report `topology_restored=true`, 0 cycles exceed the
     per-cycle timeout, 0 leaked virtual connectors.
-- [ ] 11. Implement and live-run `exp37_privacy_check.rs` (Decision 6):
+- [x] 11. PARTIAL for the declared layout, closed without the dedicated
+      binary: the operator's phone photo (off-repo, no hash or capture time) and
+      statement are recorded in
+      `exp06/2026-10-01/observation.md`. Implement and live-run `exp37_privacy_check.rs` (Decision 6):
       **operator-required** photo evidence for a representative subset (once
       per matrix row = 3 photos, not all 50 cycles), recording which of Doc 02
       §13's three states occurred per output.
@@ -553,7 +567,7 @@ read-only run. See Risks.
   - Depends on: step 7
   - Verify: `report.md` links the photo evidence file(s) and records the
     operator's explicit observation per output; no bare `PASS` without it.
-- [ ] 12. Update `docs/gnome/capability-report.md` (resolve `VIRTUAL_DISPLAY_
+- [x] 12. Update `docs/gnome/capability-report.md` (resolve `VIRTUAL_DISPLAY_
       CAPABLE`/`DISPLAY_CONFIG_CAPABLE`'s open "all-physical-disabled" notes)
       and add `docs/gnome/display-isolation.md` (Phase 4's `virtual-display.md`
       precedent) recording the findings and both explicit decisions (1 and 2)
@@ -600,6 +614,9 @@ read-only run. See Risks.
 
 ## Blockers
 
+**Historical checkpoint; read with the dated updates and current-context note above.** The failed connected-HDMI
+observations remain valid. The original blanket activation block was superseded for the declared MVP layout, not for HDMI.
+
 - Live Phase 5 work is stopped under Doc 00 §49 / Doc 10 §49 after the
   reported GNOME Shell crash. The trigger and abnormal-termination restore
   outcome are unknown. The separately approved 2026-09-27 eDP-only diagnostic
@@ -608,6 +625,10 @@ read-only run. See Risks.
   restored eDP-only, but this violates stable restoration; stop further
   isolation under the same gate until cleanup/final-topology verification is
   reassessed. No other rows or product activation are authorized.
+  **Update 2026-10-01:** the stop is lifted only for the declared
+  single-display layout (built-in eDP-1, no external output); see the last
+  Execution Log entry and `docs/gnome/display-isolation.md`. Connected HDMI,
+  hotplug, modes, 50 cycles and abnormal termination stay not claimed.
 
 ## Execution Log
 
@@ -1396,7 +1417,8 @@ read-only run. See Risks.
   the cable remained plugged in. Its topology check matched but output hash
   failed because HDMI was absent from GetCurrentState and the kernel reported
   card0-HDMI-A-1 disconnected. One operator cable re-seat did not restore
-  detection; external monitor showed no signal. eDP desktop and SSH remained
+  detection; the external monitor entered its expected no-signal standby.
+  Standby alone neither diagnoses connector loss nor proves privacy. eDP desktop and SSH remained
   usable, Shell PID 34735/session 3 and power ON stable, timers zero and
   remote desktop disabled/inactive. See
   `docs/experiments/evidence/exp06/2026-09-27-5/observation.md`. Exp07's
@@ -1404,3 +1426,24 @@ read-only run. See Risks.
   synthetic fix makes future FAIL results exit nonzero after writing evidence.
   No further live run is authorized; Gate C remains stopped with incomplete
   physical inventory restoration.
+- 2026-10-01 (supervised eDP-only run with photo and hash; Phase 5 closed for
+  the declared layout): HDMI not connected, only eDP-1. One approved 45 s
+  no-kill pause run (operator accepted crash/logout/flicker risk for that
+  command): Meta-0-only logical topology, `PowerSaveMode` OFF, operator
+  photographed the panel (phone, not in the repository): fully black. The
+  watchdog invoked exp07 unattended at 16:59:14: PASS, `topology_matches` and
+  `configuration_hash_matches` true (first live version-one hash check on this
+  layout). After the operator confirmed the desktop, Enter armed the cleanup
+  timer; exp06 (PARTIAL by pause-mode design) recorded `stop_error` null,
+  `Meta-0` gone, `topology_matches_original` true, raw and logical eDP-1 only,
+  power ON, Shell PID 6842 and session 2 unchanged; no timers left,
+  `gnome-remote-desktop` restored. Evidence
+  `docs/experiments/evidence/exp06/2026-10-01/` and `exp07/2026-10-01/`.
+  Outcome: Gate FEAS-C recorded **PASS for the declared single-display layout
+  only** (decision recorded in `docs/gnome/display-isolation.md`); steps 7-10
+  are deferred and not claimed; abnormal termination moves to Gate F (Phase 9);
+  the unexplained historical Shell SIGSEGV is accepted as a known risk for this
+  layout (not reproduced in about 12 later supervised runs, two on this layout);
+  activation stays disabled until the eDP-only owner-kill observation exists. Capability tiers unchanged
+  (`VIRTUAL_DISPLAY_CAPABLE` SUPPORTED_WITH_LIMITATIONS,
+  `DISPLAY_CONFIG_CAPABLE` SUPPORTED); their notes now state the layout scope.
