@@ -185,3 +185,15 @@ Direct marked untested. W2 (deferred review findings, read against the live code
   adversarial HTTP/TLS and package scripts. No real GNOME mutation, live console restart, clean-machine install or new soak.
 - Owner-held HANDOFF, experiment-safety and Phase 5 plan kept untouched. New installer must be installed by the owner;
   the running installed console has not received these changes.
+
+## First public technical-preview release (2026-10-07)
+- GitHub release: https://github.com/rai-himanshu07/Blackroom-Console/releases/tag/v0.1.0 (marked pre-release).
+- Source: signed `v0.1.0` tag at commit `14b7a4b`; tag verified against the published release-signing key. README install
+  section now links directly to the installer and release page and explains downloading and signature verification.
+- Published assets: `blackroom-console_0.1.0-1_amd64.deb`, `SHA256SUMS`, `SHA256SUMS.sig`, `release-signing.pub`,
+  `verify-release.sh`. Draft uploads were checked for size and SHA-256 digest before publication. The local checksum
+  signature and installer verified with `RELEASE OK`, as did anonymous public downloads of all five assets;
+  pre-push gitleaks/trufflehog history and tree scans passed.
+- Package SHA-256: `63a5dae786f58be5978f7dcdeeb241480cd508cd943a8d1414c8fb26b168ec28`.
+- Accepted tests/reviews stayed accepted. No additional live GNOME test, clean-machine package acceptance, sleep/lid-close,
+  certificate renewal or long soak was claimed. Installed services and the three owner-held documents remain untouched.
